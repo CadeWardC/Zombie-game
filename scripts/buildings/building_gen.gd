@@ -37,6 +37,7 @@ static func build(gen: WorldGen, p_lot: Dictionary, with_interior: bool) -> Buil
 	b._gen = gen
 	b.lot = p_lot
 	b.bd.interior = with_interior
+	b.bd.id = p_lot.id
 	b.rng.seed = p_lot.seed
 	var c: Vector2 = p_lot.center
 	b._xf = Transform3D(Basis(Vector3.UP, p_lot.yaw), Vector3(c.x, p_lot.floor, c.y))
@@ -207,6 +208,13 @@ func _house(style: String) -> void:
 				Interiors.furnish(bd, plan.rooms[k], type, y0 + 0.07, spots, rng, id + "_%d_%d" % [f, k])
 	if floors == 2 and bd.interior:
 		BuildingParts.stairs(bd, Vector2(hall.position.x + 0.1, r.position.y + 1.0), 1.0, STOREY)
+	# Some houses still have someone home.
+	var h := absi(("%s_z" % id).hash())
+	if bd.interior and h % 100 < 14:
+		var rooms: Array = plans[0].rooms
+		var room: Rect2 = rooms[h % rooms.size()]
+		bd.spawns.append({"pos": Vector3(room.get_center().x + 0.4, 0.1, room.get_center().y + 0.4), "id": id + "_z0",
+			"kind": "crawler" if h % 5 == 0 else ""})
 	var top := floors * STOREY
 	BuildingParts.slab(bd, r, top, 0.12, CEILING, CEILING)
 	var rise := rng.randf_range(1.6, 2.4)
@@ -810,13 +818,99 @@ func _research_lab() -> void:
 	bd.ext.box(Transform3D(Basis.IDENTITY, Vector3(0, 3.6, zf + 2.0)), Vector3(9.0, 0.35, 4.0), Color(0.3, 0.32, 0.35))
 	bd.signs.append({"xf": Transform3D(Basis.IDENTITY, Vector3(0, 4.6, zf + 0.2)), "text": SIGNS["research_lab"], "size": 1.1, "color": Color(0.85, 0.9, 0.95)})
 	if bd.interior:
-		var spots: Array[Vector2] = [Vector2(0, zf)]
-		var plan := Interiors.split(r, 6, rng, 5.0)
-		spots.append_array(Interiors.build_walls(bd, plan.walls, 0.0, 4.0, INTERIOR_WALL, id))
-		for k in plan.rooms.size():
-			var room: Rect2 = plan.rooms[k]
-			Interiors.furnish(bd, room, "office", 0.07, spots, rng, id + "_%d" % k)
-			Furniture.place(bd, "medical_cabinet", Transform3D(Basis(Vector3.UP, PI), Vector3(room.get_center().x, 0.07, room.end.y - 0.4)), rng, id + "_m%d" % k)
+		_lab_interior(r, id)
+
+
+## The lab is a small dungeon. Offices, a lobby, a security room and a
+## break room line the front; a corridor runs across; behind it, security
+## doors lead to the labs, the containment wing (with the director's office)
+## and the vault where the cure is kept. Security doors need the site's
+## generator running and a keycard: blue from the security room, red from
+## the director's desk (behind a blue door).
+func _lab_interior(r: Rect2, id: String) -> void:
+	var site: String = id.get_slice("_", 0)
+	var wall := func(a: Vector2, b: Vector2, ops: Array, key: String) -> void:
+		var first := bd.doors.size()
+		var dir := (b - a).normalized()
+		BuildingParts.wall(bd, a, b, 0.0, 4.0, INTERIOR_WALL, INTERIOR_WALL, Vector2(-dir.y, dir.x), ops, Interiors.INNER_T, Color(0.55, 0.58, 0.6), id + "_l")
+		if key != "":
+			for k in range(first, bd.doors.size()):
+				bd.doors[k].key = key
+				bd.doors[k].power = site
+				bd.doors[k].color = Color(0.25, 0.4, 0.75) if key == "keycard_blue" else Color(0.7, 0.18, 0.15)
+	var door := func(at: float) -> Dictionary:
+		return {"at": at, "w": 1.1, "bottom": 0.0, "top": 2.2, "kind": "door"}
+	var x0 := r.position.x
+	var z0 := r.position.y
+	# Front rooms and the corridor (z 2..6).
+	wall.call(Vector2(x0, 6.0), Vector2(r.end.x, 6.0), [door.call(7.0), door.call(20.5),
+			{"at": 36.0, "w": 4.0, "bottom": 0.0, "top": 3.0, "kind": "open"}, door.call(51.5), door.call(65.0)], "")
+	for x: float in [-22.0, -9.0, 9.0, 22.0]:
+		wall.call(Vector2(x, 6.0), Vector2(x, r.end.y), [], "")
+	# Back: labs (west), vestibule + vault (middle), containment (east).
+	wall.call(Vector2(x0, 2.0), Vector2(-10.0, 2.0), [door.call(13.0)], "keycard_blue")
+	wall.call(Vector2(-10.0, 2.0), Vector2(10.0, 2.0), [door.call(10.0)], "keycard_blue")
+	wall.call(Vector2(10.0, 2.0), Vector2(r.end.x, 2.0), [door.call(7.0)], "keycard_blue")
+	wall.call(Vector2(-10.0, z0), Vector2(-10.0, 2.0), [], "")
+	wall.call(Vector2(10.0, z0), Vector2(10.0, 2.0), [], "")
+	wall.call(Vector2(x0, -9.0), Vector2(-10.0, -9.0), [door.call(13.0)], "")
+	wall.call(Vector2(-10.0, -6.0), Vector2(10.0, -6.0), [door.call(10.0)], "keycard_red")
+	wall.call(Vector2(10.0, -8.0), Vector2(r.end.x, -8.0), [door.call(7.0)], "")
+	wall.call(Vector2(24.0, -8.0), Vector2(24.0, 2.0), [door.call(5.0)], "")
+	var put := func(kind: String, p: Vector2, yaw: float, must: Array) -> void:
+		var before := bd.containers.size()
+		Furniture.place(bd, kind, Transform3D(Basis(Vector3.UP, yaw), Vector3(p.x, 0.07, p.y)), rng, id + "_f%d" % bd.containers.size())
+		if not must.is_empty() and bd.containers.size() > before:
+			bd.containers[-1].must = must
+	var spawn := func(p: Vector2, kind: String) -> void:
+		bd.spawns.append({"pos": Vector3(p.x, 0.1, p.y), "id": "%s_z%d" % [id, bd.spawns.size()], "kind": kind})
+	# Offices.
+	for cx: float in [-29.0, -15.5]:
+		put.call("desk", Vector2(cx, 19.0), PI, [])
+		put.call("filing_cabinet", Vector2(cx - 4.5, 19.3), PI, [])
+		put.call("bookshelf", Vector2(cx + 4.0, 7.0), 0.0, [])
+		spawn.call(Vector2(cx, 12.0), "scientist")
+	# Lobby: reception and seating.
+	put.call("shop_counter", Vector2(0.0, 11.5), 0.0, [])
+	put.call("couch", Vector2(-6.5, 17.0), PI * 0.5, [])
+	put.call("couch", Vector2(6.5, 17.0), -PI * 0.5, [])
+	spawn.call(Vector2(-3.0, 14.0), "scientist")
+	spawn.call(Vector2(3.5, 9.0), "")
+	# Security room: the blue keycard is in a locker.
+	put.call("locker", Vector2(12.0, 19.3), PI, [["keycard_blue", 1]])
+	put.call("locker", Vector2(13.2, 19.3), PI, [])
+	put.call("locker", Vector2(14.4, 19.3), PI, [])
+	put.call("desk", Vector2(18.5, 7.0), 0.0, [])
+	spawn.call(Vector2(15.5, 13.0), "soldier")
+	# Break room.
+	put.call("fridge", Vector2(34.5, 19.3), PI, [])
+	put.call("counter", Vector2(33.5, 19.3), PI, [])
+	put.call("dining_set", Vector2(29.0, 12.0), 0.0, [])
+	spawn.call(Vector2(27.0, 15.0), "")
+	# Corridor.
+	spawn.call(Vector2(-25.0, 4.0), "")
+	spawn.call(Vector2(28.0, 4.0), "")
+	# Labs.
+	for cz: float in [-3.5, -14.5]:
+		put.call("lab_bench", Vector2(-23.0, cz), 0.0, [])
+		put.call("medical_cabinet", Vector2(-35.0 + 0.3, cz), PI * 0.5, [])
+		put.call("medical_cabinet", Vector2(-11.0 - 0.3, cz), -PI * 0.5, [])
+		spawn.call(Vector2(-29.0, cz + 2.0), "scientist")
+		spawn.call(Vector2(-17.0, cz - 2.0), "scientist")
+	# Vault: the cure.
+	var vials := 1 + absi(id.hash()) % 2
+	put.call("cryo_fridge", Vector2(-4.0, -19.4), 0.0, [["cure_vial", vials]])
+	put.call("cryo_fridge", Vector2(4.0, -19.4), 0.0, [])
+	put.call("store_shelf", Vector2(0.0, -1.0 + 0.0), PI, [])
+	spawn.call(Vector2(0.0, -12.0), "scientist")
+	# Director's office (red keycard) and containment.
+	put.call("desk", Vector2(30.0, 1.3), PI, [["keycard_red", 1]])
+	put.call("bookshelf", Vector2(35.6, -3.0), -PI * 0.5, [])
+	spawn.call(Vector2(30.0, -4.0), "scientist")
+	for p: Vector2 in [Vector2(14.0, -16.0), Vector2(22.0, -12.0), Vector2(30.0, -17.0), Vector2(34.0, -11.0)]:
+		spawn.call(p, ["brute", "runner", "crawler", ""][bd.spawns.size() % 4])
+	put.call("hospital_bed", Vector2(18.0, -18.5), 0.0, [])
+	put.call("hospital_bed", Vector2(26.0, -18.5), 0.0, [])
 
 
 func _small_hut(w: float, d: float, col: Color, windows: bool) -> void:
@@ -833,3 +927,9 @@ func _small_hut(w: float, d: float, col: Color, windows: bool) -> void:
 	if bd.interior:
 		# Guard booths keep an equipment locker; sheds have shelves.
 		Furniture.place(bd, "locker" if windows else "store_shelf", Transform3D(Basis.IDENTITY, Vector3(0, 0.07, r.position.y + 0.5)), rng, id)
+		if lot.type == "generator_shed" and id.begins_with("site"):
+			# The research site's generator: powers the lab's security doors.
+			var gxf := Transform3D(Basis(Vector3.UP, PI * 0.5), Vector3(r.position.x + 1.2, 0.07, 0.6))
+			Furniture.place(bd, "generator", gxf, rng, id)
+			bd.containers.append({"pos": gxf * Vector3(0, 0.9, 0.0), "type": "generator", "id": id + "_gen",
+				"site": id.get_slice("_", 0)})

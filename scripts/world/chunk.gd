@@ -10,11 +10,15 @@ var lod := 0
 var containers: Array = []
 ## Bushes to hide in (world positions).
 var cover := PackedVector3Array()
-var _doors: Array[DoorBody] = []
+## Interior zombie spawn points: {pos: Vector3 (world), id, kind}
+var spawns: Array = []
+var doors: Array[DoorBody] = []
+var windows: Array[WindowBody] = []
 ## Work deferred to later frames so a big town chunk never causes a hitch.
 var _pending: Array[Callable] = []
 
 var _door_mm: MultiMesh
+var _window_mm: MultiMesh
 
 
 func setup(data: Dictionary, shadows: bool) -> void:
@@ -55,6 +59,11 @@ func setup(data: Dictionary, shadows: bool) -> void:
 	for faces: PackedVector3Array in data.collision_batches:
 		_pending.append(_add_concave.bind(body, faces))
 	_pending.append(_build_doors.bind(data.doors))
+	_pending.append(_build_windows.bind(data.windows))
+	for sp in data.spawns:
+		var ss: Dictionary = sp.duplicate()
+		ss.pos = position + (sp.pos as Vector3)
+		spawns.append(ss)
 	for p: Vector3 in data.cover_points:
 		cover.append(position + p)
 	for c in data.containers:
@@ -156,7 +165,26 @@ func _build_doors(doors: Array) -> void:
 		var door := DoorBody.new()
 		add_child(door)
 		door.setup(d, _door_mm, i)
-		_doors.append(door)
+		doors.append(door)
+
+
+## Windows work like doors: one MultiMesh for the glass, a body each.
+func _build_windows(list: Array) -> void:
+	if list.is_empty():
+		return
+	_window_mm = MultiMesh.new()
+	_window_mm.transform_format = MultiMesh.TRANSFORM_3D
+	_window_mm.mesh = Assets.window_mesh
+	_window_mm.instance_count = list.size()
+	var mmi := MultiMeshInstance3D.new()
+	mmi.multimesh = _window_mm
+	mmi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	add_child(mmi)
+	for i in list.size():
+		var w := WindowBody.new()
+		add_child(w)
+		w.setup(list[i], _window_mm, i)
+		windows.append(w)
 
 
 func _sign(s: Dictionary) -> void:

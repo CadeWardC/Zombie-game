@@ -78,7 +78,8 @@ func _make_node(d: Dictionary) -> MeshInstance3D:
 	var yaw := float(hash(_key(d)) % 628) / 100.0
 	var basis := Basis(Vector3.UP, yaw)
 	# Long things lie on their side.
-	if ItemDB.get_def(d.it.id).get("cat", "") in ["melee", "gun", "bow"] or d.it.id in ["arrow", "bolt"]:
+	var cat: String = ItemDB.get_def(d.it.id).get("cat", "")
+	if cat in ["melee", "gun", "bow"] or d.it.id in ["arrow", "bolt"] or (cat == "clothing" and not ItemDB.get_def(d.it.id).look in ["cap", "beanie", "helmet", "army_helmet", "shoes", "boots"]):
 		basis = basis * Basis(Vector3.FORWARD, PI * 0.5)
 		mi.position.y = 0.02
 	mi.transform = Transform3D(basis, _pos(d) + Vector3(0, 0.02, 0))
@@ -110,7 +111,10 @@ func _check_traps() -> void:
 				_spring(d)
 				return
 		if player and not player.dead and player.global_position.distance_to(p) < TRAP_RADIUS * 0.8:
+			player.death_cause = "Caught in a bear trap"
 			player.take_damage(30.0, p)
+			player.body.add("deep_wound", "leg_l" if randf() < 0.5 else "leg_r", true)
+			player.grab(2.0, "")
 			GameState.notify("You stepped in a bear trap!")
 			_spring(d)
 			return

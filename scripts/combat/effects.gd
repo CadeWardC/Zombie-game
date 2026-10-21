@@ -9,6 +9,8 @@ const GRAVITY := 9.8
 const LIFETIME := 8.0
 const PARTICLE_POOL := 10
 
+static var current: Effects # The game's effects node (for windows, doors...).
+
 var zombies: ZombieManager
 var player: Player
 var drops: DropManager
@@ -22,6 +24,7 @@ var _particle_cursor := 0
 
 
 func _ready() -> void:
+	current = self
 	for k in PARTICLE_POOL:
 		var p := CPUParticles3D.new()
 		p.emitting = false
@@ -148,8 +151,8 @@ func _land(s: Dictionary, hit: Dictionary) -> bool:
 	if s.kind == "arrow":
 		var z := hit.collider as Zombie
 		if z:
-			var head: bool = pos.y - z.global_position.y > 1.45
-			z.take_damage(float(s.dmg) * (2.0 if head else 1.0), (s.vel as Vector3).normalized() * 0.3)
+			var head := z.head_hit(pos)
+			z.take_damage(float(s.dmg) * (2.0 if head else 1.0), (s.vel as Vector3).normalized() * 0.3, true, true, head)
 			blood(pos, (s.vel as Vector3).normalized())
 			# Usually recoverable from the body.
 			if randf() < 0.8 and drops:
@@ -224,7 +227,7 @@ func _update_fires(delta: float) -> void:
 				for z in zombies.in_radius(f.pos, 3.2):
 					z.ignite(6.0)
 			if player and not player.dead and player.global_position.distance_to(f.pos) < 2.8:
-				player.take_damage(3.0, f.pos)
+				player.hurt(3.0, f.pos, "fire")
 		if f.t <= 0.0:
 			(f.node as Node3D).queue_free()
 			_fires.remove_at(k)
@@ -288,8 +291,8 @@ func _explode(pos: Vector3) -> void:
 		for z in zombies.in_radius(pos, RADIUS):
 			var d := z.global_position.distance_to(pos)
 			var push := (z.global_position - pos).normalized()
-			z.take_damage(220.0 * (1.0 - d / RADIUS) + 20.0, push)
+			z.take_damage(220.0 * (1.0 - d / RADIUS) + 20.0, push, true, true, false, true)
 	if player and not player.dead:
 		var d := player.global_position.distance_to(pos)
 		if d < RADIUS:
-			player.take_damage(110.0 * (1.0 - d / RADIUS), pos)
+			player.hurt(110.0 * (1.0 - d / RADIUS), pos, "blast")

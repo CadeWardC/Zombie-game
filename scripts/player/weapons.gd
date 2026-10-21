@@ -11,7 +11,6 @@ const SLOT_ORDER := ["primary", "sidearm", "melee", "throw"]
 const SHOVE_COST := 12.0
 const SHOVE_COOLDOWN := 0.8
 const SWITCH_TIME := 0.3
-const HEADSHOT_HEIGHT := 1.45
 
 var player: Player
 var effects: Effects
@@ -279,6 +278,7 @@ func melee() -> void:
 	GameState.make_noise(player.global_position, 5.0)
 	var z := _melee_target(d.reach)
 	if z == null:
+		_hit_structure(d)
 		return
 	var it := item()
 	var push := _flat_forward()
@@ -290,15 +290,37 @@ func melee() -> void:
 		_wear(it, d.wear * 2.0)
 		hit_zombie.emit(true)
 		return
-	var head: bool = z.get_meta("last_hit_y", 0.0) - z.global_position.y > HEADSHOT_HEIGHT
+	var head := z.head_hit(z.get_meta("last_hit", z.global_position))
+	var ch := GameState.character
 	var dmg: float = d.dmg * (2.0 if head else 1.0) * lerpf(0.6, 1.0, float(it.get("c", 1.0)))
-	z.take_damage(dmg, push)
+	dmg *= ch.mod("melee") * (1.0 + ch.skill("melee") * 0.05) * player.body.arm_factor()
+	z.take_damage(dmg, push, true, true, head)
 	if d.get("heavy", false):
 		z.stagger(push, 0.9)
 	if effects:
 		effects.blood(z.global_position + Vector3(0, 1.3, 0), push)
 	hit_zombie.emit(z.state == Zombie.State.DEAD)
 	_wear(it, d.wear)
+
+
+## A swing that hits no zombie can smash a window or batter a door.
+func _hit_structure(d: Dictionary) -> void:
+	var cam := player.camera
+	var from := cam.global_position
+	var hit := get_world_3d().direct_space_state.intersect_ray(
+			PhysicsRayQueryParameters3D.create(from, from - cam.global_basis.z * float(d.reach), 1, [player.get_rid()]))
+	if hit.is_empty():
+		return
+	if hit.collider is WindowBody:
+		(hit.collider as WindowBody).smash()
+		_wear(item(), float(d.wear))
+	elif hit.collider is DoorBody:
+		var door := hit.collider as DoorBody
+		var heavy: float = 2.5 if d.get("heavy", false) or item().get("id", "") in ["fire_axe", "crowbar"] else 1.0
+		door.damage(float(d.dmg) * 0.35 * heavy * GameState.character.mod("melee"), player.global_position)
+		_wear(item(), float(d.wear) * 2.0)
+		if effects:
+			effects.impact(hit.position, hit.normal)
 
 
 ## Finds the zombie a swing hits: a precise ray first (so aiming at the head
@@ -312,7 +334,7 @@ func _melee_target(reach: float) -> Zombie:
 	var ray := PhysicsRayQueryParameters3D.create(from, from + forward * reach, 1 | 4, [player.get_rid()])
 	var hit := space.intersect_ray(ray)
 	if not hit.is_empty() and hit.collider is Zombie:
-		(hit.collider as Zombie).set_meta("last_hit_y", hit.position.y)
+		(hit.collider as Zombie).set_meta("last_hit", hit.position)
 		return hit.collider
 	var sphere := SphereShape3D.new()
 	sphere.radius = 0.8
@@ -336,7 +358,7 @@ func _melee_target(reach: float) -> Zombie:
 	var wall := PhysicsRayQueryParameters3D.create(from, best.global_position + Vector3(0, 1.2, 0), 1)
 	if not space.intersect_ray(wall).is_empty():
 		return null
-	best.set_meta("last_hit_y", best.global_position.y + 1.2)
+	best.set_meta("last_hit", best.global_position + Vector3(0, 1.2, 0))
 	return best
 
 
@@ -411,6 +433,7 @@ func fire() -> void:
 	_flash_light.light_energy = 1.0 if suppressed else 3.0
 	GameState.make_noise(player.global_position, float(d.noise) * (0.3 if suppressed else 1.0))
 	var spread := lerpf(float(d.spread), float(d.ads_spread), aim_blend)
+	spread *= (1.0 - GameState.character.skill("aiming") * 0.06) / player.body.arm_factor()
 	if player.velocity.length() > 1.0:
 		spread *= 1.5
 	if player.crouching:
@@ -441,13 +464,15 @@ func _shoot_ray(spread_deg: float, reach: float, dmg: float) -> int:
 		return -1
 	var z := hit.collider as Zombie
 	if z == null:
+		if hit.collider is WindowBody:
+			(hit.collider as WindowBody).smash()
 		if effects:
 			effects.impact(hit.position, hit.normal)
 		return -1
 	var dist := from.distance_to(hit.position)
 	var falloff := clampf(1.2 - dist / reach, 0.4, 1.0)
-	var head: bool = hit.position.y - z.global_position.y > HEADSHOT_HEIGHT
-	z.take_damage(dmg * falloff * (3.0 if head else 1.0), dir * 0.15)
+	var head := z.head_hit(hit.position)
+	z.take_damage(dmg * falloff * (3.0 if head else 1.0), dir * 0.15, true, true, head)
 	if effects:
 		effects.blood(hit.position, dir)
 	return 1 if z.state == Zombie.State.DEAD else 0

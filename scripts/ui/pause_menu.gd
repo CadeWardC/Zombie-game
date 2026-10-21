@@ -1,11 +1,15 @@
 class_name PauseMenu
 extends CanvasLayer
-## Pause menu: resume, graphics quality, save, new world, quit.
+## Pause menu: resume, map, graphics quality, save, new world, quit.
 
 signal save_requested
 signal menu_requested
 
+var player: Player
 var _quality_btn: Button
+var _map_layer: Control
+var _map: MapView
+var _box: VBoxContainer
 var _first_btn: Button
 var _opened_frame := -1
 
@@ -32,6 +36,7 @@ func _ready() -> void:
 	box.alignment = BoxContainer.ALIGNMENT_CENTER
 	box.add_theme_constant_override("separation", 14)
 	bg.add_child(box)
+	_box = box
 
 	var title := Label.new()
 	title.text = "PAUSED"
@@ -40,6 +45,7 @@ func _ready() -> void:
 	box.add_child(title)
 
 	_first_btn = _button(box, "Resume", close)
+	_button(box, "Map", _open_map)
 	_quality_btn = _button(box, "", _cycle_quality)
 	_button(box, "Save Game", func() -> void:
 		save_requested.emit()
@@ -52,6 +58,42 @@ func _ready() -> void:
 			save_requested.emit()
 			get_tree().quit())
 	_update_quality_text()
+	# The map page.
+	_map_layer = ColorRect.new()
+	(_map_layer as ColorRect).color = Color(0.03, 0.035, 0.035, 0.97)
+	_map_layer.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	_map_layer.visible = false
+	add_child(_map_layer)
+	_map = MapView.new()
+	_map.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	_map.offset_top = 20
+	_map.offset_bottom = -90
+	_map_layer.add_child(_map)
+	var back := _button(_map_layer, "Back", _close_map)
+	back.anchor_left = 0.5
+	back.anchor_right = 0.5
+	back.anchor_top = 1.0
+	back.anchor_bottom = 1.0
+	back.offset_left = -160
+	back.offset_right = 160
+	back.offset_top = -80
+	back.offset_bottom = -16
+
+
+func _open_map() -> void:
+	_map.load_world(GameState.world, GameState.explored)
+	if player:
+		_map.player_pos = player.global_position
+		_map.player_yaw = player.rotation.y
+	_map_layer.visible = true
+	_box.visible = false
+	(_map_layer.get_child(1) as Button).grab_focus()
+
+
+func _close_map() -> void:
+	_map_layer.visible = false
+	_box.visible = true
+	_first_btn.grab_focus()
 
 
 func _button(parent: Node, text: String, cb: Callable) -> Button:
@@ -83,6 +125,8 @@ func open() -> void:
 
 func close() -> void:
 	visible = false
+	_map_layer.visible = false
+	_box.visible = true
 	get_tree().paused = false
 	if not GameState.uses_touch():
 		Input.mouse_mode = Input.MOUSE_MODE_CAPTURED

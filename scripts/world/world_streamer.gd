@@ -71,6 +71,41 @@ func containers_near(pos: Vector3, radius: float) -> Array:
 	return out
 
 
+## Doors and windows (ways into buildings) in loaded near chunks within
+## `radius` of `pos`, for zombies finding a way in.
+func entries_near(pos: Vector3, radius: float) -> Array:
+	var out := []
+	var center := chunk_of(pos)
+	var r2 := radius * radius
+	for dz in range(-1, 2):
+		for dx in range(-1, 2):
+			var c: Chunk = _chunks.get(center + Vector2i(dx, dz))
+			if c == null or c.lod != 0:
+				continue
+			for d in c.doors:
+				if d.global_position.distance_squared_to(pos) < r2:
+					out.append(d)
+			for w in c.windows:
+				if w.global_position.distance_squared_to(pos) < r2:
+					out.append(w)
+	return out
+
+
+## Interior zombie spawn points in loaded near chunks within `radius`.
+func spawns_near(pos: Vector3, radius: float) -> Array:
+	var out := []
+	var center := chunk_of(pos)
+	for dz in range(-1, 2):
+		for dx in range(-1, 2):
+			var c: Chunk = _chunks.get(center + Vector2i(dx, dz))
+			if c == null or c.lod != 0:
+				continue
+			for sp in c.spawns:
+				if (sp.pos as Vector3).distance_to(pos) < radius:
+					out.append(sp)
+	return out
+
+
 ## Distance to the nearest bush (cover) around `pos`, up to `radius`.
 func cover_distance(pos: Vector3, radius: float) -> float:
 	var best := INF

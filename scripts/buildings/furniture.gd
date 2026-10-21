@@ -14,7 +14,8 @@ const SIZE := {
 	"fridge": Vector2(0.8, 0.72), "toilet": Vector2(0.45, 0.7), "bathtub": Vector2(1.7, 0.75),
 	"vanity": Vector2(0.8, 0.5), "desk": Vector2(1.3, 0.65), "store_shelf": Vector2(2.4, 0.5),
 	"shop_counter": Vector2(2.4, 0.7), "locker": Vector2(0.9, 0.5), "hospital_bed": Vector2(1.0, 2.1),
-	"medical_cabinet": Vector2(1.0, 0.45), "filing_cabinet": Vector2(0.5, 0.6),
+	"medical_cabinet": Vector2(1.0, 0.45), "filing_cabinet": Vector2(0.5, 0.6), "cryo_fridge": Vector2(0.9, 0.7),
+	"lab_bench": Vector2(2.4, 0.8), "generator": Vector2(1.6, 0.9),
 }
 
 const WOOD := Color(0.45, 0.31, 0.2)
@@ -172,3 +173,21 @@ static func place(bd: BuildingData, kind: String, xf: Transform3D, rng: RandomNu
 			_b(bd, xf, Vector3(0, 0.65, 0), Vector3(0.5, 1.3, 0.6), STEEL.darkened(0.15))
 			_collide(bd, xf, Vector3(0.5, 1.3, 0.6))
 			_container(bd, xf, "desk", id_prefix)
+		"cryo_fridge":
+			_b(bd, xf, Vector3(0, 0.95, 0), Vector3(0.9, 1.9, 0.7), Color(0.8, 0.82, 0.85))
+			_b(bd, xf, Vector3(0, 1.1, 0.355), Vector3(0.6, 1.1, 0.01), Color(0.55, 0.7, 0.8))
+			_b(bd, xf, Vector3(0.3, 1.75, 0.36), Vector3(0.12, 0.08, 0.01), Color(0.2, 0.8, 0.4))
+			_collide(bd, xf, Vector3(0.9, 1.9, 0.7))
+			_container(bd, xf, "cryo_fridge", id_prefix)
+		"lab_bench":
+			_b(bd, xf, Vector3(0, 0.88, 0), Vector3(2.4, 0.06, 0.8), Color(0.2, 0.22, 0.24))
+			_b(bd, xf, Vector3(0, 0.43, 0), Vector3(2.3, 0.85, 0.7), WHITE.darkened(0.05))
+			for k in 3:
+				_b(bd, xf, Vector3(-0.7 + k * 0.7, 0.98, 0.1), Vector3(0.08, 0.14 + k * 0.04, 0.08), Color(0.5, 0.75, 0.6).lerp(Color(0.8, 0.3, 0.3), k * 0.4))
+			_collide(bd, xf, Vector3(2.4, 0.9, 0.8))
+		"generator":
+			_b(bd, xf, Vector3(0, 0.15, 0), Vector3(1.7, 0.3, 1.0), Color(0.2, 0.2, 0.2))
+			_b(bd, xf, Vector3(0, 0.75, 0), Vector3(1.5, 0.9, 0.85), Color(0.75, 0.6, 0.15))
+			_b(bd, xf, Vector3(0.45, 1.3, 0), Vector3(0.12, 0.2, 0.12), Color(0.15, 0.15, 0.15))
+			_b(bd, xf, Vector3(-0.4, 0.85, 0.43), Vector3(0.4, 0.3, 0.02), Color(0.12, 0.12, 0.12))
+			_collide(bd, xf, Vector3(1.7, 1.2, 1.0))

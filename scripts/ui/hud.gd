@@ -1,12 +1,32 @@
 class_name Hud
 extends CanvasLayer
-## Heads-up display: survival bars, clock, crosshair (spreads with gun
-## accuracy), hit markers, scope view, stealth eye, weapon panel, prompts with
-## the right button glyph, messages, damage flash, loading screen and death
-## screen. Built in code to keep scenes minimal.
+## Heads-up display: survival bars, health warnings (bleeding, broken bones,
+## fever, infection), the infection's screen effects, clock, crosshair
+## (spreads with gun accuracy), hit markers, scope view, stealth eye, nearby
+## zombie hints, weapon panel, prompts with the right button glyph (and a
+## ring while holding), messages, damage flash, loading screen and the death
+## screen for each death rule. Built in code to keep scenes minimal.
 
 signal respawn_requested
+signal new_character_requested
 signal menu_requested
+
+const SICK_SHADER := """
+shader_type canvas_item;
+uniform sampler2D screen_tex : hint_screen_texture, filter_linear_mipmap;
+uniform float amount = 0.0;
+uniform float pulse = 0.0;
+uniform float hurt = 0.0;
+void fragment() {
+	vec2 uv = SCREEN_UV;
+	vec3 col = textureLod(screen_tex, uv, amount * (1.0 + pulse * 2.5)).rgb;
+	float grey = dot(col, vec3(0.299, 0.587, 0.114));
+	col = mix(col, vec3(grey) * vec3(1.0, 0.96, 0.9), amount * 0.85);
+	float v = smoothstep(0.3, 0.85, length(uv - 0.5) * (1.0 + pulse * amount * 0.35));
+	col = mix(col, vec3(0.22, 0.0, 0.0), v * max(amount * 0.8, hurt * 0.75));
+	COLOR = vec4(col, 1.0);
+}
+"""
 
 var player: Player
 var zombies: ZombieManager
@@ -25,6 +45,11 @@ var _respawn_btn: Button
 var _menu_btn: Button
 var _loading_label: Label
 var _loading_bar: ProgressBar
+var _status: Label
+var _sick: ColorRect
+var _sick_mat: ShaderMaterial
+var _beat_t := 0.0
+var _new_char_btn: Button
 var _toast_t := 0.0
 var _hit_t := 0.0
 var _hit_kill := false
@@ -38,6 +63,15 @@ func _ready() -> void:
 	root.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	add_child(root)
 
+	# Infection and low-health screen effect (only drawn when needed).
+	_sick = _fullscreen(root, Color.WHITE)
+	_sick.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	var sh := Shader.new()
+	sh.code = SICK_SHADER
+	_sick_mat = ShaderMaterial.new()
+	_sick_mat.shader = sh
+	_sick.material = _sick_mat
+	_sick.visible = false
 	_flash = _fullscreen(root, Color(0.7, 0.0, 0.0, 0.0))
 	_flash.mouse_filter = Control.MOUSE_FILTER_IGNORE
 
@@ -55,6 +89,11 @@ func _ready() -> void:
 	_add_bar(box, "hunger", "FOOD", Color(0.85, 0.55, 0.15))
 	_add_bar(box, "thirst", "WATER", Color(0.2, 0.5, 0.9))
 	_add_bar(box, "stamina", "STAM", Color(0.85, 0.8, 0.25))
+	_status = Label.new()
+	_status.add_theme_font_size_override("font_size", 15)
+	_status.add_theme_color_override("font_color", Color(1.0, 0.55, 0.45))
+	_outline(_status)
+	box.add_child(_status)
 
 	_clock = _label(root, 20)
 	_clock.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
@@ -86,7 +125,7 @@ func _ready() -> void:
 	dv.alignment = BoxContainer.ALIGNMENT_CENTER
 	dv.add_theme_constant_override("separation", 20)
 	_death.add_child(dv)
-	_place(dv, Vector2(0.5, 0.5), Rect2(-250, -140, 500, 280))
+	_place(dv, Vector2(0.5, 0.5), Rect2(-300, -170, 600, 340))
 	_death_title = _label(dv, 56)
 	_death_title.text = "YOU DIED"
 	_death_title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
@@ -99,6 +138,13 @@ func _ready() -> void:
 	_respawn_btn.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
 	_respawn_btn.pressed.connect(func() -> void: respawn_requested.emit())
 	dv.add_child(_respawn_btn)
+	_new_char_btn = Button.new()
+	_new_char_btn.text = "New Character"
+	_new_char_btn.custom_minimum_size = Vector2(260, 70)
+	_new_char_btn.add_theme_font_size_override("font_size", 26)
+	_new_char_btn.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
+	_new_char_btn.pressed.connect(func() -> void: new_character_requested.emit())
+	dv.add_child(_new_char_btn)
 	_menu_btn = Button.new()
 	_menu_btn.text = "Main Menu"
 	_menu_btn.custom_minimum_size = Vector2(260, 60)
@@ -190,14 +236,35 @@ func set_loading_progress(f: float, text: String) -> void:
 	_loading_label.text = text + "..."
 
 
-func show_death(on: bool, permadeath := false) -> void:
+## The death screen. `rule` is the world's death rule; `turned` when the
+## infection got you (your body walks on with your gear).
+func show_death(on: bool, rule := 0, cause := "", turned := false) -> void:
 	_death.visible = on
-	_death_title.text = "WORLD LOST" if permadeath else "YOU DIED"
-	_respawn_btn.visible = not permadeath
-	_death_info.text = "Survived %d days  -  %d zombies killed" % [GameState.day, GameState.kills]
+	var lost := rule == GameState.DeathRule.PERMADEATH
+	_death_title.text = "WORLD LOST" if lost else ("YOU TURNED" if turned else "YOU DIED")
+	_respawn_btn.visible = rule == GameState.DeathRule.RESPAWN
+	_new_char_btn.visible = rule == GameState.DeathRule.NEW_CHARACTER
+	var ch := GameState.character
+	var lines: PackedStringArray = ["%s, %s" % [ch.name, Character.BACKGROUNDS[ch.background].name]]
+	if cause != "":
+		lines.append(cause)
+	lines.append("Survived %d days  -  %d zombies killed" % [GameState.day, GameState.kills])
+	if turned and not lost:
+		lines.append("Your body walks on, carrying your gear.")
+	elif not lost:
+		lines.append("Your gear lies where you fell.")
+	match rule:
+		GameState.DeathRule.RESPAWN:
+			lines.append("You keep your skills and traits.")
+		GameState.DeathRule.NEW_CHARACTER:
+			lines.append("Someone new takes up the fight.")
+		_:
+			lines.append("This world is kept as a memorial.")
+	_death_info.text = "\n".join(lines)
 	if on:
 		# Focus a button so gamepads can pick it without touching the screen.
-		(_menu_btn if permadeath else _respawn_btn).grab_focus.call_deferred()
+		var b: Button = _menu_btn if lost else (_respawn_btn if rule == GameState.DeathRule.RESPAWN else _new_char_btn)
+		b.grab_focus.call_deferred()
 
 
 func flash_damage() -> void:
@@ -215,6 +282,9 @@ func _process(delta: float) -> void:
 		_bars.hunger.value = player.hunger
 		_bars.thirst.value = player.thirst
 		_bars.stamina.value = player.stamina
+		_bars.stamina.max_value = maxf(1.0, player.max_stamina())
+		_status.text = status_text(player)
+		_update_sick(delta)
 	var hours := int(GameState.time_of_day)
 	var minutes := int((GameState.time_of_day - hours) * 60.0)
 	_clock.text = "Day %d   %02d:%02d%s" % [GameState.day, hours, minutes, "  (night)" if GameState.is_night() else ""]
@@ -232,6 +302,51 @@ func _process(delta: float) -> void:
 			str(Vector3i(player.global_position)) if player else ""]
 	_overlay.visible = player != null and player.active and not player.dead and not GameState.ui_open
 	_overlay.queue_redraw()
+
+
+## Short warnings under the bars ("BLEEDING  BROKEN LEG  FEVER").
+static func status_text(p: Player) -> String:
+	var b := p.body
+	var out: PackedStringArray = []
+	if b.bleeding():
+		out.append("BLEEDING")
+	for inj in b.injuries:
+		if inj.k == "fracture":
+			out.append("BROKEN %s" % ("LEG" if str(inj.p).begins_with("leg") else "ARM"))
+		elif inj.k == "deep_wound" and not inj.s:
+			out.append("DEEP WOUND")
+	if b.fever():
+		out.append("FEVER")
+	if b.symptoms() > 0.0:
+		out.append("SICK" if b.symptoms() < 0.5 else "TURNING")
+	if b.pain() > 0.4:
+		out.append("PAIN")
+	if p.craving():
+		out.append("CRAVING")
+	if p._grab_t > 0.0:
+		out.append("GRABBED")
+	var uniq: PackedStringArray = []
+	for st in out:
+		if not st in uniq:
+			uniq.append(st)
+	return "  ".join(uniq)
+
+
+## Blur, fading colour and a heartbeat vignette as the infection takes
+## hold; a red vignette when badly hurt.
+func _update_sick(delta: float) -> void:
+	var amount := player.body.symptoms() if not player.dead else 0.0
+	var hurt := clampf((35.0 - player.health) / 35.0, 0.0, 1.0) if not player.dead else 0.0
+	_sick.visible = (amount > 0.01 or hurt > 0.01) and player.active
+	if not _sick.visible:
+		return
+	var bpm := lerpf(70.0, 150.0, maxf(amount, hurt))
+	_beat_t += delta * bpm / 60.0
+	var ph := fmod(_beat_t, 1.0)
+	var pulse := maxf(exp(-ph * 14.0), exp(-absf(ph - 0.25) * 14.0) * 0.6)
+	_sick_mat.set_shader_parameter("amount", amount)
+	_sick_mat.set_shader_parameter("pulse", pulse)
+	_sick_mat.set_shader_parameter("hurt", hurt)
 
 
 # --- Overlay ---------------------------------------------------------------
@@ -254,6 +369,7 @@ func _draw_overlay() -> void:
 		for d: Vector2 in [Vector2(1, 1), Vector2(-1, 1), Vector2(1, -1), Vector2(-1, -1)]:
 			ci.draw_line(c + d * 7.0, c + d * 14.0, col, 2.5)
 	_draw_stealth(ci, c, font)
+	_draw_senses(ci, c)
 	_draw_prompt(ci, c, font)
 	_draw_weapon_panel(ci, size, font, w)
 
@@ -333,12 +449,34 @@ func _draw_stealth(ci: Control, c: Vector2, font: Font) -> void:
 		ci.draw_string(font, p + Vector2(-tw * 0.5, 30), t, HORIZONTAL_ALIGNMENT_LEFT, -1, 14, Color(0.7, 0.9, 0.7))
 
 
-## "[E] Open door" with the right glyph for the device in use.
+## Zombies you sense but haven't seen (close by, off to the side or
+## behind): red arcs around the crosshair. Keen hearing widens the range.
+func _draw_senses(ci: Control, c: Vector2) -> void:
+	if zombies == null:
+		return
+	var radius := 7.0 * GameState.character.mod("hearing")
+	var fwd := -player.global_basis.z
+	for z in zombies.in_radius(player.global_position, radius):
+		var to := z.global_position - player.global_position
+		to.y = 0.0
+		var d := to.length()
+		if d < 0.5:
+			continue
+		to /= d
+		if fwd.dot(to) > 0.75:
+			continue # In plain view.
+		var ang := atan2(to.dot(player.global_basis.x), fwd.dot(to)) - PI * 0.5
+		var a := clampf(1.0 - d / radius, 0.15, 1.0)
+		ci.draw_arc(c, 70.0, ang - 0.22, ang + 0.22, 12, Color(0.95, 0.15, 0.1, a * 0.8), 5.0)
+
+
+## "[E] Open door" with the right glyph for the device in use; while
+## interact is held on something holdable, a ring fills around the glyph.
 func _draw_prompt(ci: Control, c: Vector2, font: Font) -> void:
 	if player.prompt == "":
 		return
 	var fs := 20
-	var action := "attack" if player.prompt == "Silent takedown" else "interact"
+	var action := player.prompt_action
 	var tw := font.get_string_size(player.prompt, HORIZONTAL_ALIGNMENT_LEFT, -1, fs).x
 	var gw := 0.0 if GameState.uses_touch() and not GameState.using_gamepad() else InputGlyphs.width(action, font, 28.0)
 	var x := c.x - (tw + gw + (8.0 if gw > 0.0 else 0.0)) * 0.5
@@ -348,6 +486,14 @@ func _draw_prompt(ci: Control, c: Vector2, font: Font) -> void:
 		x += gw + 8.0
 	ci.draw_string_outline(font, Vector2(x, y + 21), player.prompt, HORIZONTAL_ALIGNMENT_LEFT, -1, fs, 4, Color.BLACK)
 	ci.draw_string(font, Vector2(x, y + 21), player.prompt, HORIZONTAL_ALIGNMENT_LEFT, -1, fs, Color.WHITE)
+	if player.hold_prompt != "":
+		var hint := "Hold to %s" % player.hold_prompt
+		var hw := font.get_string_size(hint, HORIZONTAL_ALIGNMENT_LEFT, -1, 15).x
+		ci.draw_string_outline(font, Vector2(c.x - hw * 0.5, y + 44), hint, HORIZONTAL_ALIGNMENT_LEFT, -1, 15, 4, Color.BLACK)
+		ci.draw_string(font, Vector2(c.x - hw * 0.5, y + 44), hint, HORIZONTAL_ALIGNMENT_LEFT, -1, 15, Color(0.8, 0.85, 0.8))
+	var hold := player.hold_progress()
+	if hold > 0.0:
+		ci.draw_arc(Vector2(c.x, y + 14), 26.0, -PI * 0.5, -PI * 0.5 + TAU * hold, 32, Color(0.95, 0.85, 0.3), 4.0)
 
 
 ## Current weapon, rounds and condition. Bottom-right on desktop and gamepad;

@@ -23,6 +23,8 @@ var glass := MeshData.new()
 var boxes: Array = [] # [Transform3D, Vector3] collision, chunk-local
 var _box_batch_ends: Array[int] = [] # Where each building's boxes end.
 var doors: Array = []
+var windows: Array = []
+var spawns: Array = [] # Interior zombie spawn points (chunk-local positions).
 var containers: Array = []
 var signs: Array = []
 var props := {} # mesh name -> PackedFloat32Array (MultiMesh buffer)
@@ -67,7 +69,7 @@ func _result() -> Dictionary:
 		"key": key, "lod": lod, "res": res, "step": step,
 		"terrain": terrain, "water": water, "road": road, "solid": solid,
 		"building": building, "glass": glass, "boxes": boxes, "doors": doors,
-		"containers": containers, "signs": signs, "props": props, "prop_counts": prop_counts,
+		"windows": windows, "spawns": spawns, "containers": containers, "signs": signs, "props": props, "prop_counts": prop_counts,
 		"tree_points": tree_points, "car_boxes": car_boxes, "cover_points": cover_points,
 		"collision_batches": _collision_batches(),
 	}
@@ -314,6 +316,14 @@ func _buildings() -> void:
 				var dd: Dictionary = d.duplicate()
 				dd.xf = xf * (d.xf as Transform3D)
 				doors.append(dd)
+			for w in bd.windows:
+				var ww: Dictionary = w.duplicate()
+				ww.xf = xf * (w.xf as Transform3D)
+				windows.append(ww)
+			for sp in bd.spawns:
+				var ss: Dictionary = sp.duplicate()
+				ss.pos = xf * (sp.pos as Vector3)
+				spawns.append(ss)
 			for ct in bd.containers:
 				var cc: Dictionary = ct.duplicate()
 				cc.pos = xf * (ct.pos as Vector3)

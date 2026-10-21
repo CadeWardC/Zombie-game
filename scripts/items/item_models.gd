@@ -177,9 +177,115 @@ static func build(id: String) -> MeshData:
 			_b(m, Vector3(0, 0.25, 0), Vector3(0.4, 0.5, 0.08), Color(0.18, 0.2, 0.17))
 			for k in 3:
 				_b(m, Vector3(-0.12 + k * 0.12, 0.15, -0.06), Vector3(0.1, 0.13, 0.05), Color(0.22, 0.24, 0.2))
+		# --- Medical and misc ---------------------------------------------------
+		"rag":
+			_b(m, Vector3(0, 0.02, 0), Vector3(0.14, 0.04, 0.12), Color(0.7, 0.66, 0.55))
+			_b(m, Vector3(0.02, 0.045, 0.01), Vector3(0.08, 0.02, 0.09), Color(0.62, 0.58, 0.48))
+		"alcohol_wipes":
+			_b(m, Vector3(0, 0.012, 0), Vector3(0.12, 0.024, 0.08), Color(0.92, 0.92, 0.95))
+			_b(m, Vector3(0, 0.025, 0), Vector3(0.06, 0.002, 0.03), Color(0.2, 0.45, 0.8))
+		"suture_kit":
+			_b(m, Vector3(0, 0.015, 0), Vector3(0.1, 0.03, 0.07), Color(0.25, 0.4, 0.55))
+			_b(m, Vector3(0, 0.031, 0), Vector3(0.05, 0.002, 0.04), Color(0.9, 0.9, 0.9))
+		"splint":
+			for s: float in [-1.0, 1.0]:
+				_b(m, Vector3(0.025 * s, 0.01, 0), Vector3(0.03, 0.02, 0.36), Color(0.6, 0.5, 0.35))
+			for k in 3:
+				_b(m, Vector3(0, 0.012, -0.12 + k * 0.12), Vector3(0.09, 0.026, 0.04), Color(0.92, 0.92, 0.88))
+		"antibiotics":
+			m.cylinder(Vector3.ZERO, 0.022, 0.022, 0.07, 8, Color(0.9, 0.9, 0.88))
+			m.cylinder(Vector3(0, 0.02, 0), 0.023, 0.023, 0.03, 8, Color(0.2, 0.5, 0.3), false)
+			m.cylinder(Vector3(0, 0.07, 0), 0.024, 0.024, 0.02, 8, Color(0.95, 0.95, 0.95))
+		"cure_vial":
+			m.cylinder(Vector3.ZERO, 0.014, 0.014, 0.09, 8, Color(0.3, 0.95, 0.75))
+			m.cylinder(Vector3(0, 0.09, 0), 0.016, 0.016, 0.025, 8, Color(0.85, 0.15, 0.12))
+			m.cylinder(Vector3(0, -0.005, 0), 0.018, 0.018, 0.012, 8, SILVER)
+		"cigarettes":
+			_b(m, Vector3(0, 0.045, 0), Vector3(0.06, 0.09, 0.025), Color(0.85, 0.85, 0.82))
+			_b(m, Vector3(0, 0.07, 0), Vector3(0.062, 0.04, 0.027), Color(0.75, 0.12, 0.1))
+		"sewing_kit":
+			m.cylinder(Vector3.ZERO, 0.05, 0.05, 0.03, 12, Color(0.3, 0.4, 0.6))
+			m.cylinder(Vector3(0.015, 0.03, 0.0), 0.012, 0.012, 0.02, 6, Color(0.8, 0.15, 0.15))
+			m.cylinder(Vector3(-0.02, 0.03, 0.01), 0.012, 0.012, 0.02, 6, Color(0.9, 0.85, 0.3))
+		"keycard_blue", "keycard_red":
+			var col := Color(0.2, 0.4, 0.85) if id == "keycard_blue" else Color(0.8, 0.15, 0.12)
+			_b(m, Vector3(0, 0.002, 0), Vector3(0.085, 0.004, 0.054), Color(0.92, 0.92, 0.92))
+			_b(m, Vector3(0, 0.0045, 0.012), Vector3(0.085, 0.001, 0.025), col)
+			_b(m, Vector3(-0.025, 0.0045, -0.015), Vector3(0.02, 0.001, 0.015), Color(0.8, 0.7, 0.3))
 		_:
-			_b(m, Vector3(0, 0.05, 0), Vector3(0.1, 0.1, 0.1), Color(0.6, 0.6, 0.6))
+			if ItemDB.get_def(id).get("cat", "") == "clothing":
+				_clothing(m, id)
+			else:
+				_b(m, Vector3(0, 0.05, 0), Vector3(0.1, 0.1, 0.1), Color(0.6, 0.6, 0.6))
 	return m
+
+
+## Clothes are modelled flat in the Y-Z plane (seen from the side, like
+## weapons: icons look at them face-on, and dropped they lie flat).
+static func _clothing(m: MeshData, id: String) -> void:
+	var d := ItemDB.get_def(id)
+	var col: Color = (d.col as Array)[0]
+	var shape: String = d.look
+	var dark := col.darkened(0.2)
+	var T := 0.03
+	match shape:
+		"tee", "long", "hoodie", "jacket", "coat":
+			var h := 0.85 if shape == "coat" else 0.62
+			var w := 0.44
+			_b(m, Vector3(0, h * 0.5, 0), Vector3(T, h, w), col)
+			_b(m, Vector3(0.016, h - 0.03, 0), Vector3(0.004, 0.05, 0.16), dark) # collar
+			for s: float in [-1.0, 1.0]:
+				if shape == "tee":
+					m.box(Transform3D(Basis(Vector3.RIGHT, 0.7 * s), Vector3(0, h - 0.09, (w * 0.5 + 0.06) * s)), Vector3(T, 0.12, 0.2), col, false)
+				else:
+					m.box(Transform3D(Basis(Vector3.RIGHT, 0.25 * s), Vector3(0, h - 0.27, (w * 0.5 + 0.07) * s)), Vector3(T, 0.52, 0.12), col, false)
+			if shape == "hoodie":
+				_b(m, Vector3(0, h + 0.06, 0), Vector3(T, 0.14, 0.24), dark)
+				_b(m, Vector3(0.017, 0.16, 0), Vector3(0.004, 0.12, 0.26), dark)
+			elif shape in ["jacket", "coat"]:
+				_b(m, Vector3(0.017, h * 0.5, 0), Vector3(0.004, h - 0.06, 0.012), Color(0.55, 0.55, 0.55))
+				for s: float in [-1.0, 1.0]:
+					_b(m, Vector3(0.017, h * 0.3, 0.12 * s), Vector3(0.004, 0.08, 0.1), dark)
+			if d.get("extra", "") == "badge":
+				_b(m, Vector3(0.017, h - 0.15, 0.1), Vector3(0.004, 0.05, 0.04), Color(0.85, 0.75, 0.3))
+			if d.get("extra", "") == "vest":
+				_b(m, Vector3(0.017, h * 0.55, 0), Vector3(0.004, 0.04, w), Color(0.9, 0.9, 0.3))
+				_b(m, Vector3(0.017, h * 0.25, 0), Vector3(0.004, 0.04, w), Color(0.9, 0.9, 0.3))
+		"armor":
+			_b(m, Vector3(0, 0.27, 0), Vector3(0.08, 0.54, 0.42), col)
+			for s: float in [-1.0, 1.0]:
+				_b(m, Vector3(0, 0.55, 0.14 * s), Vector3(0.06, 0.08, 0.1), dark)
+			for k in 3:
+				_b(m, Vector3(0.05, 0.16, -0.13 + k * 0.13), Vector3(0.03, 0.12, 0.1), dark)
+		"pants":
+			_b(m, Vector3(0, 0.76, 0), Vector3(T, 0.08, 0.36), dark)
+			for s: float in [-1.0, 1.0]:
+				m.box(Transform3D(Basis(Vector3.RIGHT, -0.06 * s), Vector3(0, 0.38, 0.09 * s)), Vector3(T, 0.76, 0.17), col, false)
+			if d.has("gw"):
+				for s: float in [-1.0, 1.0]:
+					_b(m, Vector3(0.017, 0.42, 0.1 * s), Vector3(0.004, 0.12, 0.1), dark)
+		"shoes", "boots":
+			var tall := 0.16 if shape == "boots" else 0.08
+			for k in 2:
+				var o := Vector3(-0.06 * k, 0, 0.06 * k)
+				_b(m, o + Vector3(0, 0.012, 0), Vector3(0.1, 0.025, 0.28), Color(0.15, 0.13, 0.12) if shape == "boots" else Color(0.9, 0.9, 0.9))
+				_b(m, o + Vector3(0, 0.025 + 0.025, -0.04), Vector3(0.09, 0.05, 0.18), col)
+				_b(m, o + Vector3(0, 0.025 + tall * 0.5, 0.07), Vector3(0.09, tall, 0.12), col)
+		"cap":
+			m.cylinder(Vector3(0, 0.0, 0), 0.1, 0.09, 0.07, 10, col)
+			_b(m, Vector3(0, 0.005, -0.13), Vector3(0.17, 0.01, 0.09), dark)
+		"beanie":
+			m.cylinder(Vector3(0, 0.0, 0), 0.1, 0.07, 0.12, 10, col)
+			m.cylinder(Vector3(0, 0.0, 0), 0.104, 0.104, 0.035, 10, dark, false)
+		"helmet":
+			m.cylinder(Vector3(0, 0.0, 0), 0.13, 0.11, 0.18, 10, col)
+			m.cylinder(Vector3(0, 0.18, 0), 0.11, 0.06, 0.05, 10, col)
+			_b(m, Vector3(0, 0.09, -0.12), Vector3(0.16, 0.07, 0.03), Color(0.15, 0.17, 0.2))
+		"army_helmet":
+			m.cylinder(Vector3(0, 0.0, 0), 0.15, 0.12, 0.06, 10, col)
+			m.cylinder(Vector3(0, 0.06, 0), 0.12, 0.07, 0.07, 10, col)
+		_:
+			_b(m, Vector3(0, 0.05, 0), Vector3(0.1, 0.1, 0.1), col)
 
 
 ## Where a weapon's muzzle is, relative to its grip (for muzzle flashes).

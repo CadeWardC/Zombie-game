@@ -73,6 +73,7 @@ static func wall(bd: BuildingData, a: Vector2, b: Vector2, y0: float, height: fl
 				bd.doors.append({
 					"xf": Transform3D(basis, v3(hinge, y0)), "w": op.w, "h": op.top, "t": 0.06,
 					"color": door_color, "id": "%s_d%d" % [id_prefix, bd.doors.size()],
+					"out": 0 if t <= Interiors.INNER_T + 0.01 else (1 if pos_is_out else -1),
 				})
 				_frame(bd, mid, basis, y0, op.w, op.top, t)
 			"garage":
@@ -96,11 +97,15 @@ static func _piece(bd: BuildingData, a: Vector2, dir: Vector2, basis: Basis, s0:
 static func _window(bd: BuildingData, mid: Vector2, basis: Basis, bottom: float, w: float, h: float, t: float, out3: Vector3) -> void:
 	var c := v3(mid, bottom + h * 0.5)
 	var n := basis.z
+	_frame(bd, mid, basis, bottom, w, h, t)
+	bd.ext.box(Transform3D(basis, c - Vector3(0, h * 0.5 + 0.04, 0) + out3 * (t * 0.5 + 0.06)), Vector3(w + 0.2, 0.06, 0.14), TRIM)
+	# Ground-floor windows of enterable buildings can be smashed: they're
+	# separate bodies, drawn by the chunk.
+	if bd.interior and bottom < 1.7 and h > 0.6:
+		bd.windows.append({"xf": Transform3D(basis, c), "w": w, "h": h, "id": "%s_w%d" % [bd.id, bd.windows.size()]})
+		return
 	bd.glass.quad(c - basis.x * w * 0.5 - Vector3(0, h * 0.5, 0), c + basis.x * w * 0.5 - Vector3(0, h * 0.5, 0),
 			c + basis.x * w * 0.5 + Vector3(0, h * 0.5, 0), c - basis.x * w * 0.5 + Vector3(0, h * 0.5, 0), GLASS, n)
-	_frame(bd, mid, basis, bottom, w, h, t)
-	# Sill.
-	bd.ext.box(Transform3D(basis, c - Vector3(0, h * 0.5 + 0.04, 0) + out3 * (t * 0.5 + 0.06)), Vector3(w + 0.2, 0.06, 0.14), TRIM)
 	# Window still blocks movement.
 	bd.boxes.append([Transform3D(basis, c), Vector3(w, h, 0.1)])
 

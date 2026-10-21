@@ -89,7 +89,8 @@ func _place(vp: SubViewport, id: String, r: Rect2) -> void:
 	# Weapons are shown from the side (muzzle right); everything else from a
 	# three-quarter view.
 	var basis := Basis.IDENTITY
-	if not (cat in ["melee", "gun", "bow"] or id in ["arrow", "bolt", "scope", "suppressor"]):
+	var flat: bool = cat == "clothing" and not ItemDB.get_def(id).look in ["cap", "beanie", "helmet", "army_helmet", "shoes", "boots"]
+	if not (cat in ["melee", "gun", "bow"] or id in ["arrow", "bolt", "scope", "suppressor"] or flat):
 		basis = Basis(Vector3.RIGHT, deg_to_rad(18)) * Basis(Vector3.UP, deg_to_rad(125))
 	var aabb := Transform3D(basis, Vector3.ZERO) * mi.mesh.get_aabb()
 	# Screen axes: horizontal = world -Z, vertical = world Y.

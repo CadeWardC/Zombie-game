@@ -1,7 +1,8 @@
 extends Node
-## Global game state (autoload "GameState"): settings, inventory, world clock,
-## containers and dropped items, save/load, input bindings and which input
-## device is in use (for button prompts).
+## Global game state (autoload "GameState"): settings, the character and
+## inventory, world clock, containers and dropped items, changes to the world
+## (doors, windows, power, turned players), the explored map, save/load,
+## input bindings and which input device is in use (for button prompts).
 
 signal noise_made(position: Vector3, radius: float)
 signal inventory_changed
@@ -30,12 +31,15 @@ const QUALITY_PRESETS := {
 const DAY_LENGTH := 1200.0 # Real seconds per in-game day.
 const WORLDS_DIR := "user://worlds"
 const SETTINGS_PATH := "user://settings.cfg"
-const SAVE_VERSION := 2
+const SAVE_VERSION := 3
 const STARTING_KIT := [["kitchen_knife", 1], ["canned_beans", 1], ["water_bottle", 1], ["bandage", 1]]
+const EXPLORE_CELL := 64.0 # Metres per explored-map cell.
 const SIZE_NAMES := {8192.0: "8 x 8 km", 16384.0: "16 x 16 km", 32768.0: "32 x 32 km"}
 
 enum DeathRule { RESPAWN, NEW_CHARACTER, PERMADEATH }
 const DEATH_RULE_NAMES := ["Respawn", "New character", "Permadeath"]
+const ZOMBIE_SPEEDS := ["Shamblers", "Mixed", "Fast"]
+const INFECTION_CHANCES := [0.0, 0.05, 0.15, 0.3, 0.5, 1.0]
 const DIFFICULTIES := [
 	{"name": "Casual", "zombies": 0.7, "loot": 1.6, "infection": 0.05},
 	{"name": "Hardcore but fair", "zombies": 1.0, "loot": 1.0, "infection": 0.15},
@@ -49,6 +53,20 @@ var time_of_day := 8.0
 var day := 1
 var kills := 0
 var inventory := Inventory.new()
+var character := Character.new()
+## Set by the character creator before a world starts (or after a death in
+## a "new character" world); used instead of the saved character.
+var pending_character: Character
+## Changes to the generated world, saved with it:
+##   doors: id -> {o: open, l: locked, hp: health (0 = broken)}
+##   windows: id -> 1 (smashed)
+##   power: site -> [x, y, z] of its running generator
+##   spawns: interior spawn id -> in-game hour its zombie was killed
+##   turned: players who died infected and rose as zombies:
+##           [{id, name, p: [x, y, z], items, look, owner}]
+var ws := {}
+## Which parts of the map have been seen (one byte per EXPLORE_CELL square).
+var explored: Image
 ## Opened containers: id -> Array of items (each with grid x, y, r).
 var containers := {}
 ## Items on the ground: [{p: [x, y, z], it: item, armed: bool (traps)}].
@@ -57,6 +75,8 @@ var ui_open := false # Inventory (or another full-screen menu) is open.
 ## Last input device used: "kbm", "touch", "xbox", "ps" or "nintendo".
 var device := "kbm"
 var force_touch_ui := false
+## This device's player (the host's id once multiplayer arrives).
+var player_id := "p1"
 var world := {} # Current world's settings and summary (see create_world).
 
 
@@ -99,6 +119,11 @@ func _process(delta: float) -> void:
 	if time_of_day >= 24.0:
 		time_of_day -= 24.0
 		day += 1
+
+
+## In-game hours since the world began (for timers that outlast a day).
+func hours() -> float:
+	return day * 24.0 + time_of_day
 
 
 func is_night() -> bool:
@@ -179,14 +204,114 @@ func remove_drop(drop: Dictionary) -> void:
 ## Contents of a container, rolled the first time it's opened.
 func container_items(ct: Dictionary) -> Array:
 	if not containers.has(ct.id):
-		containers[ct.id] = Loot.fill(ct.type, ct.get("bld", ""), ct.id)
+		containers[ct.id] = Loot.fill(ct.type, ct.get("bld", ""), ct.id, ct.get("must", []))
 	return containers[ct.id]
 
 
+## The basic kit plus the character's background items and clothes.
 func give_starting_kit() -> void:
 	inventory.clear()
+	var gear := character.starting_gear()
+	for c in gear.clothes:
+		var it := ItemDB.make(c[0], 1, 0.9)
+		it.v = int(c[1])
+		inventory.equip[ItemDB.slot_for(c[0])] = it
 	for k in STARTING_KIT:
 		inventory.add(ItemDB.make(k[0], k[1], 0.8))
+	for k in gear.items:
+		inventory.add(ItemDB.make(k[0], k[1], 0.85))
+	if character.has_trait("smoker"):
+		inventory.add(ItemDB.make("cigarettes"))
+	inventory.carry_mult = character.mod("carry") * (1.0 + character.skill("strength") * 0.05)
+	inventory.notify()
+
+
+func infection_chance() -> float:
+	return float(world.get("infection", difficulty().infection))
+
+
+## 0 shamblers (no runners, slower), 1 mixed, 2 fast (many runners).
+func zombie_speed() -> int:
+	return int(world.get("zspeed", 1))
+
+
+# --- World changes ---------------------------------------------------------------
+
+func door_state(id: String) -> Dictionary:
+	return ws.doors.get(id, {})
+
+
+func set_door_state(id: String, st: Dictionary) -> void:
+	ws.doors[id] = st
+
+
+func window_smashed(id: String) -> bool:
+	return ws.windows.has(id)
+
+
+func smash_window(id: String) -> void:
+	ws.windows[id] = 1
+
+
+func has_power(site: String) -> bool:
+	return ws.power.has(site)
+
+
+func set_power(site: String, pos: Vector3) -> void:
+	ws.power[site] = [pos.x, pos.y, pos.z]
+
+
+## Can an interior spawn point hold a zombie again? (Killed ones come back
+## after two in-game days.)
+func spawn_ready(id: String) -> bool:
+	return not ws.spawns.has(id) or hours() - float(ws.spawns[id]) > 48.0
+
+
+func spawn_killed(id: String) -> void:
+	ws.spawns[id] = hours()
+
+
+func add_turned(entry: Dictionary) -> void:
+	ws.turned.append(entry)
+
+
+func remove_turned(id: String) -> void:
+	ws.turned = ws.turned.filter(func(t: Dictionary) -> bool: return t.id != id)
+
+
+func _reset_ws() -> void:
+	ws = {"doors": {}, "windows": {}, "power": {}, "spawns": {}, "turned": []}
+
+
+# --- Explored map ------------------------------------------------------------------
+
+func _reset_explored() -> void:
+	var n := maxi(1, int(world_size / EXPLORE_CELL))
+	explored = Image.create(n, n, false, Image.FORMAT_L8)
+
+
+## Marks the area around a point as seen.
+func explore(pos: Vector3, radius := 120.0) -> void:
+	if explored == null:
+		return
+	var n := explored.get_width()
+	var c := Vector2(pos.x, pos.z) / EXPLORE_CELL
+	var r := radius / EXPLORE_CELL
+	for y in range(int(c.y - r), int(c.y + r) + 1):
+		for x in range(int(c.x - r), int(c.x + r) + 1):
+			if x >= 0 and y >= 0 and x < n and y < n and Vector2(x + 0.5, y + 0.5).distance_to(c) <= r:
+				explored.set_pixel(x, y, Color.WHITE)
+
+
+func explored_fraction() -> float:
+	if explored == null:
+		return 0.0
+	var data := explored.get_data()
+	var seen := 0
+	for b in data:
+		if b > 0:
+			seen += 1
+	return float(seen) / maxf(1.0, data.size())
 
 
 # --- Worlds and saves ----------------------------------------------------------
@@ -214,7 +339,7 @@ func list_worlds() -> Array:
 	return out
 
 
-func create_world(world_name: String, size: float, seed_value: int, diff: int, rule: int, id := "") -> Dictionary:
+func create_world(world_name: String, size: float, seed_value: int, diff: int, rule: int, id := "", extra := {}) -> Dictionary:
 	if id == "":
 		id = "%d_%d" % [int(Time.get_unix_time_from_system()), randi() % 10000]
 	else:
@@ -227,7 +352,9 @@ func create_world(world_name: String, size: float, seed_value: int, diff: int, r
 		"id": id, "name": world_name, "seed": seed_value, "size": size, "difficulty": diff,
 		"death_rule": rule, "created": Time.get_unix_time_from_system(),
 		"last_played": Time.get_unix_time_from_system(), "day": 1, "kills": 0, "lost": false,
+		"zspeed": 1, "infection": DIFFICULTIES[diff].infection,
 	}
+	meta.merge(extra, true)
 	DirAccess.make_dir_recursive_absolute(WORLDS_DIR + "/" + id)
 	_write_json(WORLDS_DIR + "/" + id + "/world.json", meta)
 	return meta
@@ -235,7 +362,7 @@ func create_world(world_name: String, size: float, seed_value: int, diff: int, r
 
 func delete_world(id: String) -> void:
 	var path := ProjectSettings.globalize_path(WORLDS_DIR + "/" + id)
-	for f in ["save.json", "world.json"]:
+	for f in ["save.json", "world.json", "map.png", "explored.png"]:
 		DirAccess.remove_absolute(path + "/" + f)
 	DirAccess.remove_absolute(path)
 
@@ -248,9 +375,13 @@ func start_world(meta: Dictionary) -> void:
 	time_of_day = 8.0
 	day = 1
 	kills = 0
+	character = pending_character if pending_character else Character.random(world_seed)
+	pending_character = null
 	give_starting_kit()
 	containers.clear()
 	drops.clear()
+	_reset_ws()
+	_reset_explored()
 
 
 func has_save() -> bool:
@@ -273,8 +404,12 @@ func save_game(player_data: Dictionary) -> void:
 		"containers": containers,
 		"drops": drops,
 		"player": player_data,
+		"character": character.to_dict(),
+		"world": ws,
 	}
 	_write_json(_world_path("save.json"), data)
+	if explored:
+		explored.save_png(_world_path("explored.png"))
 	world.last_played = Time.get_unix_time_from_system()
 	world.day = day
 	world.kills = kills
@@ -295,6 +430,23 @@ func load_game() -> Dictionary:
 	kills = int(data.get("kills", 0))
 	containers.clear()
 	drops.clear()
+	_reset_ws()
+	if version >= 3:
+		character = Character.from_dict(data.get("character", {}))
+		var w: Dictionary = data.get("world", {})
+		for k in ["doors", "windows", "power", "spawns"]:
+			ws[k] = w.get(k, {})
+		ws.turned = w.get("turned", [])
+		for t in ws.turned:
+			t.items = (t.get("items", []) as Array).map(func(o: Dictionary) -> Dictionary: return Inventory._clean(o))
+	# A character made for this world after a death replaces the saved one.
+	if pending_character:
+		character = pending_character
+		pending_character = null
+	var ex := Image.load_from_file(ProjectSettings.globalize_path(_world_path("explored.png"))) if FileAccess.file_exists(_world_path("explored.png")) else null
+	if ex and ex.get_width() == explored.get_width():
+		ex.convert(Image.FORMAT_L8)
+		explored = ex
 	if version == 1:
 		# Stage 1 saves had simple item counts; keep the world, give a fresh kit.
 		give_starting_kit()
@@ -302,16 +454,25 @@ func load_game() -> Dictionary:
 			containers[str(id)] = []
 	else:
 		inventory.from_dict(data.get("inventory", {}))
+		if version == 2:
+			# Stage 2 saves had no clothes: dress the survivor.
+			var gear := character.starting_gear()
+			for c in gear.clothes:
+				var it := ItemDB.make(c[0], 1, 0.9)
+				it.v = int(c[1])
+				inventory.equip[ItemDB.slot_for(c[0])] = it
 		var saved: Dictionary = data.get("containers", {})
 		for id in saved:
 			containers[id] = (saved[id] as Array).map(func(o: Dictionary) -> Dictionary: return Inventory._clean(o))
 		for d in data.get("drops", []):
 			drops.append({"p": d.p, "it": Inventory._clean(d.it), "armed": bool(d.get("armed", false))})
+	inventory.carry_mult = character.mod("carry") * (1.0 + character.skill("strength") * 0.05)
 	drops_changed.emit()
 	return data.get("player", {})
 
 
-## Marks a permadeath world as lost; it stays in the list as a memorial.
+## Marks a world as lost; it stays in the list as a memorial with the
+## survivor's story and the map they explored.
 func mark_world_lost(cause: String) -> void:
 	if world.is_empty():
 		return
@@ -319,7 +480,18 @@ func mark_world_lost(cause: String) -> void:
 	world.cause = cause
 	world.day = day
 	world.kills = kills
+	world.survivor = character.name
+	world.background = Character.BACKGROUNDS[character.background].name
+	world.explored = explored_fraction()
+	world.lost_at = Time.get_unix_time_from_system()
 	_write_json(_world_path("world.json"), world)
+	if explored:
+		explored.save_png(_world_path("explored.png"))
+
+
+## Path of a file in a world's folder (for the memorial screen).
+func world_file(meta: Dictionary, file: String) -> String:
+	return WORLDS_DIR + "/" + str(meta.id) + "/" + file
 
 
 func _read_json(path: String) -> Dictionary:

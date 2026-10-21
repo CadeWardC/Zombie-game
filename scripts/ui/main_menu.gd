@@ -1,10 +1,10 @@
 extends Control
-## Main menu: continue, create a world, load / delete worlds, settings.
-## Built in code; fully usable with touch, mouse or gamepad (focus follows
-## the D-pad / stick).
+## Main menu: continue, create a world (then its survivor), load / delete
+## worlds, memorials of lost worlds, settings. Built in code; fully usable
+## with touch, mouse or gamepad (focus follows the D-pad / stick).
 
-const BG := Color(0.06, 0.07, 0.07)
-const ACCENT := Color(0.62, 0.12, 0.1)
+const BG := MenuTheme.BG
+const ACCENT := MenuTheme.ACCENT
 
 var _screens := {}
 var _name_edit: LineEdit
@@ -12,13 +12,19 @@ var _seed_edit: LineEdit
 var _size_opt: OptionButton
 var _diff_opt: OptionButton
 var _rule_opt: OptionButton
+var _speed_opt: OptionButton
+var _infect_opt: OptionButton
+var _memorial_title: Label
+var _memorial_info: Label
+var _memorial_map: MapView
+var _pending_world := {}
 var _world_list: VBoxContainer
 var _quality_btn: Button
 
 
 func _ready() -> void:
 	set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
-	theme = _make_theme()
+	theme = MenuTheme.make()
 	var bg := ColorRect.new()
 	bg.color = BG
 	add_child(bg)
@@ -32,34 +38,10 @@ func _ready() -> void:
 	_build_home()
 	_build_new_world()
 	_build_load()
+	_build_memorial()
 	_build_settings()
 	Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
 	_show("home")
-
-
-func _make_theme() -> Theme:
-	var t := Theme.new()
-	t.default_font_size = 24
-	var normal := StyleBoxFlat.new()
-	normal.bg_color = Color(0.14, 0.15, 0.15)
-	normal.set_corner_radius_all(6)
-	normal.set_content_margin_all(12)
-	var hover := normal.duplicate()
-	hover.bg_color = Color(0.22, 0.23, 0.23)
-	var focus := normal.duplicate()
-	focus.bg_color = Color(0.22, 0.23, 0.23)
-	focus.border_color = ACCENT.lightened(0.2)
-	focus.set_border_width_all(3)
-	var pressed := normal.duplicate()
-	pressed.bg_color = ACCENT
-	for cls in ["Button", "OptionButton"]:
-		t.set_stylebox("normal", cls, normal)
-		t.set_stylebox("hover", cls, hover)
-		t.set_stylebox("focus", cls, focus)
-		t.set_stylebox("pressed", cls, pressed)
-	t.set_stylebox("normal", "LineEdit", normal)
-	t.set_stylebox("focus", "LineEdit", focus)
-	return t
 
 
 func _screen(screen_name: String, title: String) -> VBoxContainer:
@@ -172,6 +154,18 @@ func _build_new_world() -> void:
 	for r in GameState.DEATH_RULE_NAMES:
 		_rule_opt.add_item(r)
 	_row(box, "When you die", _rule_opt)
+	_speed_opt = OptionButton.new()
+	for n in GameState.ZOMBIE_SPEEDS:
+		_speed_opt.add_item(n)
+	_speed_opt.select(1)
+	_row(box, "Zombie speed", _speed_opt)
+	_infect_opt = OptionButton.new()
+	for c in GameState.INFECTION_CHANCES:
+		_infect_opt.add_item("%d%% per bite" % int(c * 100.0))
+	_infect_opt.select(2)
+	_row(box, "Infection", _infect_opt)
+	_diff_opt.item_selected.connect(func(i: int) -> void:
+		_infect_opt.select(GameState.INFECTION_CHANCES.find(GameState.DIFFICULTIES[i].infection)))
 	var hint := Label.new()
 	hint.text = "Death rule can't be changed later. Permadeath: the cure is the only way back."
 	hint.autowrap_mode = TextServer.AUTOWRAP_WORD
@@ -187,8 +181,22 @@ func _create() -> void:
 	var seed_text := _seed_edit.text.strip_edges()
 	var seed_value := int(seed_text) if seed_text.is_valid_int() else (seed_text.hash() if seed_text != "" else randi())
 	var meta := GameState.create_world(_name_edit.text.strip_edges() if _name_edit.text.strip_edges() != "" else "World",
-			sizes[_size_opt.selected], seed_value, _diff_opt.selected, _rule_opt.selected)
-	_play(meta)
+			sizes[_size_opt.selected], seed_value, _diff_opt.selected, _rule_opt.selected, "",
+			{"zspeed": _speed_opt.selected, "infection": GameState.INFECTION_CHANCES[_infect_opt.selected]})
+	# Next: who survives in it.
+	_pending_world = meta
+	for k in _screens:
+		_screens[k].visible = false
+	var cc := CharacterCreator.new()
+	cc.show_back = true
+	add_child(cc)
+	cc.done.connect(func(c: Character) -> void:
+		GameState.pending_character = c
+		_play(_pending_world))
+	cc.back.connect(func() -> void:
+		GameState.delete_world(_pending_world.id)
+		cc.queue_free()
+		_show("new"))
 
 
 # --- Load ----------------------------------------------------------------------
@@ -233,6 +241,11 @@ func _refresh_worlds() -> void:
 			play.text = "Play"
 			play.pressed.connect(func() -> void: _play(w))
 			row.add_child(play)
+		else:
+			var mem := Button.new()
+			mem.text = "Memorial"
+			mem.pressed.connect(func() -> void: _show_memorial(w))
+			row.add_child(mem)
 		var del := Button.new()
 		del.text = "Delete"
 		del.pressed.connect(func() -> void:
@@ -240,6 +253,49 @@ func _refresh_worlds() -> void:
 			_refresh_worlds())
 		row.add_child(del)
 		_world_list.add_child(row)
+
+
+# --- Memorial ------------------------------------------------------------------
+# A lost world can't be played again; it's kept as a record of the survivor.
+
+func _build_memorial() -> void:
+	var box := _screen("memorial", "IN MEMORIAM")
+	box.custom_minimum_size = Vector2(760, 0)
+	_memorial_title = Label.new()
+	_memorial_title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	_memorial_title.add_theme_font_size_override("font_size", 28)
+	box.add_child(_memorial_title)
+	var h := HBoxContainer.new()
+	h.add_theme_constant_override("separation", 18)
+	box.add_child(h)
+	_memorial_map = MapView.new()
+	_memorial_map.custom_minimum_size = Vector2(360, 360)
+	h.add_child(_memorial_map)
+	_memorial_info = Label.new()
+	_memorial_info.custom_minimum_size = Vector2(360, 0)
+	_memorial_info.autowrap_mode = TextServer.AUTOWRAP_WORD
+	_memorial_info.add_theme_font_size_override("font_size", 20)
+	_memorial_info.add_theme_color_override("font_color", MenuTheme.DIM)
+	h.add_child(_memorial_info)
+	_button(box, "Back", func() -> void: _show("load"))
+
+
+func _show_memorial(w: Dictionary) -> void:
+	_memorial_title.text = "%s  -  %s" % [w.get("survivor", "A survivor"), w.name]
+	var lines: PackedStringArray = []
+	if w.has("background"):
+		lines.append(str(w.background))
+	lines.append("Survived %d days" % int(w.get("day", 1)))
+	lines.append("%d zombies killed" % int(w.get("kills", 0)))
+	lines.append("Cause of death: %s" % w.get("cause", "unknown"))
+	lines.append("Explored %.1f%% of the map" % (float(w.get("explored", 0.0)) * 100.0))
+	lines.append("")
+	lines.append("%s  -  %s" % [GameState.SIZE_NAMES.get(float(w.size), "?"), GameState.DIFFICULTIES[int(w.get("difficulty", 1))].name])
+	if w.has("lost_at"):
+		lines.append("Lost on %s" % Time.get_date_string_from_unix_time(int(w.lost_at)))
+	_memorial_info.text = "\n".join(lines)
+	_memorial_map.load_world(w)
+	_show("memorial")
 
 
 # --- Settings ------------------------------------------------------------------

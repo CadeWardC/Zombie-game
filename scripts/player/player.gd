@@ -1,9 +1,11 @@
 class_name Player
 extends CharacterBody3D
 ## First-person survivor: movement (walk, sprint, crouch, swim), look (mouse,
-## touch and gamepad, with aim assist on gamepads), survival stats, stealth
-## visibility, using items and interacting with doors, containers and items
-## on the ground. Weapons live in the Weapons child node.
+## touch and gamepad, with aim assist on gamepads), survival stats, injuries
+## and infection (in `body`), stealth visibility, using items and interacting
+## with doors, windows, containers, generators and items on the ground.
+## Weapons live in the Weapons child node. Traits and skills come from
+## GameState.character.
 
 signal damaged
 signal died
@@ -30,6 +32,11 @@ const STARVE_DAMAGE := 1.0
 const REGEN_RATE := 0.4
 
 var health := 100.0
+var body := Health.new()
+## What killed you, for the death screen and memorial.
+var death_cause := ""
+## True when the infection finished you (you rise as a zombie).
+var turned := false
 var hunger := 100.0
 var thirst := 100.0
 var stamina := 100.0
@@ -44,8 +51,11 @@ var streamer: WorldStreamer
 var zombies: ZombieManager
 var drops: DropManager
 var swimming := false
-## Text for the HUD's interaction prompt ("" when nothing is in reach).
+## Text for the HUD's interaction prompt ("" when nothing is in reach), the
+## action it's bound to, and what holding interact does ("" for nothing).
 var prompt := ""
+var prompt_action := "interact"
+var hold_prompt := ""
 
 var head: Node3D
 var camera: Camera3D
@@ -62,7 +72,16 @@ var _cover_t := 0.0
 var _recoil := 0.0 # Pitch still to recover from recoil (radians).
 var _assist_t := 0.0
 var _assist_target: Zombie
-var _focus: Variant = null # DoorBody, container dictionary or drop dictionary in reach.
+var _focus: Variant = null # DoorBody, WindowBody, Zombie, container or drop dictionary in reach.
+var _hold_t := 0.0 # How long interact has been held (locking doors, generators).
+var _hold_done := false
+var _air_speed := 0.0 # Fastest fall speed since leaving the ground.
+var _cough_t := 30.0
+var _grab_t := 0.0 # Held by a crawler.
+var _climb_t := 0.0 # Climbing through a window.
+var _climb_from := Vector3.ZERO
+var _climb_to := Vector3.ZERO
+var _crave_told := false
 
 
 func _ready() -> void:
@@ -140,13 +159,20 @@ func _physics_process(delta: float) -> void:
 	var moving := input.length() > 0.1
 	if can_act and Input.is_action_just_pressed("crouch"):
 		crouching = not crouching
-	sprinting = Input.is_action_pressed("sprint") and moving and input.y < 0.3 and not _exhausted and can_act
+	sprinting = Input.is_action_pressed("sprint") and moving and input.y < 0.3 and not _exhausted and can_act and body.can_sprint()
 	if sprinting:
 		crouching = false
-	var speed := SPRINT_SPEED if sprinting else (CROUCH_SPEED if crouching else WALK_SPEED)
+	var ch := GameState.character
+	var speed := SPRINT_SPEED * ch.mod("sprint") if sprinting else (CROUCH_SPEED if crouching else WALK_SPEED)
 	if weapons.aim_blend > 0.5:
 		speed = minf(speed, AIM_SPEED)
-	speed *= GameState.inventory.speed_factor()
+	speed *= GameState.inventory.speed_factor() * body.speed_factor()
+	if _grab_t > 0.0:
+		_grab_t -= delta
+		speed *= 0.15
+	if _climb_t > 0.0:
+		_update_climb(delta)
+		return
 	var accel := 12.0 if is_on_floor() else 3.0
 	velocity.x = lerpf(velocity.x, dir.x * speed, minf(1.0, accel * delta))
 	velocity.z = lerpf(velocity.z, dir.z * speed, minf(1.0, accel * delta))
@@ -169,7 +195,14 @@ func _physics_process(delta: float) -> void:
 			use_stamina(10.0)
 	else:
 		velocity.y -= GRAVITY * delta
+		_air_speed = maxf(_air_speed, -velocity.y)
+	var was_air := not is_on_floor()
 	move_and_slide()
+	if was_air and is_on_floor():
+		_land(_air_speed)
+		_air_speed = 0.0
+	if swimming:
+		_air_speed = 0.0
 	_keep_in_world()
 
 	_update_stats(delta, moving)
@@ -197,8 +230,7 @@ func _physics_process(delta: float) -> void:
 	if _prompt_t <= 0.0:
 		_prompt_t = 0.12
 		_update_focus()
-	if Input.is_action_just_pressed("interact"):
-		_interact()
+	_update_interact(delta)
 
 
 func _keep_in_world() -> void:
@@ -212,23 +244,79 @@ func _keep_in_world() -> void:
 
 
 func _update_stats(delta: float, moving: bool) -> void:
-	hunger = maxf(0.0, hunger - HUNGER_RATE * delta * (1.5 if sprinting else 1.0))
+	var ch := GameState.character
+	hunger = maxf(0.0, hunger - HUNGER_RATE * ch.mod("hunger") * delta * (1.5 if sprinting else 1.0))
 	thirst = maxf(0.0, thirst - THIRST_RATE * delta * (1.5 if sprinting else 1.0))
 	if sprinting:
 		use_stamina(18.0 * delta)
 	else:
 		_stamina_delay -= delta
 		if _stamina_delay <= 0.0:
-			stamina = minf(100.0, stamina + (14.0 if not moving else 9.0) * delta)
+			var regen := (14.0 if not moving else 9.0) * (0.7 if craving() else 1.0) * (1.0 - body.symptoms() * 0.5)
+			stamina = minf(max_stamina(), stamina + regen * delta)
+	stamina = minf(stamina, max_stamina())
 	if _exhausted and stamina > 30.0:
 		_exhausted = false
 	if hunger <= 0.0 or thirst <= 0.0:
+		death_cause = "Starved" if hunger <= 0.0 else "Died of thirst"
 		take_damage(STARVE_DAMAGE * delta, Vector3.ZERO, false)
 	elif hunger > 50.0 and thirst > 50.0:
-		health = minf(100.0, health + REGEN_RATE * delta)
+		health = minf(100.0, health + REGEN_RATE * body.regen_factor() * delta)
+	# Wounds, illness and the infection.
+	var dh := body.tick(delta, ch)
+	if dh < 0.0:
+		death_cause = "Bled out" if body.bleeding() else "Died of a wound infection"
+		take_damage(-dh, Vector3.ZERO, false)
+	if body.infected and body.infection >= 1.0 and not dead:
+		death_cause = "Turned into a zombie"
+		turned = true
+		take_damage(health + 1.0, Vector3.ZERO, false)
+		return
+	_update_symptoms(delta)
+	if ch.has_trait("smoker") and craving() and not _crave_told:
+		_crave_told = true
+		GameState.notify("You're craving a cigarette")
+
+
+## The infection makes you cough (zombies hear it) and saps your strength.
+func _update_symptoms(delta: float) -> void:
+	var sym := body.symptoms()
+	if sym <= 0.0:
+		return
+	_cough_t -= delta
+	if _cough_t <= 0.0:
+		_cough_t = randf_range(18.0, 50.0) * (1.2 - sym)
+		GameState.make_noise(global_position, 14.0 + sym * 10.0)
+		_shake = maxf(_shake, 0.4 + sym * 0.5)
+		GameState.notify("*cough*" if sym < 0.6 else "You cough up blood")
+
+
+func max_stamina() -> float:
+	return 100.0 * (1.0 - body.symptoms() * 0.45) * (1.0 - body.pain() * 0.25)
+
+
+func craving() -> bool:
+	return GameState.character.has_trait("smoker") and body.since_smoke > 6.0
+
+
+## Hard landings sprain or break legs.
+func _land(speed: float) -> void:
+	if speed < 9.5 or dead:
+		return
+	var leg := "leg_l" if randf() < 0.5 else "leg_r"
+	death_cause = "Fell to their death"
+	take_damage((speed - 9.5) * 9.0, global_position)
+	if speed > 14.0 and randf() < 0.7:
+		body.add("fracture", leg)
+		GameState.notify("You hear a crack. Your %s is broken." % ItemDB.PART_NAMES[leg].to_lower())
+	elif speed > 11.0:
+		body.add("sprain", leg)
+		GameState.notify("You sprained your %s" % ItemDB.PART_NAMES[leg].to_lower())
 
 
 func use_stamina(amount: float) -> void:
+	var ch := GameState.character
+	amount *= ch.mod("stamina") * (1.0 - ch.skill("fitness") * 0.04)
 	stamina = maxf(0.0, stamina - amount)
 	_stamina_delay = 1.0
 	if stamina <= 0.0:
@@ -240,7 +328,9 @@ func _update_noise(delta: float, moving: bool) -> void:
 	_noise_t -= delta
 	if moving and is_on_floor() and _noise_t <= 0.0:
 		_noise_t = 0.5
-		GameState.make_noise(global_position, 16.0 if sprinting else (1.2 if crouching else 6.0))
+		var ch := GameState.character
+		var loud := ch.mod("noise") * (1.0 - ch.skill("stealth") * 0.05)
+		GameState.make_noise(global_position, (16.0 if sprinting else (1.2 if crouching else 6.0)) * loud)
 
 
 func _update_camera(delta: float, moving: bool) -> void:
@@ -282,7 +372,7 @@ func visibility() -> float:
 		v *= 0.8
 		if GameState.is_night() and not flashlight.visible:
 			v *= 0.6
-	return v
+	return v * (1.0 - GameState.character.skill("stealth") * 0.04)
 
 
 func hidden() -> bool:
@@ -336,7 +426,7 @@ func _aim_assist(delta: float, pad_look: Vector2) -> void:
 		_assist_t = 0.1
 		_assist_target = _assist_candidate() if GameState.using_gamepad() else null
 	var z := _assist_target
-	if z == null or z.state == Zombie.State.DEAD or weapons.aim_blend < 0.5:
+	if z == null or not z.alive() or weapons.aim_blend < 0.5:
 		return
 	if pad_look == Vector2.ZERO and velocity.length() < 0.5:
 		return
@@ -349,19 +439,37 @@ func _aim_assist(delta: float, pad_look: Vector2) -> void:
 
 # --- Interaction -------------------------------------------------------------
 
-## Finds what the player is looking at: a door (raycast), a container or an
-## item on the ground (nearest one in front, within reach).
+## Finds what the player is looking at: a door or window (raycast), a
+## subdued turned player, a container or an item on the ground (nearest one
+## in front, within reach).
 func _update_focus() -> void:
 	_focus = null
 	prompt = ""
+	prompt_action = "interact"
+	hold_prompt = ""
 	var from := camera.global_position
 	var fwd := -camera.global_basis.z
 	var space := get_world_3d().direct_space_state
-	var hit := space.intersect_ray(PhysicsRayQueryParameters3D.create(from, from + fwd * REACH, 1, [get_rid()]))
-	if not hit.is_empty() and hit.collider is DoorBody:
-		_focus = hit.collider
-		prompt = "Close door" if hit.collider.is_open else "Open door"
-		return
+	var hit := space.intersect_ray(PhysicsRayQueryParameters3D.create(from, from + fwd * REACH, 1 | 4 | WindowBody.SMASHED_LAYER, [get_rid()]))
+	if not hit.is_empty():
+		var c: Object = hit.collider
+		if c is DoorBody:
+			_focus = c
+			prompt = c.prompt(global_position)
+			hold_prompt = "lock" if c.can_lock(global_position) and not c.locked else ("unlock" if c.can_lock(global_position) else "")
+			return
+		if c is WindowBody:
+			_focus = c
+			if c.smashed:
+				prompt = "Climb through window"
+			elif weapons.current == "melee" or weapons.current == "":
+				prompt = "Smash window"
+				prompt_action = "attack"
+			return
+		if c is Zombie and c.subdued:
+			_focus = c
+			prompt = "Give the cure (%s)" % c.turned_name if GameState.item_count("cure_vial") > 0 else "%s needs a cure vial" % c.turned_name
+			return
 	var best_score := 0.0
 	var candidates: Array = []
 	if streamer:
@@ -382,8 +490,13 @@ func _update_focus() -> void:
 	if _focus == null:
 		if weapons.current == "melee" and crouching and _takedown_ready():
 			prompt = "Silent takedown"
+			prompt_action = "attack"
 		return
 	if _focus.has("pos"):
+		if _focus.type == "generator":
+			prompt = "Generator running" if GameState.has_power(_focus.site) else "Start generator"
+			hold_prompt = "" if GameState.has_power(_focus.site) else "start"
+			return
 		var opened := GameState.containers.has(_focus.id)
 		var empty := opened and (GameState.containers[_focus.id] as Array).is_empty()
 		prompt = ("%s (empty)" if empty else "Search %s") % Loot.label(_focus.type)
@@ -406,19 +519,100 @@ func _takedown_ready() -> bool:
 	return false
 
 
+## Tap interact to use things; hold it to lock or unlock a door or to start
+## a generator.
+func _update_interact(delta: float) -> void:
+	if Input.is_action_just_pressed("interact"):
+		_hold_t = 0.0
+		_hold_done = hold_prompt == ""
+		if _hold_done:
+			_interact()
+	elif Input.is_action_pressed("interact") and not _hold_done:
+		_hold_t += delta
+		if _hold_t >= _hold_needed():
+			_hold_done = true
+			_interact_hold()
+	elif not Input.is_action_pressed("interact") and not _hold_done:
+		_hold_done = true
+		_interact()
+	if not Input.is_action_pressed("interact"):
+		_hold_t = 0.0
+
+
+func _hold_needed() -> float:
+	return 2.5 if hold_prompt == "start" else 0.5
+
+
+## 0..1 while interact is held on something holdable (for the HUD ring).
+func hold_progress() -> float:
+	if _hold_done or hold_prompt == "" or _hold_t < 0.12:
+		return 0.0
+	return clampf(_hold_t / _hold_needed(), 0.0, 1.0)
+
+
 func _interact() -> void:
 	if _focus == null:
 		return
 	if _focus is DoorBody:
 		_focus.interact(global_position)
-		GameState.make_noise(global_position, 4.0)
+	elif _focus is WindowBody:
+		if _focus.smashed:
+			_start_climb(_focus)
+	elif _focus is Zombie:
+		if GameState.item_count("cure_vial") > 0:
+			GameState.inventory.take("cure_vial", 1)
+			_focus.cure()
+			GameState.notify("You inject the cure. %s is coming back..." % _focus.turned_name)
 	elif _focus.has("pos"):
+		if _focus.type == "generator":
+			if not GameState.has_power(_focus.site):
+				GameState.notify("Hold to start the generator (it's loud)")
+			return
 		GameState.container_items(_focus)
 		GameState.make_noise(global_position, 2.0)
 		open_inventory.emit(_focus)
 	else:
 		pick_up(_focus)
 	_prompt_t = 0.0
+
+
+func _interact_hold() -> void:
+	if _focus is DoorBody:
+		_focus.toggle_lock(global_position)
+	elif _focus is Dictionary and _focus.has("pos") and _focus.type == "generator":
+		GameState.set_power(_focus.site, _focus.pos)
+		GameState.make_noise(_focus.pos, 120.0)
+		GameState.notify("The generator roars to life. Power is on - and every zombie heard it.")
+	_prompt_t = 0.0
+
+
+## Climbing through a smashed window takes a moment and leaves you exposed.
+func _start_climb(w: WindowBody) -> void:
+	var n := w.global_basis.z
+	var side := 1.0 if (global_position - w.global_position).dot(n) < 0.0 else -1.0
+	_climb_from = global_position
+	_climb_to = w.global_position + n * side * 0.75
+	# Land on whatever floor is on the far side.
+	var down := get_world_3d().direct_space_state.intersect_ray(PhysicsRayQueryParameters3D.create(
+			_climb_to + Vector3(0, 0.5, 0), _climb_to - Vector3(0, 4.0, 0), 1, [get_rid()]))
+	_climb_to.y = (down.position.y if not down.is_empty() else global_position.y) + 0.05
+	_climb_t = 1.0
+	crouching = false
+	collision_mask = 0
+	velocity = Vector3.ZERO
+	GameState.make_noise(global_position, 6.0)
+
+
+func _update_climb(delta: float) -> void:
+	_climb_t -= delta
+	var t := 1.0 - maxf(_climb_t, 0.0)
+	var p := _climb_from.lerp(_climb_to, t)
+	p.y = lerpf(_climb_from.y, _climb_to.y, t) + sin(t * PI) * 0.9
+	global_position = p
+	if _climb_t <= 0.0:
+		_climb_t = 0.0
+		collision_mask = 1 | 4
+	_update_camera(delta, false)
 
 
 func pick_up(drop: Dictionary) -> void:
@@ -429,20 +623,37 @@ func pick_up(drop: Dictionary) -> void:
 
 # --- Items -------------------------------------------------------------------
 
-## Eats, drinks or applies an item from the inventory. Returns true if used.
+## Eats, drinks, smokes or applies an item from the inventory. Returns
+## true if it was used.
 func consume(it: Dictionary) -> bool:
 	if dead or not ItemDB.is_consumable(it.id):
 		return false
 	var d := ItemDB.get_def(it.id)
+	if it.id == "cigarettes":
+		body.since_smoke = 0.0
+		_crave_told = false
+		stamina = minf(max_stamina(), stamina + 10.0)
+		it.u = int(it.get("u", 1)) - 1
+		if int(it.u) <= 0:
+			GameState.inventory.detach(it)
+		GameState.inventory.notify()
+		GameState.notify("You smoke a cigarette")
+		return true
+	var msg := ""
+	if d.get("cat", "") == "medical":
+		msg = body.treat(it.id)
+		if msg == "" and (health >= 99.0 or float(d.get("health", 0.0)) <= 0.0):
+			GameState.notify("You don't need %s right now" % ItemDB.item_name(it.id))
+			return false
 	hunger = clampf(hunger + float(d.get("hunger", 0.0)), 0.0, 100.0)
 	thirst = clampf(thirst + float(d.get("thirst", 0.0)), 0.0, 100.0)
 	health = minf(100.0, health + float(d.get("health", 0.0)))
-	stamina = minf(100.0, stamina + float(d.get("stamina", 0.0)))
+	stamina = minf(max_stamina(), stamina + float(d.get("stamina", 0.0)))
 	it.n = int(it.get("n", 1)) - 1
 	if int(it.n) <= 0:
 		GameState.inventory.detach(it)
 	GameState.inventory.notify()
-	GameState.notify("Used %s" % ItemDB.item_name(it.id))
+	GameState.notify(msg if msg != "" else "Used %s" % ItemDB.item_name(it.id))
 	if it.id == "water_bottle":
 		# Keep the empty bottle: it's a throwable distraction.
 		GameState.add_item(ItemDB.make("glass_bottle"), global_position)
@@ -450,15 +661,107 @@ func consume(it: Dictionary) -> bool:
 
 
 ## Uses the first carried item in one of the categories (`first`, then
-## `fallback`). Bound to the quick-use buttons.
+## `fallback`). Bound to the quick-use buttons. Quick heal picks the
+## treatment for your most urgent problem (stitches before bandages, etc.).
 func quick_use(first: Array, fallback: Array) -> void:
+	if "medical" in first:
+		for need in body.needs():
+			var it := _find_treatment(need)
+			if not it.is_empty() and consume(it):
+				return
+		if health < 99.0:
+			for g in GameState.inventory.grids():
+				for it in g.items:
+					var d := ItemDB.get_def(it.id)
+					if d.get("cat", "") == "medical" and float(d.get("health", 0.0)) > 0.0 and it.id != "cure_vial":
+						consume(it)
+						return
+		GameState.notify("Nothing to treat" if body.needs().is_empty() and health >= 99.0 else "No medical supplies for that")
+		return
 	for cats in [first, fallback]:
 		for g in GameState.inventory.grids():
 			for it in g.items:
 				if ItemDB.get_def(it.id).get("cat", "") in cats:
 					consume(it)
 					return
-	GameState.notify("Nothing to %s" % ("heal with" if "medical" in first else "eat or drink"))
+	GameState.notify("Nothing to eat or drink")
+
+
+## The carried item that best treats a need (cheapest first: bandages
+## before first aid kits).
+func _find_treatment(need: String) -> Dictionary:
+	var order := {"bleed": ["bandage", "rag", "first_aid_kit"], "deep": ["suture_kit", "first_aid_kit"],
+		"fracture": ["splint"], "wound_infection": ["alcohol_wipes", "antibiotics", "first_aid_kit"],
+		"infection": ["cure_vial", "antibiotics"], "pain": ["painkillers"]}
+	for id: String in order.get(need, []):
+		if need == "infection" and id == "antibiotics" and body.antibiotics > 0.0:
+			continue
+		var it := GameState.inventory.find(id)
+		if not it.is_empty():
+			return it
+	return {}
+
+
+## A zombie's attack lands. Clothing on the body part it hits may stop it
+## breaking the skin; otherwise it leaves a wound, and a bite can infect.
+## `kind`: "claw" (most attacks), "bite", "heavy" (brutes) or "ankle"
+## (crawlers grabbing your legs).
+func zombie_hit(dmg: float, from: Vector3, kind := "claw") -> void:
+	if dead:
+		return
+	var ch := GameState.character
+	var parts := ["arm_l", "arm_r", "torso", "torso", "arm_l", "arm_r", "head", "leg_l", "leg_r"]
+	var part: String = ("leg_l" if randf() < 0.5 else "leg_r") if kind == "ankle" else parts[randi() % parts.size()]
+	var bite := kind == "bite" or kind == "ankle" or randf() < 0.35
+	var guard := GameState.inventory.protection(part, "bite" if bite else "scratch", kind == "ankle")
+	GameState.inventory.tear(part, randf_range(0.03, 0.08))
+	var where: String = str(ItemDB.PART_NAMES[part]).to_lower()
+	# Thick skin (mod below 1) sometimes holds even when the clothes don't.
+	if randf() < guard or randf() > ch.mod("skin"):
+		# Bruised, but the skin held.
+		take_damage(dmg * 0.35, from)
+		GameState.notify("Your clothes stopped the %s on your %s" % ["bite" if bite else "scratch", where])
+		return
+	death_cause = "Killed by zombies"
+	take_damage(dmg, from)
+	if kind == "heavy" and randf() < 0.25:
+		body.add("fracture", part if part != "head" and part != "torso" else "arm_l")
+		GameState.notify("The blow breaks a bone!")
+		return
+	var dirty := randf() < float(Health.KINDS["bite" if bite else "scratch"].dirty)
+	if bite:
+		body.add("bite", part, dirty)
+		GameState.notify("You've been bitten on the %s!" % where)
+		if randf() < GameState.infection_chance():
+			body.infect(randf())
+	else:
+		var deep := kind == "heavy" or randf() < 0.12
+		body.add("deep_wound" if deep else ("laceration" if randf() < 0.4 else "scratch"), part, dirty)
+		GameState.notify("%s on your %s" % ["Deep wound" if deep else "Scratched", where])
+
+
+## Fire and explosions leave burns and wounds as well as damage.
+func hurt(amount: float, from: Vector3, kind: String) -> void:
+	if dead:
+		return
+	match kind:
+		"fire":
+			death_cause = "Burned to death"
+			if not body.has("burn") or randf() < 0.1:
+				var part: String = ["arm_l", "arm_r", "leg_l", "leg_r", "torso"][randi() % 5]
+				body.add("burn", part)
+		"blast":
+			death_cause = "Blown up"
+			if amount > 25.0:
+				body.add("deep_wound" if amount > 50.0 else "laceration", ["arm_l", "arm_r", "leg_l", "leg_r", "torso"][randi() % 5], false)
+	take_damage(amount, from)
+
+
+## A crawler has you by the ankle: you can barely move.
+func grab(time: float, msg := "Something grabs your ankle!") -> void:
+	_grab_t = maxf(_grab_t, time)
+	if msg != "":
+		GameState.notify(msg)
 
 
 func take_damage(amount: float, _from: Vector3, feedback := true) -> void:
@@ -473,6 +776,11 @@ func take_damage(amount: float, _from: Vector3, feedback := true) -> void:
 		dead = true
 		crouching = false
 		flashlight.visible = false
+		if death_cause == "":
+			death_cause = "Killed by zombies"
+		# An infected survivor rises again, whatever killed them.
+		if body.infected:
+			turned = true
 		var tw := create_tween()
 		tw.tween_property(head, "position:y", 0.3, 0.6)
 		tw.parallel().tween_property(head, "rotation:z", deg_to_rad(70), 0.6)
@@ -487,8 +795,14 @@ func respawn(pos: Vector3) -> void:
 	thirst = 80.0
 	stamina = 100.0
 	dead = false
+	turned = false
+	death_cause = ""
+	body.clear()
 	crouching = false
 	_exhausted = false
+	_grab_t = 0.0
+	_climb_t = 0.0
+	collision_mask = 1 | 4
 	_last_bob = 0.0
 	head.rotation = Vector3.ZERO
 	head.position.y = EYE_HEIGHT
@@ -499,8 +813,8 @@ func to_dict() -> Dictionary:
 	return {
 		"pos": [global_position.x, global_position.y, global_position.z],
 		"yaw": rotation.y,
-		"health": health, "hunger": hunger, "thirst": thirst,
-		"weapon": weapons.current,
+		"health": health, "hunger": hunger, "thirst": thirst, "stamina": stamina,
+		"weapon": weapons.current, "body": body.to_dict(),
 	}
 
 
@@ -512,4 +826,6 @@ func from_dict(d: Dictionary) -> void:
 	health = maxf(1.0, float(d.get("health", 100.0)))
 	hunger = float(d.get("hunger", 100.0))
 	thirst = float(d.get("thirst", 100.0))
+	stamina = float(d.get("stamina", 100.0))
+	body.from_dict(d.get("body", {}))
 	weapons.select(str(d.get("weapon", "melee")))

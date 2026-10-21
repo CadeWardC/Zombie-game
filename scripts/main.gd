@@ -2,6 +2,9 @@ extends Node3D
 ## Builds and wires up the game for the current world: generates it on a
 ## background thread (with a loading screen), then sets up the environment,
 ## world streaming, player, zombies, UI, day/night cycle and autosave.
+## Also runs the death rules (respawn, new character, permadeath; turning
+## into a zombie when infected), tracks the explored map and keeps running
+## generators loud.
 
 const AUTOSAVE_INTERVAL := 60.0
 const DAY_SKY := Color(0.58, 0.63, 0.66)
@@ -27,6 +30,9 @@ var _saved_player := {}
 var _gen_task := -1
 var _autosave_t := AUTOSAVE_INTERVAL
 var _night_hint_shown := false
+var _explore_t := 0.0
+var _generator_t := 0.0
+var _creator: CanvasLayer
 
 
 func _ready() -> void:
@@ -39,6 +45,7 @@ func _ready() -> void:
 	_setup_environment()
 	hud = Hud.new()
 	hud.respawn_requested.connect(_respawn)
+	hud.new_character_requested.connect(_new_character)
 	hud.menu_requested.connect(_quit_to_menu)
 	add_child(hud)
 	hud.set_loading(true)
@@ -48,6 +55,11 @@ func _ready() -> void:
 func _generate() -> void:
 	gen.generate(func(f: float, text: String) -> void:
 		hud.call_deferred("set_loading_progress", f, text))
+	# The map image, for the in-game map and the memorial (once per world).
+	var map_path := GameState.world_file(GameState.world, "map.png")
+	if not FileAccess.file_exists(map_path):
+		hud.call_deferred("set_loading_progress", 1.0, "Drawing the map")
+		MapRenderer.render(gen, 320).save_png(map_path)
 
 
 func _exit_tree() -> void:
@@ -75,6 +87,7 @@ func _setup_world() -> void:
 	zombies = ZombieManager.new()
 	zombies.gen = gen
 	zombies.player = player
+	zombies.streamer = streamer
 	add_child(zombies)
 	player.zombies = zombies
 	hud.connect_player(player)
@@ -84,6 +97,7 @@ func _setup_world() -> void:
 	drops.player = player
 	drops.zombies = zombies
 	add_child(drops)
+	zombies.drops = drops
 	player.drops = drops
 	effects = Effects.new()
 	effects.player = player
@@ -112,6 +126,7 @@ func _setup_world() -> void:
 		player.touch = touch
 
 	pause_menu = PauseMenu.new()
+	pause_menu.player = player
 	pause_menu.save_requested.connect(save_game)
 	pause_menu.menu_requested.connect(_quit_to_menu)
 	add_child(pause_menu)
@@ -166,8 +181,10 @@ func apply_quality() -> void:
 	streamer.shadows = q.shadows
 	streamer.rebuild_all()
 	player.camera.far = far
-	env.fog_depth_begin = far * 0.3
-	env.fog_depth_end = far * 0.95
+	# Short-sighted survivors see the distance fade into fog much sooner.
+	var sight := GameState.character.mod("view")
+	env.fog_depth_begin = far * 0.3 * sight
+	env.fog_depth_end = far * 0.95 * sight
 	sun.shadow_enabled = q.shadows
 	zombies.max_zombies = int(q.max_zombies * GameState.difficulty().zombies)
 	zombies.set_shadows(q.shadows)
@@ -207,6 +224,19 @@ func _process(delta: float) -> void:
 	if _autosave_t <= 0.0:
 		_autosave_t = AUTOSAVE_INTERVAL
 		save_game()
+	_explore_t -= delta
+	if _explore_t <= 0.0:
+		_explore_t = 1.0
+		GameState.explore(player.global_position)
+	# A running generator keeps drawing zombies in.
+	_generator_t -= delta
+	if _generator_t <= 0.0:
+		_generator_t = 8.0
+		for site in GameState.ws.power:
+			var g: Array = GameState.ws.power[site]
+			var gp := Vector3(g[0], g[1], g[2])
+			if gp.distance_to(p) < 400.0:
+				GameState.make_noise(gp, 60.0)
 	if GameState.is_night() and not _night_hint_shown:
 		_night_hint_shown = true
 		GameState.notify("Night falls. Zombies are faster - use your flashlight.")
@@ -229,7 +259,8 @@ func _update_day_night() -> void:
 	env.background_color = sky
 	env.fog_light_color = sky
 	env.ambient_light_color = Color(0.6, 0.62, 0.65).lerp(Color(0.12, 0.15, 0.25), dark)
-	env.ambient_light_energy = lerpf(0.9, 0.35, dark)
+	# Cat's eyes: nights look less dark.
+	env.ambient_light_energy = lerpf(0.9, 0.35 * GameState.character.mod("night_vision"), dark)
 	if dark < 1.0:
 		# The sun travels east to west between 06:00 and 18:00.
 		var a := clampf((t - 6.0) / 12.0 * PI, 0.15, PI - 0.15)
@@ -252,17 +283,47 @@ func _on_player_died() -> void:
 	if inventory_ui.is_open():
 		inventory_ui.close()
 	Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
-	# Everything you carried stays where you fell, for your next life.
 	var at := player.global_position
-	var items := GameState.inventory.all_items()
-	for k in items.size():
-		drops.drop(items[k], at + Vector3(cos(k * 2.4), 0.3, sin(k * 2.4)) * 0.6)
+	var rule := GameState.death_rule()
+	var cause := player.death_cause
+	if player.turned:
+		# The infected rise again, carrying everything they had. In a
+		# multiplayer game friends can subdue and cure them.
+		cause = "Turned into a zombie"
+		var equip := {}
+		for slot in ItemDB.CLOTHING_SLOTS:
+			var it: Dictionary = GameState.inventory.equip[slot]
+			if not it.is_empty():
+				equip[slot] = {"id": it.id, "v": it.get("v", 0), "c": it.get("c", 1.0)}
+		GameState.add_turned({"id": "%s_%d" % [GameState.player_id, int(GameState.hours() * 100.0)],
+			"name": GameState.character.name, "owner": GameState.player_id, "p": [at.x, at.y, at.z],
+			"items": GameState.inventory.all_items().duplicate(true), "char": GameState.character.to_dict(), "equip": equip})
+	else:
+		# Everything you carried stays where you fell, for your next life.
+		var items := GameState.inventory.all_items()
+		for k in items.size():
+			drops.drop(items[k], at + Vector3(cos(k * 2.4), 0.3, sin(k * 2.4)) * 0.6)
 	GameState.inventory.clear()
-	var permadeath := GameState.death_rule() == GameState.DeathRule.PERMADEATH
-	if permadeath:
-		# Stage 3 adds the infection cure, the only way back.
-		GameState.mark_world_lost("Killed by zombies")
-	hud.show_death(true, permadeath)
+	if rule == GameState.DeathRule.PERMADEATH:
+		GameState.mark_world_lost(cause)
+	hud.show_death(true, rule, cause, player.turned)
+
+
+## "New character" worlds: make someone new, then start again.
+func _new_character() -> void:
+	hud.show_death(false)
+	_creator = CanvasLayer.new()
+	_creator.layer = 12
+	add_child(_creator)
+	var cc := CharacterCreator.new()
+	cc.title = "A NEW SURVIVOR"
+	_creator.add_child(cc)
+	cc.done.connect(func(c: Character) -> void:
+		GameState.character = c
+		_creator.queue_free()
+		_creator = null
+		apply_quality()
+		_respawn())
 
 
 func _respawn() -> void:
@@ -271,6 +332,7 @@ func _respawn() -> void:
 	var p := gen.spawn_point(randi())
 	player.respawn(Vector3(p.x, gen.height(p.x, p.z) + 1.0, p.z))
 	GameState.give_starting_kit()
+	GameState.character.stats.days = GameState.day
 	hud.show_death(false)
 	# The spawn town may be far away; wait for its chunks before resuming.
 	player.active = false

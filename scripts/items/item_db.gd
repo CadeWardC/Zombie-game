@@ -16,12 +16,20 @@ extends RefCounted
 ##   throw: effect (noise / bottle / fire / explode / trap)
 ##   attachment: part (scope / sight / muzzle / light), fits (gun ids)
 ##   bag:   slot (back / vest), gw x gh (the grid it adds)
+##   clothing: slot (head / torso / jacket / legs / feet), covers (body areas:
+##          head, torso, arms, legs, feet), bite / scratch (chance 0..1 that it
+##          stops a bite / scratch breaking the skin, at full condition),
+##          warmth, look (how it's drawn on a body), col (colour variants),
+##          gw x gh (pockets it adds, optional)
+##   medical: treats (injury kinds it treats: bleed, deep, fracture,
+##          wound_infection, infection, pain), uses (charges, for kits)
 
 const CAT_COLORS := {
 	"food": Color(0.55, 0.42, 0.22), "drink": Color(0.22, 0.42, 0.6), "medical": Color(0.62, 0.22, 0.22),
 	"melee": Color(0.42, 0.36, 0.3), "gun": Color(0.3, 0.32, 0.34), "bow": Color(0.36, 0.4, 0.28),
 	"ammo": Color(0.5, 0.45, 0.25), "throw": Color(0.45, 0.3, 0.2), "attachment": Color(0.3, 0.3, 0.4),
-	"bag": Color(0.3, 0.38, 0.3),
+	"bag": Color(0.3, 0.38, 0.3), "clothing": Color(0.34, 0.3, 0.38), "key": Color(0.25, 0.42, 0.45),
+	"misc": Color(0.4, 0.38, 0.32),
 }
 
 const ITEMS := {
@@ -35,9 +43,21 @@ const ITEMS := {
 	"water_bottle": {"name": "Water Bottle", "cat": "drink", "w": 1, "h": 2, "kg": 0.55, "stack": 1, "thirst": 40.0},
 	"soda": {"name": "Soda Can", "cat": "drink", "w": 1, "h": 1, "kg": 0.36, "stack": 1, "thirst": 25.0, "hunger": 4.0},
 	# --- Medical ---------------------------------------------------------------
-	"bandage": {"name": "Bandage", "cat": "medical", "w": 1, "h": 1, "kg": 0.05, "stack": 4, "health": 20.0},
-	"painkillers": {"name": "Painkillers", "cat": "medical", "w": 1, "h": 1, "kg": 0.05, "stack": 1, "health": 10.0, "stamina": 40.0},
-	"first_aid_kit": {"name": "First Aid Kit", "cat": "medical", "w": 2, "h": 2, "kg": 0.8, "stack": 1, "health": 60.0},
+	"bandage": {"name": "Bandage", "cat": "medical", "w": 1, "h": 1, "kg": 0.05, "stack": 4, "health": 5.0, "treats": ["bleed"]},
+	"rag": {"name": "Rag", "cat": "medical", "w": 1, "h": 1, "kg": 0.05, "stack": 6, "health": 2.0, "treats": ["bleed"], "dirty": true},
+	"painkillers": {"name": "Painkillers", "cat": "medical", "w": 1, "h": 1, "kg": 0.05, "stack": 1, "health": 5.0, "stamina": 40.0, "treats": ["pain"]},
+	"first_aid_kit": {"name": "First Aid Kit", "cat": "medical", "w": 2, "h": 2, "kg": 0.8, "stack": 1, "health": 40.0,
+		"treats": ["bleed", "deep", "wound_infection"]},
+	"alcohol_wipes": {"name": "Alcohol Wipes", "cat": "medical", "w": 1, "h": 1, "kg": 0.03, "stack": 5, "treats": ["wound_infection"]},
+	"suture_kit": {"name": "Suture Kit", "cat": "medical", "w": 1, "h": 1, "kg": 0.1, "stack": 3, "treats": ["deep"]},
+	"splint": {"name": "Splint", "cat": "medical", "w": 1, "h": 2, "kg": 0.3, "stack": 1, "treats": ["fracture"]},
+	"antibiotics": {"name": "Antibiotics", "cat": "medical", "w": 1, "h": 1, "kg": 0.05, "stack": 1, "treats": ["wound_infection", "infection"]},
+	"cure_vial": {"name": "Cure Vial", "cat": "medical", "w": 1, "h": 1, "kg": 0.1, "stack": 1, "treats": ["cure"]},
+	# --- Misc --------------------------------------------------------------------
+	"cigarettes": {"name": "Cigarettes", "cat": "misc", "w": 1, "h": 1, "kg": 0.03, "stack": 1, "uses": 10},
+	"sewing_kit": {"name": "Sewing Kit", "cat": "misc", "w": 1, "h": 1, "kg": 0.15, "stack": 1, "uses": 5},
+	"keycard_blue": {"name": "Blue Keycard", "cat": "key", "w": 1, "h": 1, "kg": 0.01, "stack": 1},
+	"keycard_red": {"name": "Red Keycard", "cat": "key", "w": 1, "h": 1, "kg": 0.01, "stack": 1},
 	# --- Melee -----------------------------------------------------------------
 	"kitchen_knife": {"name": "Kitchen Knife", "cat": "melee", "w": 2, "h": 1, "kg": 0.2, "stack": 1,
 		"dmg": 22.0, "cd": 0.4, "reach": 1.8, "stam": 4.0, "wear": 0.015},
@@ -105,15 +125,89 @@ const ITEMS := {
 	"hiking_backpack": {"name": "Hiking Backpack", "cat": "bag", "slot": "back", "w": 3, "h": 3, "kg": 1.2, "stack": 1, "gw": 6, "gh": 5},
 	"military_backpack": {"name": "Military Backpack", "cat": "bag", "slot": "back", "w": 3, "h": 3, "kg": 1.6, "stack": 1, "gw": 7, "gh": 6},
 	"tactical_vest": {"name": "Tactical Vest", "cat": "bag", "slot": "vest", "w": 2, "h": 3, "kg": 1.4, "stack": 1, "gw": 5, "gh": 2},
+	# --- Clothing ----------------------------------------------------------------
+	"baseball_cap": {"name": "Baseball Cap", "cat": "clothing", "slot": "head", "w": 1, "h": 1, "kg": 0.1, "stack": 1,
+		"covers": ["head"], "bite": 0.0, "scratch": 0.1, "warmth": 0.5, "look": "cap",
+		"col": [Color(0.15, 0.2, 0.45), Color(0.6, 0.12, 0.1), Color(0.15, 0.15, 0.15)]},
+	"beanie": {"name": "Beanie", "cat": "clothing", "slot": "head", "w": 1, "h": 1, "kg": 0.1, "stack": 1,
+		"covers": ["head"], "bite": 0.05, "scratch": 0.15, "warmth": 2.0, "look": "beanie",
+		"col": [Color(0.2, 0.2, 0.22), Color(0.5, 0.15, 0.12), Color(0.3, 0.35, 0.25)]},
+	"motorcycle_helmet": {"name": "Motorcycle Helmet", "cat": "clothing", "slot": "head", "w": 2, "h": 2, "kg": 1.4, "stack": 1,
+		"covers": ["head"], "bite": 0.7, "scratch": 0.9, "warmth": 1.0, "look": "helmet",
+		"col": [Color(0.1, 0.1, 0.1), Color(0.75, 0.1, 0.08), Color(0.85, 0.85, 0.85)]},
+	"riot_helmet": {"name": "Riot Helmet", "cat": "clothing", "slot": "head", "w": 2, "h": 2, "kg": 1.2, "stack": 1,
+		"covers": ["head"], "bite": 0.8, "scratch": 0.9, "warmth": 1.0, "look": "helmet", "col": [Color(0.12, 0.13, 0.16)]},
+	"military_helmet": {"name": "Military Helmet", "cat": "clothing", "slot": "head", "w": 2, "h": 2, "kg": 1.5, "stack": 1,
+		"covers": ["head"], "bite": 0.7, "scratch": 0.85, "warmth": 1.0, "look": "army_helmet", "col": [Color(0.3, 0.33, 0.22)]},
+	"t_shirt": {"name": "T-Shirt", "cat": "clothing", "slot": "torso", "w": 2, "h": 2, "kg": 0.2, "stack": 1,
+		"covers": ["torso"], "bite": 0.02, "scratch": 0.1, "warmth": 1.0, "look": "tee",
+		"col": [Color(0.55, 0.22, 0.18), Color(0.85, 0.85, 0.82), Color(0.2, 0.3, 0.5), Color(0.25, 0.25, 0.25), Color(0.4, 0.5, 0.3)]},
+	"flannel_shirt": {"name": "Flannel Shirt", "cat": "clothing", "slot": "torso", "w": 2, "h": 2, "kg": 0.4, "stack": 1,
+		"covers": ["torso", "arms"], "bite": 0.05, "scratch": 0.2, "warmth": 2.0, "look": "long",
+		"col": [Color(0.6, 0.15, 0.12), Color(0.2, 0.35, 0.25), Color(0.25, 0.3, 0.5)]},
+	"uniform_shirt": {"name": "Uniform Shirt", "cat": "clothing", "slot": "torso", "w": 2, "h": 2, "kg": 0.35, "stack": 1,
+		"covers": ["torso", "arms"], "bite": 0.05, "scratch": 0.2, "warmth": 1.5, "look": "long", "extra": "badge",
+		"col": [Color(0.12, 0.16, 0.3), Color(0.5, 0.48, 0.38)]},
+	"scrubs_top": {"name": "Scrubs Top", "cat": "clothing", "slot": "torso", "w": 2, "h": 2, "kg": 0.2, "stack": 1,
+		"covers": ["torso"], "bite": 0.02, "scratch": 0.1, "warmth": 0.8, "look": "tee",
+		"col": [Color(0.45, 0.65, 0.68), Color(0.35, 0.45, 0.6)]},
+	"lab_coat": {"name": "Lab Coat", "cat": "clothing", "slot": "jacket", "w": 2, "h": 3, "kg": 0.6, "stack": 1,
+		"covers": ["torso", "arms"], "bite": 0.08, "scratch": 0.25, "warmth": 1.0, "look": "coat", "gw": 2, "gh": 1,
+		"col": [Color(0.88, 0.89, 0.88)]},
+	"hoodie": {"name": "Hoodie", "cat": "clothing", "slot": "jacket", "w": 2, "h": 2, "kg": 0.6, "stack": 1,
+		"covers": ["torso", "arms"], "bite": 0.1, "scratch": 0.3, "warmth": 3.0, "look": "hoodie", "gw": 2, "gh": 1,
+		"col": [Color(0.3, 0.32, 0.3), Color(0.15, 0.15, 0.17), Color(0.45, 0.12, 0.12), Color(0.2, 0.28, 0.45)]},
+	"leather_jacket": {"name": "Leather Jacket", "cat": "clothing", "slot": "jacket", "w": 2, "h": 3, "kg": 1.6, "stack": 1,
+		"covers": ["torso", "arms"], "bite": 0.45, "scratch": 0.7, "warmth": 3.0, "look": "jacket", "gw": 2, "gh": 1,
+		"col": [Color(0.12, 0.1, 0.09), Color(0.32, 0.2, 0.12)]},
+	"hunting_jacket": {"name": "Hunting Jacket", "cat": "clothing", "slot": "jacket", "w": 2, "h": 3, "kg": 1.3, "stack": 1,
+		"covers": ["torso", "arms"], "bite": 0.25, "scratch": 0.55, "warmth": 4.0, "look": "jacket", "gw": 3, "gh": 2,
+		"col": [Color(0.32, 0.3, 0.2), Color(0.85, 0.4, 0.1)]},
+	"firefighter_jacket": {"name": "Firefighter Jacket", "cat": "clothing", "slot": "jacket", "w": 2, "h": 3, "kg": 2.2, "stack": 1,
+		"covers": ["torso", "arms"], "bite": 0.4, "scratch": 0.7, "warmth": 4.0, "look": "jacket", "extra": "vest", "fire": 0.7,
+		"col": [Color(0.55, 0.48, 0.3)]},
+	"riot_armor": {"name": "Riot Armor", "cat": "clothing", "slot": "jacket", "w": 3, "h": 3, "kg": 6.0, "stack": 1,
+		"covers": ["torso", "arms"], "bite": 0.75, "scratch": 0.9, "warmth": 2.0, "look": "armor", "col": [Color(0.12, 0.13, 0.16)]},
+	"military_armor": {"name": "Military Armor", "cat": "clothing", "slot": "jacket", "w": 3, "h": 3, "kg": 8.0, "stack": 1,
+		"covers": ["torso", "arms"], "bite": 0.85, "scratch": 0.95, "warmth": 2.0, "look": "armor", "gw": 4, "gh": 1,
+		"col": [Color(0.3, 0.33, 0.22)]},
+	"jeans": {"name": "Jeans", "cat": "clothing", "slot": "legs", "w": 2, "h": 2, "kg": 0.7, "stack": 1,
+		"covers": ["legs"], "bite": 0.15, "scratch": 0.4, "warmth": 2.0, "look": "pants",
+		"col": [Color(0.2, 0.26, 0.4), Color(0.12, 0.13, 0.17), Color(0.4, 0.45, 0.55)]},
+	"cargo_pants": {"name": "Cargo Pants", "cat": "clothing", "slot": "legs", "w": 2, "h": 2, "kg": 0.8, "stack": 1,
+		"covers": ["legs"], "bite": 0.15, "scratch": 0.45, "warmth": 2.0, "look": "pants", "gw": 4, "gh": 1,
+		"col": [Color(0.42, 0.4, 0.3), Color(0.25, 0.27, 0.2), Color(0.18, 0.18, 0.2)]},
+	"work_pants": {"name": "Work Pants", "cat": "clothing", "slot": "legs", "w": 2, "h": 2, "kg": 1.0, "stack": 1,
+		"covers": ["legs"], "bite": 0.3, "scratch": 0.6, "warmth": 2.5, "look": "pants",
+		"col": [Color(0.3, 0.3, 0.28), Color(0.45, 0.35, 0.2)]},
+	"scrubs_pants": {"name": "Scrubs Pants", "cat": "clothing", "slot": "legs", "w": 2, "h": 2, "kg": 0.2, "stack": 1,
+		"covers": ["legs"], "bite": 0.02, "scratch": 0.1, "warmth": 0.8, "look": "pants",
+		"col": [Color(0.45, 0.65, 0.68), Color(0.35, 0.45, 0.6)]},
+	"military_pants": {"name": "Military Pants", "cat": "clothing", "slot": "legs", "w": 2, "h": 2, "kg": 1.0, "stack": 1,
+		"covers": ["legs"], "bite": 0.3, "scratch": 0.6, "warmth": 2.5, "look": "pants", "gw": 2, "gh": 1,
+		"col": [Color(0.28, 0.3, 0.2)]},
+	"sneakers": {"name": "Sneakers", "cat": "clothing", "slot": "feet", "w": 2, "h": 1, "kg": 0.6, "stack": 1,
+		"covers": ["feet"], "bite": 0.05, "scratch": 0.2, "warmth": 0.5, "look": "shoes",
+		"col": [Color(0.85, 0.85, 0.85), Color(0.15, 0.15, 0.15), Color(0.6, 0.15, 0.1)]},
+	"work_boots": {"name": "Work Boots", "cat": "clothing", "slot": "feet", "w": 2, "h": 1, "kg": 1.4, "stack": 1,
+		"covers": ["feet"], "bite": 0.45, "scratch": 0.8, "warmth": 1.5, "look": "boots", "col": [Color(0.35, 0.22, 0.12)]},
+	"military_boots": {"name": "Military Boots", "cat": "clothing", "slot": "feet", "w": 2, "h": 1, "kg": 1.5, "stack": 1,
+		"covers": ["feet"], "bite": 0.5, "scratch": 0.85, "warmth": 2.0, "look": "boots", "col": [Color(0.1, 0.09, 0.08)]},
 }
+
+## Body areas clothing covers, for each injury location.
+const PART_AREA := {"head": "head", "torso": "torso", "arm_l": "arms", "arm_r": "arms", "leg_l": "legs", "leg_r": "legs"}
+const PART_NAMES := {"head": "Head", "torso": "Torso", "arm_l": "Left arm", "arm_r": "Right arm", "leg_l": "Left leg", "leg_r": "Right leg"}
+const CLOTHING_SLOTS := ["head", "torso", "jacket", "legs", "feet"]
 
 ## Bare hands: what you fight with when no melee weapon is equipped.
 const FISTS := {"name": "Fists", "cat": "melee", "dmg": 9.0, "cd": 0.45, "reach": 1.8, "stam": 4.0, "wear": 0.0}
 
 ## Equipment slots and the categories they take.
-const SLOTS := ["primary", "sidearm", "melee", "throw", "back", "vest"]
+const SLOTS := ["primary", "sidearm", "melee", "throw", "back", "vest", "head", "torso", "jacket", "legs", "feet"]
 const SLOT_NAMES := {"primary": "Primary", "sidearm": "Sidearm", "melee": "Melee", "throw": "Throwable",
-	"back": "Backpack", "vest": "Vest"}
+	"back": "Backpack", "vest": "Vest", "head": "Head", "torso": "Shirt", "jacket": "Jacket", "legs": "Pants",
+	"feet": "Shoes"}
 
 
 static func get_def(id: String) -> Dictionary:
@@ -128,7 +222,7 @@ static func item_name(id: String) -> String:
 static func slot_for(id: String) -> String:
 	var d := get_def(id)
 	match d.get("cat", ""):
-		"gun", "bow", "bag":
+		"gun", "bow", "bag", "clothing":
 			return d.slot
 		"melee":
 			return "melee"
@@ -142,21 +236,26 @@ static func is_ranged(id: String) -> bool:
 
 
 static func is_consumable(id: String) -> bool:
-	return get_def(id).get("cat", "") in ["food", "drink", "medical"]
+	return get_def(id).get("cat", "") in ["food", "drink", "medical"] or id == "cigarettes"
 
 
 ## A fresh item instance (the data that lives in grids, slots and saves):
 ##   id, n (count), c (condition 0..1), a (rounds loaded), att (part -> id),
-##   items (contents of bags), x, y, r (grid position and rotation).
+##   items (contents of bags and pockets), u (uses left), v (colour variant),
+##   x, y, r (grid position and rotation).
 static func make(id: String, count := 1, condition := 1.0) -> Dictionary:
 	var it := {"id": id, "n": count}
 	var d := get_def(id)
-	if d.get("cat", "") in ["melee", "gun", "bow"]:
+	if d.get("cat", "") in ["melee", "gun", "bow", "clothing"]:
 		it.c = condition
+	if d.has("uses"):
+		it.u = int(d.uses)
+	if d.has("col"):
+		it.v = 0
 	if d.get("cat", "") in ["gun", "bow"]:
 		it.a = 0
 		it.att = {}
-	if d.get("cat", "") == "bag":
+	if d.get("cat", "") == "bag" or d.has("gw"):
 		it.items = []
 	return it
 
@@ -181,6 +280,10 @@ static func describe(it: Dictionary) -> String:
 			for k: String in ["hunger", "thirst", "health", "stamina"]:
 				if d.has(k):
 					parts.append("%s %+d" % [k.capitalize(), int(d[k])])
+			for t: String in d.get("treats", []):
+				parts.append({"bleed": "Stops bleeding", "deep": "Closes deep wounds", "fracture": "Sets broken bones",
+					"wound_infection": "Treats wound infection", "infection": "Slows zombie infection",
+					"pain": "Eases pain", "cure": "Cures zombie infection"}[t])
 		"melee":
 			parts.append("Damage %d" % int(d.dmg))
 			parts.append("Speed %.1f/s" % (1.0 / float(d.cd)))
@@ -198,6 +301,16 @@ static func describe(it: Dictionary) -> String:
 			parts.append("Fits: " + ", ".join(d.fits.map(func(g: String) -> String: return item_name(g))))
 		"bag":
 			parts.append("Adds %d x %d slots" % [int(d.gw), int(d.gh)])
+		"clothing":
+			parts.append("Bite %d%%" % int(float(d.bite) * 100.0 * float(it.get("c", 1.0))))
+			parts.append("Scratch %d%%" % int(float(d.scratch) * 100.0 * float(it.get("c", 1.0))))
+			parts.append("Warmth %.1f" % float(d.warmth))
+			if d.has("gw"):
+				parts.append("Pockets %d x %d" % [int(d.gw), int(d.gh)])
+		"key":
+			parts.append("Opens security doors (needs power)")
+		"misc":
+			parts.append("%d uses left" % int(it.get("u", 1)))
 		"throw":
 			parts.append({"bottle": "Shatters loudly: distracts zombies", "noise": "Rings for 15 s: lures zombies",
 				"fire": "Sets an area on fire", "explode": "Explodes after 3 s", "trap": "Place on the ground; holds and hurts"}[d.effect])

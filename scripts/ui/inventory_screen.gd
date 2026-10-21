@@ -1,12 +1,14 @@
 class_name InventoryScreen
 extends CanvasLayer
 ## Tetris-style inventory: equipment slots, pockets / vest / backpack grids,
-## and the open container or the ground nearby. Works three ways:
+## and the open container or the ground nearby. A second tab ("Body") holds
+## the clothing slots and your injuries, with treating, repairing clothes and
+## ripping them into rags. Works three ways:
 ## - touch and mouse: drag and drop; tap to select, double-tap (or right
 ##   click) to quick-move; buttons for the rest.
 ## - gamepad: a cell cursor moved with the D-pad or stick. A picks up / puts
 ##   down, X quick-moves, Y uses or equips, RB rotates, LB drops, LT sorts,
-##   RT takes everything, B cancels or closes.
+##   RT takes everything, L3 switches tabs, B cancels or closes.
 ## The game keeps running while it's open (it's a survival game).
 
 signal closed
@@ -22,6 +24,11 @@ const BAD := Color(0.85, 0.25, 0.2, 0.5)
 const SLOT_BOXES := {
 	"primary": Rect2(0, 0, 5, 2), "sidearm": Rect2(0, 2.6, 3, 2), "throw": Rect2(3.2, 2.6, 1.8, 2),
 	"melee": Rect2(0, 5.2, 5, 2), "back": Rect2(0, 7.8, 2.4, 2), "vest": Rect2(2.6, 7.8, 2.4, 2),
+}
+## Clothing slots on the Body tab.
+const BODY_BOXES := {
+	"head": Rect2(1.3, 0, 2.4, 2), "torso": Rect2(0, 2.3, 2.4, 2.4), "jacket": Rect2(2.6, 2.3, 2.4, 2.4),
+	"legs": Rect2(0, 5.0, 2.4, 2.4), "feet": Rect2(2.6, 5.0, 2.4, 2.4),
 }
 
 var player: Player
@@ -47,6 +54,9 @@ var _repeat_t := 0.0
 var _repeating := false
 var _trigger_down := {}
 var _opened_frame := -1
+var _tab := "gear" # "gear" or "body".
+var _health_rect := Rect2()
+var _hy := 0.0 # Text cursor while drawing the health panel.
 
 
 func _ready() -> void:
@@ -81,12 +91,13 @@ func _ready() -> void:
 	var row := HBoxContainer.new()
 	row.add_theme_constant_override("separation", 8)
 	bar.add_child(row)
-	for b in [["use", "Use"], ["equip", "Equip"], ["rotate", "Rotate"], ["drop", "Drop"], ["unload", "Unload"],
-			["detach", "Detach"], ["sort", "Sort"], ["take_all", "Take All"], ["close", "Close"]]:
+	for b in [["tab", "Body"], ["use", "Use"], ["equip", "Equip"], ["treat", "Treat"], ["repair", "Repair"], ["rip", "Rip Up"],
+			["rotate", "Rotate"], ["drop", "Drop"], ["unload", "Unload"], ["detach", "Detach"], ["sort", "Sort"],
+			["take_all", "Take All"], ["close", "Close"]]:
 		var btn := Button.new()
 		btn.text = b[1]
 		btn.focus_mode = Control.FOCUS_NONE
-		btn.custom_minimum_size = Vector2(104, 52)
+		btn.custom_minimum_size = Vector2(92, 52)
 		btn.add_theme_font_size_override("font_size", 19)
 		btn.pressed.connect(_on_button.bind(b[0]))
 		row.add_child(btn)
@@ -126,6 +137,8 @@ func is_open() -> bool:
 ## Opens the inventory, with a container to loot (or {} for none).
 func open(container: Dictionary) -> void:
 	_container = container
+	if not container.is_empty():
+		_tab = "gear"
 	_held = {}
 	_selected = {}
 	_press = {}
@@ -162,9 +175,9 @@ func _layout() -> void:
 	for g in grids:
 		mid_cells += g.h + 0.8
 		mid_w = maxf(mid_w, g.w)
-	var right := _right_grids()
+	var right := _right_grids() if _tab == "gear" else ([] as Array[ItemGrid])
 	var right_cells := 0.0
-	var right_w := 5.0
+	var right_w := 5.0 if _tab == "gear" else 7.0
 	for g in right:
 		right_cells += g.h + 0.8
 		right_w = maxf(right_w, g.w)
@@ -175,8 +188,9 @@ func _layout() -> void:
 	var x0 := (size.x - total_w) * 0.5
 	var y0 := 46.0
 	_areas.clear()
-	for s in SLOT_BOXES:
-		var b: Rect2 = SLOT_BOXES[s]
+	var boxes: Dictionary = SLOT_BOXES if _tab == "gear" else BODY_BOXES
+	for s in boxes:
+		var b: Rect2 = boxes[s]
 		_areas.append({"kind": "slot", "key": s, "slot": s, "rect": Rect2(x0 + b.position.x * _cell, y0 + 22 + b.position.y * _cell, b.size.x * _cell, b.size.y * _cell)})
 	var x := x0 + (5.0 + GAP) * _cell
 	var y := y0
@@ -185,6 +199,7 @@ func _layout() -> void:
 		y += 22 + g.h * _cell + _cell * 0.5
 	x += (mid_w + GAP) * _cell
 	y = y0
+	_health_rect = Rect2(x, y0 + 22, right_w * _cell, minf(size.y - 200.0 - y0, 12.0 * _cell))
 	for g in right:
 		_areas.append({"kind": "grid", "key": g.key, "grid": g, "rect": Rect2(x, y + 22, g.w * _cell, g.h * _cell)})
 		y += 22 + g.h * _cell + _cell * 0.5
@@ -531,6 +546,64 @@ func _on_button(id: String) -> void:
 			_take_all()
 		"close":
 			close()
+		"tab":
+			_set_tab("body" if _tab == "gear" else "gear")
+		"treat":
+			player.quick_use(["medical"], [])
+			_inv().notify()
+		"repair":
+			_repair(it)
+		"rip":
+			_rip(it)
+
+
+func _set_tab(t: String) -> void:
+	if not _held.is_empty():
+		_return_held()
+	_tab = t
+	_selected = {}
+	_cursor = {"area": _area_index("pockets"), "x": 0, "y": 0}
+	_refresh()
+	_cursor = {"area": _area_index("pockets"), "x": 0, "y": 0}
+
+
+## Sewing kit: patches up a worn piece of clothing.
+func _repair(it: Dictionary) -> void:
+	if it.is_empty() or ItemDB.get_def(it.id).get("cat", "") != "clothing":
+		return
+	var kit := _inv().find("sewing_kit")
+	if kit.is_empty():
+		GameState.notify("You need a sewing kit")
+		return
+	if float(it.get("c", 1.0)) >= 0.99:
+		GameState.notify("It doesn't need mending")
+		return
+	it.c = minf(1.0, float(it.get("c", 1.0)) + 0.35)
+	kit.u = int(kit.get("u", 1)) - 1
+	if int(kit.u) <= 0:
+		_inv().detach(kit)
+		GameState.notify("Mended your %s. The sewing kit is used up." % ItemDB.item_name(it.id))
+	else:
+		GameState.notify("Mended your %s" % ItemDB.item_name(it.id))
+	_inv().notify()
+
+
+## Tears a piece of clothing into rags (makeshift bandages).
+func _rip(it: Dictionary) -> void:
+	if it.is_empty() or ItemDB.get_def(it.id).get("cat", "") != "clothing":
+		return
+	var d := ItemDB.get_def(it.id)
+	if d.look in ["helmet", "army_helmet", "armor", "boots"]:
+		GameState.notify("You can't tear that up")
+		return
+	var n := clampi(int(d.w) * int(d.h) - 1, 1, 4)
+	_lift(it)
+	for sub in it.get("items", []):
+		_give_to_player(sub)
+	_give_to_player(ItemDB.make("rag", n))
+	GameState.notify("Ripped the %s into %d rags" % [ItemDB.item_name(it.id), n])
+	_selected = {}
+	_inv().notify()
 
 
 # --- Pointer (mouse and touch) -----------------------------------------------
@@ -682,6 +755,8 @@ func _input(event: InputEvent) -> void:
 				_lift(under)
 				_drop(under)
 				_inv().notify()
+		JOY_BUTTON_LEFT_STICK:
+			_set_tab("body" if _tab == "gear" else "gear")
 	get_viewport().set_input_as_handled()
 	_update_info()
 	_board.queue_redraw()
@@ -755,13 +830,20 @@ func _update_info() -> void:
 	_buttons.drop.visible = not it.is_empty() and where != "ground"
 	_buttons.unload.visible = cat == "gun" and int(it.get("a", 0)) > 0
 	_buttons.detach.visible = not it.get("att", {}).is_empty()
-	_buttons.take_all.visible = not _container.is_empty() or not _ground_map.is_empty()
+	_buttons.take_all.visible = _tab == "gear" and (not _container.is_empty() or not _ground_map.is_empty())
+	_buttons.tab.text = "Gear" if _tab == "body" else "Body"
+	_buttons.tab.visible = true
+	_buttons.treat.visible = _tab == "body"
+	_buttons.repair.visible = cat == "clothing" and float(it.get("c", 1.0)) < 0.99 and _inv().count("sewing_kit") > 0
+	_buttons.rip.visible = cat == "clothing" and _tab == "body"
+	_buttons.unload.visible = _buttons.unload.visible and _tab == "gear"
+	_buttons.detach.visible = _buttons.detach.visible and _tab == "gear"
 	_buttons.close.visible = true
 	for b in _buttons.values():
 		if _pad_mode:
 			b.visible = false # Gamepad hints are drawn instead.
 	var inv := _inv()
-	_weight.text = "Carrying %.1f / %.0f kg%s" % [inv.weight(), Inventory.CARRY_KG, "  (slowed)" if inv.speed_factor() < 1.0 else ""]
+	_weight.text = "Carrying %.1f / %.0f kg%s" % [inv.weight(), Inventory.CARRY_KG * inv.carry_mult, "  (slowed)" if inv.speed_factor() < 1.0 else ""]
 
 
 # --- Drawing -------------------------------------------------------------------
@@ -773,7 +855,9 @@ func _draw_board() -> void:
 	# Column titles.
 	if not _areas.is_empty():
 		var first: Rect2 = _areas[0].rect
-		_text(font, Vector2(first.position.x, 34), "EQUIPPED", 18, Color(0.85, 0.82, 0.75))
+		_text(font, Vector2(first.position.x, 34), "EQUIPPED" if _tab == "gear" else "CLOTHES", 18, Color(0.85, 0.82, 0.75))
+	if _tab == "body":
+		_draw_health(font)
 	for a in _areas:
 		var r: Rect2 = a.rect
 		if a.kind == "slot":
@@ -905,7 +989,8 @@ func _text(font: Font, pos: Vector2, t: String, fs: int, col: Color) -> void:
 func _draw_pad_hints(font: Font) -> void:
 	var hints := [["ui_accept", "Put down" if not _held.is_empty() else "Pick up"], ["reload", "Quick move"],
 		["flashlight", "Use / equip"], ["shove", "Rotate"], ["throw_quick", "Drop"], ["aim", "Sort"],
-		["attack", "Take all"], ["ui_cancel", "Cancel" if not _held.is_empty() else "Close"]]
+		["attack", "Take all"], ["sprint", "Gear" if _tab == "body" else "Body"],
+		["ui_cancel", "Cancel" if not _held.is_empty() else "Close"]]
 	var x := MARGIN
 	var y := _board.size.y - 52.0
 	for h in hints:
@@ -914,3 +999,50 @@ func _draw_pad_hints(font: Font) -> void:
 			continue
 		_text(font, Vector2(x + w + 6, y + 21), h[1], 16, Color(0.9, 0.9, 0.88))
 		x += w + 18 + font.get_string_size(h[1], HORIZONTAL_ALIGNMENT_LEFT, -1, 16).x
+
+
+## The Body tab's right side: who you are, your injuries and how well your
+## clothes protect each part of you.
+func _draw_health(font: Font) -> void:
+	var r := _health_rect
+	if r.size.x <= 0.0 or player == null:
+		return
+	_board.draw_rect(r, CELL_BG)
+	_board.draw_rect(r, FRAME, false, 1.5)
+	var ch := GameState.character
+	var b := player.body
+	_hy = r.position.y + 26.0
+	_text(font, r.position + Vector2(0, -6), "HEALTH", 15, Color(0.85, 0.82, 0.75))
+	_health_line(font, "%s - %s" % [ch.name, Character.BACKGROUNDS[ch.background].name], Color(0.9, 0.88, 0.8), 18)
+	if not ch.traits.is_empty():
+		_health_line(font, ", ".join(ch.traits.map(func(t: String) -> String: return Character.TRAITS[t].name)), Color(0.6, 0.6, 0.58), 13)
+	_health_line(font, "Health %d%%" % int(player.health), Color(0.9, 0.4, 0.35) if player.health < 40.0 else Color(0.8, 0.85, 0.8), 16)
+	if b.injuries.is_empty():
+		_health_line(font, "No injuries", Color(0.6, 0.8, 0.6), 15)
+	for inj in b.injuries:
+		var bad: bool = float(inj.inf) >= Health.FEVER_AT or (not inj.b and not inj.s and float(Health.KINDS[inj.k].bleed) > 0.0)
+		_health_line(font, Health.describe(inj), Color(1.0, 0.55, 0.45) if bad else Color(0.85, 0.82, 0.75), 14)
+	if b.fever():
+		_health_line(font, "Fever: an infected wound. Clean it or take antibiotics.", Color(1.0, 0.6, 0.3), 14)
+	var sym := b.symptoms()
+	if sym > 0.0:
+		var msg := "You feel feverish and weak." if sym < 0.35 else ("Your veins are dark. You're turning." if sym < 0.75 else "Not much time left...")
+		_health_line(font, msg + " Only the cure can stop it.", Color(0.95, 0.35, 0.3), 14)
+	if b.antibiotics > 0.0:
+		_health_line(font, "Antibiotics: %d h left" % ceili(b.antibiotics), Color(0.6, 0.8, 0.9), 13)
+	if b.painkillers > 0.0:
+		_health_line(font, "Painkillers: %d h left" % ceili(b.painkillers), Color(0.6, 0.8, 0.9), 13)
+	_hy += 6.0
+	_health_line(font, "Bite protection", Color(0.85, 0.82, 0.75), 15)
+	for part in ["head", "torso", "arm_l", "leg_l"]:
+		var area: String = {"head": "Head", "torso": "Torso", "arm_l": "Arms", "leg_l": "Legs"}[part]
+		var p := _inv().protection(part, "bite")
+		_health_line(font, "%s  %d%%" % [area, int(p * 100.0)], Color(0.7, 0.75, 0.7), 13)
+	_health_line(font, "Warmth %.1f" % _inv().warmth(), Color(0.7, 0.75, 0.7), 13)
+
+
+func _health_line(font: Font, t: String, col: Color, fs: int) -> void:
+	var r := _health_rect
+	if _hy < r.end.y - 8.0:
+		_board.draw_string(font, Vector2(r.position.x + 12.0, _hy), t, HORIZONTAL_ALIGNMENT_LEFT, r.size.x - 24.0, fs, col)
+	_hy += fs + 7.0

@@ -12,6 +12,7 @@ const MAX_KG := 45.0
 
 var pockets: ItemGrid
 var equip := {}
+var carry_mult := 1.0 # Strength: how much more you can carry comfortably.
 
 
 func _init() -> void:
@@ -21,17 +22,67 @@ func _init() -> void:
 		equip[s] = {}
 
 
-## The grids you carry, in display order: pockets, vest, backpack.
+## The grids you carry, in display order: pockets, jacket and pants
+## pockets, vest, backpack.
 func grids() -> Array[ItemGrid]:
 	var out: Array[ItemGrid] = [pockets]
-	for s in ["vest", "back"]:
+	for s in ["jacket", "legs", "vest", "back"]:
 		var bag: Dictionary = equip[s]
-		if not bag.is_empty():
+		if not bag.is_empty() and bag.has("items"):
 			var d := ItemDB.get_def(bag.id)
 			var g := ItemGrid.new(s, d.name, int(d.gw), int(d.gh), bag.items)
-			g.limit = 2 if s == "vest" else 0
+			g.limit = 0 if s == "back" else 2
 			out.append(g)
 	return out
+
+
+## How likely worn clothing is to stop an attack on `part` breaking the skin
+## (0..1). `kind` is "bite" or "scratch". Worn-out clothes protect less.
+## `ankle` (crawlers) lets boots count for the legs.
+func protection(part: String, kind: String, ankle := false) -> float:
+	var area: String = ItemDB.PART_AREA.get(part, "torso")
+	var best := 0.0
+	var layers := 0.0
+	for s in ItemDB.CLOTHING_SLOTS:
+		var it: Dictionary = equip[s]
+		if it.is_empty():
+			continue
+		var d := ItemDB.get_def(it.id)
+		var covers: Array = d.get("covers", [])
+		var p := 0.0
+		if area in covers:
+			p = float(d.get(kind, 0.0)) * lerpf(0.3, 1.0, float(it.get("c", 1.0)))
+		elif area == "legs" and "feet" in covers:
+			p = float(d.get(kind, 0.0)) * (1.0 if ankle else 0.35)
+		# Layers add up a little: a shirt under a jacket helps.
+		best = maxf(best, p)
+		layers += p
+	return clampf(best + (layers - best) * 0.25, 0.0, 0.97)
+
+
+## Clothes covering `part` take damage from an attack.
+func tear(part: String, amount: float) -> void:
+	var area: String = ItemDB.PART_AREA.get(part, "torso")
+	for s in ItemDB.CLOTHING_SLOTS:
+		var it: Dictionary = equip[s]
+		if not it.is_empty() and area in ItemDB.get_def(it.id).get("covers", []):
+			it.c = maxf(0.0, float(it.get("c", 1.0)) - amount)
+			if float(it.c) <= 0.0:
+				GameState.notify("Your %s is torn to shreds" % ItemDB.item_name(it.id))
+				equip[s] = {}
+				# Whatever was in its pockets moves to other pockets, if there's room.
+				for sub in it.get("items", []):
+					add(sub, false)
+	notify()
+
+
+## Total warmth of worn clothes (used by temperature in a later stage).
+func warmth() -> float:
+	var w := 0.0
+	for s in ItemDB.CLOTHING_SLOTS:
+		if not equip[s].is_empty():
+			w += float(ItemDB.get_def(equip[s].id).get("warmth", 0.0)) * lerpf(0.5, 1.0, float(equip[s].get("c", 1.0)))
+	return w
 
 
 func notify() -> void:
@@ -145,9 +196,10 @@ func weight() -> float:
 ## 1.0 when lightly loaded, down to 0.5 at MAX_KG.
 func speed_factor() -> float:
 	var kg := weight()
-	if kg <= CARRY_KG:
+	var carry := CARRY_KG * carry_mult
+	if kg <= carry:
 		return 1.0
-	return lerpf(1.0, 0.5, clampf((kg - CARRY_KG) / (MAX_KG - CARRY_KG), 0.0, 1.0))
+	return lerpf(1.0, 0.5, clampf((kg - carry) / (MAX_KG * carry_mult - carry), 0.0, 1.0))
 
 
 func clear() -> void:
@@ -190,7 +242,7 @@ func from_dict(d: Dictionary) -> void:
 ## JSON turns ints into floats; put the integer fields back.
 static func _clean(it: Dictionary) -> Dictionary:
 	var o := it.duplicate(true)
-	for k in ["n", "x", "y", "a"]:
+	for k in ["n", "x", "y", "a", "u", "v"]:
 		if o.has(k):
 			o[k] = int(o[k])
 	if o.has("r"):

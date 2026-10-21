@@ -16,8 +16,11 @@ static var props := {} # name -> ArrayMesh
 static var cars: Array[ArrayMesh] = []
 static var car_shape: BoxShape3D
 static var door_mesh: ArrayMesh
+static var window_mesh: BoxMesh # Unit pane, scaled per window.
 static var tree_shape: CylinderShape3D
 static var zombie_shape: CapsuleShape3D
+static var brute_shape: CapsuleShape3D
+static var crawler_shape: BoxShape3D
 static var item_meshes := {} # item id -> ArrayMesh (see ItemModels)
 static var particle_material: StandardMaterial3D
 static var flash_material: StandardMaterial3D # Additive glow (muzzle flash, explosions).
@@ -74,6 +77,12 @@ static func build() -> void:
 	var dm := MeshData.new()
 	dm.box(Transform3D(Basis.IDENTITY, Vector3(0.5, 0.5, 0)), Vector3.ONE, Color.WHITE, false)
 	door_mesh = dm.to_mesh(door_material)
+	window_mesh = BoxMesh.new()
+	window_mesh.size = Vector3(1.0, 1.0, 0.02)
+	var wm := glass_material.duplicate() as StandardMaterial3D
+	wm.vertex_color_use_as_albedo = false
+	wm.albedo_color = Color(BuildingParts.GLASS, 0.35)
+	window_mesh.material = wm
 
 	tree_shape = CylinderShape3D.new()
 	tree_shape.radius = 0.3
@@ -81,6 +90,11 @@ static func build() -> void:
 	zombie_shape = CapsuleShape3D.new()
 	zombie_shape.radius = 0.3
 	zombie_shape.height = 1.8
+	brute_shape = CapsuleShape3D.new()
+	brute_shape.radius = 0.42
+	brute_shape.height = 2.25
+	crawler_shape = BoxShape3D.new()
+	crawler_shape.size = Vector3(0.6, 0.45, 1.5)
 	ZombieModel.build_assets()
 	_build_items()
 

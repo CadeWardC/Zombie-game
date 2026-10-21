@@ -171,7 +171,7 @@ func _test_combat(player: Player, zombies: ZombieManager) -> void:
 	var drops_before := GameState.drops.size()
 	w._release_arrow(w.def(), 1.0)
 	await _wait(0.6)
-	_check(z.health < Zombie.MAX_HEALTH, "crossbow bolt hits (health %.0f)" % z.health)
+	_check(z.health < z.max_health, "crossbow bolt hits (health %.0f)" % z.health)
 	_check(GameState.drops.size() >= drops_before, "bolts can be recovered")
 
 	print("Throwables and traps")
