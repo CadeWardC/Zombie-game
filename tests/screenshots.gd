@@ -143,4 +143,20 @@ func _run() -> void:
 		_main.zombies._active[-1].rotation.y = player.rotation.y + PI
 	await get_tree().create_timer(0.3).timeout
 	await _shot("09_dusk_zombies")
+	# Close-up of a zombie.
+	GameState.time_of_day = 11.0
+	var zc: Zombie = _main.zombies._active[0]
+	var zp: Vector3 = zc.global_position
+	_cam.global_position = zp + Vector3(1.6, 1.6, -2.2).rotated(Vector3.UP, zc.rotation.y)
+	_cam.look_at(zp + Vector3(0, 1.2, 0))
+	_cam.current = true
+	await get_tree().create_timer(0.4).timeout
+	await _shot("10_zombie_closeup")
+	# Main menu.
+	_main.queue_free()
+	var menu: Control = load("res://scenes/menu.tscn").instantiate()
+	add_child(menu)
+	await get_tree().create_timer(0.4).timeout
+	await _shot("11_main_menu")
+	GameState.delete_world("screenshots")
 	get_tree().quit()

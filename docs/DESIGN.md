@@ -461,21 +461,18 @@ host can pick a preset or tweak any setting.
 
 ## 17. Art and audio
 
-**Art: detailed low-poly**
-: A cohesive, stylized look that stays cheap on the Tab S6 Lite.
-  - Use **free CC0 asset packs** (e.g. Quaternius and Kenney: animated
-    characters and zombies, cars, suburban and city buildings, props), which
-    can live in the public repo. Exact packs will be chosen after checking
-    their contents and licenses.
-  - Zombies are rigged and animated (walk, run, attack, hit, death) and look
-    varied through mixed body parts, clothes and colors.
-  - Cars come in several body types: sedan, pickup, SUV, van, police car,
-    ambulance, bus.
-  - Buildings use a modular kit (walls, doors, windows, roofs) so houses can
-    be assembled procedurally into many variations with real interiors.
-  - Polygon budgets: zombie ≤ 3k triangles (LODs below that), car ≤ 4k,
-    house exterior ≤ 3k plus interior, with an imposter or simplified mesh
-    far away.
+**Art: realistic low-poly, made in code**
+: The owner chose this over the available free CC0 packs (which are cartoony
+  and chibi-styled).
+  - Everything is generated in code:
+    - terrain and roads
+    - buildings with interiors and furniture
+    - cars and aircraft
+    - trees and street props
+    - rigged, animated zombies with outfit variants
+  - Normal human proportions and a gritty palette: blood, rust, worn paint.
+  - The models can later be replaced with hand-made ones (keep zombies
+    ≤ 3k triangles, cars ≤ 4k) without changing the game code around them.
 
 **Audio: ambient, little music**
 : Wind, birds, rain, creaking houses, distant groans and gunshots carrying
@@ -489,8 +486,8 @@ Each stage ends with a playable build on the Tab S6 Lite and iPhone.
 | Stage | Contents |
 |---|---|
 | **0. Prototype** ✅ | Streaming world, towns, zombies, survival needs, touch and gamepad, APK CI |
-| **1. Map and art** ← next | New world generator (sizes, coast, rivers, biomes), road network, American towns, cities and suburbs, special-location framework (research center and airport first), CC0 asset packs for houses, cars and animated zombies, enterable interiors with doors and loot containers, world-creation screen with multiple saves, unsigned iOS CI |
-| **2. Items and combat** | Tetris inventory, loot tables, guns, bows, throwables, melee shove and durability, stealth, gamepad menu navigation and prompts |
+| **1. Map and art** ✅ | New world generator (sizes, coast, rivers, biomes), road network, American towns, cities and suburbs, special-location framework (research center and airport first), procedural realistic houses, cars and animated zombies, enterable interiors with doors and loot containers, world-creation screen with multiple saves, unsigned iOS CI |
+| **2. Items and combat** ← next | Tetris inventory, loot tables, guns, bows, throwables, melee shove and durability, stealth, gamepad menu navigation and prompts |
 | **3. Character and health** | Character creation with traits, injuries, clothing protection, infection with symptoms, cure vials, the three death rules, curing zombified friends, memorial worlds, all zombie types and abilities |
 | **4. Multiplayer** | 2–4 player hosting, join codes, Wi-Fi discovery, pings, PvP setting, sync of zombies, loot and vehicles |
 | **5. Vehicles** | Cars, bikes, fuel, boats, then helicopters and planes at airports |
@@ -502,7 +499,26 @@ stages 1–3 are written **multiplayer-ready**: world state lives in data
 (not in scene nodes), every gameplay change goes through functions that can
 later become network calls, and randomness is seeded.
 
-## 19. Open questions
+## 19. Stage 1 notes
+
+Done:
+- World sizes and seeds; coast, rivers, lakes, biomes.
+- Roads and bridges.
+- Villages, towns and cities with American layouts.
+- Houses and shops with enterable interiors, doors and loot containers.
+- Airports and research centers (exteriors), gas stations.
+- Animated zombies, detailed cars.
+- Main menu with multiple worlds, threaded generation.
+- Unsigned iOS CI.
+
+Moved to later stages:
+- **Special locations**: military base, prison, power plant, farms and
+  cabins (stage 6), harbors and boats (stage 5).
+- **Research center interior**: the dungeon-style lab interior with
+  keycards and the generator (stage 3, together with the cure).
+- **Zombies**: opening doors and breaking barricades (stage 3).
+
+## 20. Open questions
 
 - Which free relay service to use for internet join codes.
 - Exact asset packs (checked for license and Tab S6 Lite performance).

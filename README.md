@@ -1,144 +1,144 @@
 # Zombie Survival
 
-An open-world, first-person zombie survival game for **Android and iOS**, built
-with **Godot 4.7** and designed from the ground up to run well on phones.
+An open-world, first-person zombie survival sandbox for **Android and iOS**,
+built with **Godot 4.7** and designed to run well on phones and tablets
+(minimum target: Samsung Galaxy Tab S6 Lite). The full plan is in
+[docs/DESIGN.md](docs/DESIGN.md).
 
-- **16 km × 16 km world**, generated from a seed: forests, hills, snowy
-  mountains, and towns with streets, houses and abandoned cars.
-- **Survival**: health, hunger, thirst and stamina. Search houses for canned
-  food, water and bandages.
-- **Zombies** wander, hear your footsteps (sprinting is loud), spot you by
-  sight, and hunt you down. At night they're faster, and you'll need your
-  flashlight.
-- **Day/night cycle** (20 minutes per day), **autosave**, melee combat with
-  headshots, touch, keyboard/mouse and gamepad controls.
+**What's in the game now (stage 1):**
 
-Almost all art is generated in code as flat-shaded low-poly meshes, so the
-app stays tiny and needs no art pipeline to get started.
+- **Random worlds of 8, 16 or 32 km**: coastlines, mountains, forests,
+  farmland, deserts, beaches, and river networks with lakes from a drainage
+  simulation.
+- **A real road network**: interstates between cities, two-lane roads to
+  towns, bridges over rivers, gas stations along the way.
+- **American towns and cities**:
+  - villages at crossroads
+  - towns with a Main Street of shops
+  - city downtowns with towers
+  - suburbs with cul-de-sacs
+  - police and fire stations, churches with graveyards, schools,
+    hospitals, malls and motels
+- **Special sites**: airports (runway, terminal, tower, hangars, planes and
+  helicopters) and remote research centers.
+- **Houses you can enter**: five house styles plus trailers, with rooms,
+  stairs, doors that open, furniture, and fridges, cabinets and dressers to
+  search for scarce loot.
+- **Animated zombies** in eight outfits that shamble, sprint, grab, flinch
+  and fall. They hear you, see you, open doors (later), and can't swim.
+- **Survival**: health, hunger, thirst, stamina, a day/night cycle, swimming,
+  melee with headshots, and a flashlight.
+- **Main menu with multiple saved worlds**: choose map size, seed,
+  difficulty and death rule (respawn, new character, permadeath; lost
+  permadeath worlds stay as memorials).
+
+All art (terrain, buildings, furniture, cars, aircraft, zombies) is
+generated in code as realistic low-poly geometry, so the app stays small and
+needs no art files.
 
 ## Controls
 
-| Action      | Touch                     | Keyboard / mouse | Gamepad       |
-|-------------|---------------------------|------------------|---------------|
-| Move        | Left side: floating stick | WASD / arrows    | Left stick    |
-| Look        | Drag on the right side    | Mouse            | Right stick   |
-| Attack      | HIT                       | Left click       | RT / X        |
-| Sprint      | RUN (toggle)              | Shift            | L3            |
-| Jump        | JUMP                      | Space            | A             |
-| Flashlight  | LIGHT                     | F                | Y             |
+| Action       | Touch                     | Keyboard / mouse | Gamepad       |
+|--------------|---------------------------|------------------|---------------|
+| Move         | Left side: floating stick | WASD / arrows    | Left stick    |
+| Look         | Drag on the right side    | Mouse            | Right stick   |
+| Attack       | HIT                       | Left click       | RT / X        |
+| Use (doors, search) | USE                | E                | B             |
+| Sprint       | RUN (toggle)              | Shift            | L3            |
+| Jump / swim up | JUMP                    | Space            | A             |
+| Flashlight   | LIGHT                     | F                | Y             |
 | Eat / drink / bandage | EAT / DRINK / HEAL | 1 / 2 / 3      | D-pad         |
-| Pause       | II                        | Esc / P          | Start         |
-| Debug stats | –                         | F3               | –             |
+| Pause        | II                        | Esc / P          | Start         |
+| Debug stats  | –                         | F3               | –             |
 
-Loot is picked up automatically when you walk over it.
+Menus work with the gamepad too (D-pad / stick to move, A to select).
 
 ## How it stays fast on phones
 
-A huge world only works on mobile if the game only ever does work near the
-player. The main techniques:
+A huge world only works on mobile if the game only does work near the
+player.
 
 | Technique | Where |
 |---|---|
-| **Chunk streaming**: the world is split into 64 m chunks, loaded around the player and freed behind them | `scripts/world/world_streamer.gd` |
-| **Background threads**: terrain and props are generated on `WorkerThreadPool`; the main thread only spends ≤3 ms/frame turning results into nodes | `world_streamer.gd`, `chunk_builder.gd` |
-| **Level of detail**: near chunks use 2 m terrain quads with collision and loot; far chunks use 8 m quads, half the trees, a 4-sided tree mesh, and no collision | `chunk_builder.gd`, `chunk.gd` |
-| **Instancing**: all trees or rocks in a chunk are one `MultiMesh` draw call, with transforms pre-packed on the worker thread | `chunk.gd` |
-| **Fog-hidden draw distance**: depth fog fades the world out before the camera's far plane, hiding chunk pop-in | `main.gd` |
-| **Zombie AI LOD**: full physics within 45 m; beyond that, cheap terrain-following movement updated every 4–10 frames | `zombie_manager.gd` |
-| **Object pooling**: zombies are recycled, never freed during play | `zombie_manager.gd` |
-| **Cheap crowds**: zombies don't physically collide with each other; a simple separation pass keeps them apart | `zombie_manager.gd` |
-| **Spread-out raycasts**: only 2 line-of-sight checks per physics frame | `zombie_manager.gd` |
-| **Dynamic resolution**: the 3D view renders at lower resolution when FPS drops (HUD stays sharp) | `performance_monitor.gd` |
-| **Quality presets**: Low / Medium / High change view distance, shadows, zombie cap, FPS target, per-vertex lighting | `game_state.gd` |
-| **Mobile renderer**, MSAA off, small shadow maps, single directional light, color background instead of a sky shader | `project.godot`, `main.gd` |
-| **Deterministic world**: everything comes from the seed, so the whole map needs no storage; saves only record what changed (looted items) | `world_gen.gd` |
+| **World plan once, chunks on demand**: terrain, rivers, towns and roads are planned when the world is created (seconds); 64 m chunks are built from that plan as you move | `world/world_gen.gd` |
+| **Background threads**: chunks are built on `WorkerThreadPool`; world generation runs on a thread behind a progress screen | `world/world_streamer.gd`, `main.gd` |
+| **Frame budget**: turning chunk data into nodes, collision and doors is spread across frames within 3 ms each | `world_streamer.gd`, `chunk.gd` |
+| **Level of detail**: near chunks have 2 m terrain, interiors, doors, collision; far chunks have 8 m terrain, building shells, half the trees and simpler tree meshes | `chunk_builder.gd` |
+| **Batching**: all buildings in a chunk are one mesh; trees, cars and props are MultiMeshes; all doors in a chunk are one MultiMesh | `chunk.gd` |
+| **Cheap collision**: each building's walls and furniture are baked into one concave shape on the worker thread | `chunk_builder.gd` |
+| **Zombie LOD**: full physics and smooth animation up close; cheap terrain-following movement and choppier animation farther away; pooling; spread-out raycasts | `zombies/` |
+| **Dynamic resolution** and **quality presets** (view distance, shadows, zombie cap, FPS target, per-vertex lighting) | `core/performance_monitor.gd`, `core/game_state.gd` |
+| **Fog-hidden draw distance**, Mobile renderer, colour background instead of a sky shader | `main.gd`, `project.godot` |
 
-Measured on a desktop CPU (in the smoke test): near chunk generation ~5 ms on
-a worker thread, ~1.4 ms on the main thread to create nodes. Phones are
-roughly 3–5× slower, which still fits comfortably in the streaming budget.
+Typical numbers from the smoke test on a desktop CPU: an 8 km world plans in
+~1 s; a busy town-center chunk builds in ~90 ms on a worker thread, and its
+main-thread work is split into steps of under ~4 ms. A phone is roughly 3–5×
+slower.
 
 ## Project layout
 
 ```
-project.godot              Engine settings (Mobile renderer, Jolt physics)
-export_presets.cfg         Android + iOS export presets
-scenes/main.tscn           Entry scene (everything else is built in code)
+scenes/menu.tscn, main.tscn   Main menu (start scene) and the game
 scripts/
-  main.gd                  Wires the game together, day/night, autosave
-  core/game_state.gd       Autoload: settings, inventory, clock, save/load, input map
-  core/assets.gd           Shared meshes/materials/shapes, built once
-  core/mesh_factory.gd     Low-poly mesh building helpers
-  core/performance_monitor.gd  Dynamic resolution
-  world/world_gen.gd       Seeded terrain, biomes, towns, houses, loot
-  world/chunk_builder.gd   Thread-safe chunk data generation
-  world/chunk.gd           Turns chunk data into nodes
-  world/world_streamer.gd  Loads/unloads chunks around the player
-  player/player.gd         First-person controller, combat, survival stats
-  zombies/zombie.gd        Zombie behavior
-  zombies/zombie_manager.gd  Spawning, pooling, AI LOD, senses
-  items/pickup.gd          Loot pickups
-  ui/hud.gd, ui/touch_controls.gd, ui/pause_menu.gd
-tests/smoke_test.tscn      Automated gameplay test (runs in CI)
-tests/screenshots.tscn     Renders gameplay screenshots
+  main.gd                     Game setup, day/night, autosave, death
+  core/                       GameState (settings, saves, input), assets,
+                              mesh helpers, procedural cars/props, textures
+  world/                      World generation and streaming:
+    terrain.gd                  coast, mountains, biomes
+    hydrology.gd                rivers and lakes (drainage simulation)
+    settlements.gd              cities, towns, villages, special sites
+    road_network.gd             roads, bridges, junctions
+    town_layout.gd              streets and lots of a settlement
+    site_layout.gd              airport, research center, gas station
+    world_gen.gd                ties it together; final terrain height
+    chunk_builder.gd, chunk.gd  per-chunk geometry and nodes
+    road_mesher.gd              road, sidewalk and bridge meshes
+    world_streamer.gd           loads chunks around the player
+    map_renderer.gd             top-down map image
+  buildings/                  Procedural buildings, interiors, furniture, doors
+  zombies/                    Zombie model (rig + animations), AI, manager
+  player/, items/, ui/        Player, loot, HUD, touch controls, menus
+tests/smoke_test.tscn         Automated gameplay test (runs in CI)
+tests/screenshots.tscn        Renders gameplay screenshots
+tools/map_preview.gd          Renders a world map PNG
 ```
 
 ## Running it
 
 1. Install [Godot 4.7](https://godotengine.org/download) (standard build).
-2. Open Godot, click **Import**, and select this folder's `project.godot`.
-3. Press **F5** to play on desktop. To try the touch controls on desktop, add
-   `--touch` under *Project → Project Settings → Editor → Run → Main Run Args*
-   (or run `godot -- --touch`).
+2. Open Godot, **Import** this folder's `project.godot`, press **F5**.
+3. To try touch controls on desktop, add `--touch` under *Project → Project
+   Settings → Editor → Run → Main Run Args*.
 
-### Automated test
+**Automated test** (plays the real game and exits non-zero on failure):
 
 ```
 godot --headless --import
 godot --headless res://tests/smoke_test.tscn
 ```
 
-It plays the real game: streams the world, walks, picks up loot, gets
-attacked by a zombie, kills it, eats, saves and loads, and exits with a
-non-zero code on failure.
+**Preview a world map:**
 
-## Building for Android (APK)
+```
+godot --headless -s tools/map_preview.gd -- --seed=777 --size=16384 --out=/tmp/map.png
+```
 
-**Easiest: let GitHub build it.** Every push runs `.github/workflows/build.yml`,
-which runs the smoke test and builds a debug APK. Open the run on the
-repository's **Actions** tab and download `ZombieSurvival-debug-apk`. Install it
-on your phone (allow "install unknown apps").
+## Getting the app on your devices
 
-**Locally:**
-1. In Godot: *Editor → Manage Export Templates → Download and Install*.
-2. Install Android Studio (or just the command-line SDK) and JDK 17.
-3. *Editor → Editor Settings → Export → Android*: set the Android SDK path
-   and Java SDK path.
-4. *Project → Export → Android → Export Project*.
+Every push runs `.github/workflows/build.yml`: the smoke test, then an
+Android build and an iOS build. Download them from the run's **Artifacts**
+on the repository's **Actions** tab.
 
-For the **Google Play Store**, create a release keystore (never commit it), set
-it in the Android export preset, and export an AAB (enable
-*Gradle Build* and set *Export Format* to AAB).
+**Android**: download `ZombieSurvival-debug-apk`, unzip, and install the APK
+(allow "install unknown apps").
 
-## Building for iOS
+**iPhone**: download `ZombieSurvival-unsigned-ipa`. Apple only runs signed
+apps, so sign and install it from a computer with
+[Sideloadly](https://sideloadly.io) or [AltStore](https://altstore.io) using
+your Apple ID. With a free Apple ID the app must be re-signed every 7 days;
+a paid Apple Developer account ($99/yr) removes that limit and allows
+TestFlight.
 
-iOS builds need a **Mac with Xcode** and an **Apple Developer account**
-(Apple doesn't allow building iOS apps elsewhere).
-
-1. On the Mac, open the project in Godot and install the export templates.
-2. *Project → Export → iOS*: set your **App Store Team ID** and bundle
-   identifier.
-3. Export, then open the generated Xcode project to run on a device or
-   upload to TestFlight / the App Store.
-
-## Roadmap ideas
-
-- Roads connecting towns, more building types (stores, gas stations,
-  police station with weapons)
-- Ranged weapons with ammo, crafting, barricading doors
-- Inventory screen, weight limit, item durability
-- Zombie variants (runners, tanks), hordes that roam the map
-- Sound: footsteps, zombie groans, ambient wind (positional audio is cheap)
-- Weather (rain, thick fog nights)
-- Vehicles
-- Real art: swap the generated meshes in `assets.gd` for imported low-poly
-  models (keep them under ~1–3k triangles for zombies)
+**Locally**: install export templates (*Editor → Manage Export
+Templates*), set the Android SDK / Java paths in Editor Settings, then
+*Project → Export*. iOS builds need a Mac with Xcode.
