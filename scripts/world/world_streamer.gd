@@ -56,6 +56,21 @@ func is_ready_at(pos: Vector3) -> bool:
 	return c != null and c.lod == 0
 
 
+## Loot containers in loaded near chunks within `radius` of `pos`.
+func containers_near(pos: Vector3, radius: float) -> Array:
+	var out := []
+	var center := chunk_of(pos)
+	for dz in range(-1, 2):
+		for dx in range(-1, 2):
+			var c: Chunk = _chunks.get(center + Vector2i(dx, dz))
+			if c == null or c.lod != 0:
+				continue
+			for ct in c.containers:
+				if ct.pos.distance_to(pos) < radius:
+					out.append(ct)
+	return out
+
+
 ## Emits spawn_area_ready again once the chunk under the player is ready.
 func wait_for_spawn_area() -> void:
 	_spawn_ready = false
@@ -98,7 +113,7 @@ func _update_wanted(center: Vector2i) -> void:
 			if dx * dx + dz * dz > r * r + r:
 				continue
 			var key := center + Vector2i(dx, dz)
-			if key.x < -1 or key.y < -1 or key.x > WorldGen.WORLD_CHUNKS or key.y > WorldGen.WORLD_CHUNKS:
+			if key.x < -1 or key.y < -1 or key.x > gen.chunks or key.y > gen.chunks:
 				continue
 			_wanted[key] = 0 if maxi(absi(dx), absi(dz)) <= NEAR_RADIUS else 1
 			_order.append(key)

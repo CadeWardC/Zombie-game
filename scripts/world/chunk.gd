@@ -1,10 +1,15 @@
 class_name Chunk
 extends Node3D
-## Scene nodes for one chunk, created on the main thread from ChunkBuilder data.
-## Near chunks (lod 0) get collision and loot; far chunks are visuals only.
+## Scene nodes for one chunk, created on the main thread from ChunkBuilder
+## data. Near chunks (lod 0) get collision, doors, loot containers and signs;
+## far chunks are visuals only.
 
 var key: Vector2i
 var lod := 0
+## Searchable containers: {pos: Vector3 (world), type, id}
+var containers: Array = []
+var _doors: Array[DoorBody] = []
+var _door_mm: MultiMesh
 
 
 func setup(data: Dictionary, shadows: bool) -> void:
@@ -13,64 +18,76 @@ func setup(data: Dictionary, shadows: bool) -> void:
 	name = "Chunk_%d_%d_%d" % [key.x, key.y, lod]
 	position = Vector3(key.x * WorldGen.CHUNK_SIZE, 0, key.y * WorldGen.CHUNK_SIZE)
 	var near := lod == 0
-
-	var arrays := []
-	arrays.resize(Mesh.ARRAY_MAX)
-	arrays[Mesh.ARRAY_VERTEX] = data.verts
-	arrays[Mesh.ARRAY_NORMAL] = data.normals
-	arrays[Mesh.ARRAY_COLOR] = data.colors
-	var mesh := ArrayMesh.new()
-	mesh.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, arrays)
-	var terrain := MeshInstance3D.new()
-	terrain.mesh = mesh
-	terrain.material_override = Assets.terrain_material
-	terrain.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
-	add_child(terrain)
-
-	var body: StaticBody3D = null
-	if near:
-		body = StaticBody3D.new()
-		body.collision_layer = 1
-		body.collision_mask = 0
-		add_child(body)
-		_add_heightmap(body, data)
-		for p in data.tree_points:
-			_add_shape(body, Assets.tree_shape, Transform3D(Basis.IDENTITY, p + Vector3(0, 2.0, 0)))
-
 	var cast := shadows and near
-	_add_multimesh(Assets.tree_mesh if near else Assets.tree_far_mesh, data.trees, data.tree_count, cast)
-	_add_multimesh(Assets.dead_tree_mesh, data.dead_trees, data.dead_count, cast)
-	_add_multimesh(Assets.rock_mesh, data.rocks, data.rock_count, cast)
 
-	# Houses and cars are batched per mesh into MultiMeshes: one draw call
-	# per house style per chunk instead of one per building.
-	var house_xforms := {}
-	for house in data.houses:
-		var xf: Transform3D = house.xform
-		house_xforms.get_or_add(house.variant, []).append(xf)
-		if body:
-			for pair in Assets.house_shapes:
-				_add_shape(body, pair[1], xf * pair[0])
-		for item in house.loot:
-			if GameState.looted.has(item.id):
-				continue
-			var pickup := Pickup.new()
-			pickup.setup(item.type, item.id)
-			pickup.position = item.pos
-			add_child(pickup)
-	for variant in house_xforms:
-		_add_multimesh_xforms(Assets.house_meshes[variant], house_xforms[variant], cast)
+	_mesh(data.terrain, Assets.terrain_material, false)
+	_mesh(data.water, Assets.water_material, false)
+	_mesh(data.road, Assets.road_material, false)
+	_mesh(data.solid, Assets.material, cast)
+	_mesh(data.building, Assets.building_material, cast)
+	_mesh(data.glass, Assets.glass_material, false)
 
-	if not data.cars.is_empty():
-		var cars := _add_multimesh_xforms(Assets.car_mesh, data.cars, false)
-		cars.visibility_range_end = 220.0
-		if body:
-			for xf: Transform3D in data.cars:
-				_add_shape(body, Assets.car_shape, xf * Transform3D(Basis.IDENTITY, Vector3(0, 0.8, 0)))
+	for prop_name in data.props:
+		var mesh: Mesh = _prop_mesh(prop_name)
+		if mesh:
+			var mmi := _multimesh(mesh, data.props[prop_name], data.prop_counts[prop_name], cast and not prop_name.begins_with("car"))
+			if prop_name.begins_with("car") or prop_name in ["hydrant", "mailbox", "fuel_pump"]:
+				mmi.visibility_range_end = 260.0
+
+	if not near:
+		return
+	var body := StaticBody3D.new()
+	body.collision_layer = 1
+	body.collision_mask = 0
+	add_child(body)
+	_add_heightmap(body, data)
+	for p in data.tree_points:
+		_add_shape(body, Assets.tree_shape, Transform3D(Basis.IDENTITY, p + Vector3(0, 2.0, 0)))
+	for xf in data.car_boxes:
+		_add_shape(body, Assets.car_shape, xf)
+	for bx in data.boxes:
+		var shape := BoxShape3D.new()
+		shape.size = bx[1]
+		_add_shape(body, shape, bx[0])
+	_build_doors(data.doors)
+	for c in data.containers:
+		var cc: Dictionary = c.duplicate()
+		cc.pos = position + (c.pos as Vector3)
+		containers.append(cc)
+	for s in data.signs:
+		_sign(s)
 
 
-## The heightmap shape is scaled uniformly by the grid step (Jolt handles that
-## well), so heights are divided by the same factor.
+func _mesh(md: MeshData, mat: Material, cast: bool) -> void:
+	if md.is_empty():
+		return
+	var mi := MeshInstance3D.new()
+	mi.mesh = md.to_mesh(mat)
+	mi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_ON if cast else GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	add_child(mi)
+
+
+func _prop_mesh(prop_name: String) -> Mesh:
+	if prop_name.begins_with("car_"):
+		return Assets.cars[int(prop_name.substr(4)) % Assets.cars.size()]
+	return Assets.props.get(prop_name)
+
+
+func _multimesh(mesh: Mesh, buffer: PackedFloat32Array, count: int, cast: bool) -> MultiMeshInstance3D:
+	var mm := MultiMesh.new()
+	mm.transform_format = MultiMesh.TRANSFORM_3D
+	mm.mesh = mesh
+	mm.instance_count = count
+	mm.buffer = buffer
+	var mmi := MultiMeshInstance3D.new()
+	mmi.multimesh = mm
+	mmi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_ON if cast else GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	add_child(mmi)
+	return mmi
+
+
+## The heightmap shape is scaled uniformly by the grid step (Jolt handles
+## that well), so heights are divided by the same factor.
 func _add_heightmap(body: StaticBody3D, data: Dictionary) -> void:
 	var step: float = data.step
 	var n: int = data.res + 1
@@ -97,27 +114,36 @@ func _add_shape(body: StaticBody3D, shape: Shape3D, xf: Transform3D) -> void:
 	body.add_child(cs)
 
 
-func _add_multimesh(mesh: Mesh, buffer: PackedFloat32Array, count: int, cast: bool) -> void:
-	if count == 0:
+## All doors in the chunk are drawn by one MultiMesh (one draw call); each
+## has its own small physics body for collision and interaction.
+func _build_doors(doors: Array) -> void:
+	if doors.is_empty():
 		return
-	var mmi := _new_multimesh(mesh, count, cast)
-	mmi.multimesh.buffer = buffer
-
-
-func _add_multimesh_xforms(mesh: Mesh, xforms: Array, cast: bool) -> MultiMeshInstance3D:
-	var mmi := _new_multimesh(mesh, xforms.size(), cast)
-	for i in xforms.size():
-		mmi.multimesh.set_instance_transform(i, xforms[i])
-	return mmi
-
-
-func _new_multimesh(mesh: Mesh, count: int, cast: bool) -> MultiMeshInstance3D:
-	var mm := MultiMesh.new()
-	mm.transform_format = MultiMesh.TRANSFORM_3D
-	mm.mesh = mesh
-	mm.instance_count = count
+	_door_mm = MultiMesh.new()
+	_door_mm.transform_format = MultiMesh.TRANSFORM_3D
+	_door_mm.use_colors = true
+	_door_mm.mesh = Assets.door_mesh
+	_door_mm.instance_count = doors.size()
 	var mmi := MultiMeshInstance3D.new()
-	mmi.multimesh = mm
-	mmi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_ON if cast else GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	mmi.multimesh = _door_mm
 	add_child(mmi)
-	return mmi
+	for i in doors.size():
+		var d: Dictionary = doors[i]
+		var door := DoorBody.new()
+		add_child(door)
+		door.setup(d, _door_mm, i)
+		_doors.append(door)
+
+
+func _sign(s: Dictionary) -> void:
+	var label := Label3D.new()
+	label.text = s.text
+	label.transform = s.xf
+	label.pixel_size = 0.01
+	label.font_size = int(96 * s.size)
+	label.outline_size = 8
+	label.modulate = s.color
+	label.outline_modulate = Color(0, 0, 0, 0.6)
+	label.double_sided = false
+	label.position += label.transform.basis.z * 0.12
+	add_child(label)

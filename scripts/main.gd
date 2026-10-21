@@ -17,6 +17,7 @@ var hud: Hud
 var touch: TouchControls
 var pause_menu: PauseMenu
 var perf: PerformanceMonitor
+var ocean: MeshInstance3D
 var _autosave_t := AUTOSAVE_INTERVAL
 var _night_hint_shown := false
 
@@ -24,7 +25,8 @@ var _night_hint_shown := false
 func _ready() -> void:
 	Assets.build()
 	var saved := GameState.load_game()
-	gen = WorldGen.new(GameState.world_seed)
+	gen = WorldGen.new(GameState.world_seed, GameState.world_size)
+	gen.generate()
 
 	_setup_environment()
 
@@ -42,6 +44,7 @@ func _ready() -> void:
 	player.damaged.connect(func() -> void: hud.flash_damage())
 	player.died.connect(_on_player_died)
 	streamer.player = player
+	player.streamer = streamer
 
 	zombies = ZombieManager.new()
 	zombies.gen = gen
@@ -106,6 +109,15 @@ func _setup_environment() -> void:
 	sun.rotation_degrees = Vector3(-50, 30, 0)
 	add_child(sun)
 
+	# One big water plane at sea level follows the player; land hides it.
+	ocean = MeshInstance3D.new()
+	var plane := PlaneMesh.new()
+	plane.size = Vector2(5000, 5000)
+	ocean.mesh = plane
+	ocean.material_override = Assets.water_material
+	ocean.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	add_child(ocean)
+
 
 func apply_quality() -> void:
 	var q := GameState.preset()
@@ -137,6 +149,8 @@ func _on_spawn_ready() -> void:
 
 func _process(delta: float) -> void:
 	_update_day_night()
+	var p := player.global_position
+	ocean.global_position = Vector3(snappedf(p.x, 64.0), -0.05, snappedf(p.z, 64.0))
 	if not player.active:
 		return
 	if Input.is_action_just_pressed("pause") and not player.dead:
@@ -174,7 +188,7 @@ func _update_day_night() -> void:
 		# The sun travels east to west between 06:00 and 18:00.
 		var a := clampf((t - 6.0) / 12.0 * PI, 0.15, PI - 0.15)
 		sun.basis = Basis.looking_at(Vector3(-cos(a), -sin(a), 0.35).normalized())
-		sun.light_energy = 1.5 * (1.0 - dark)
+		sun.light_energy = 1.25 * (1.0 - dark)
 		sun.light_color = Color(1.0, 0.95, 0.88).lerp(Color(1.0, 0.6, 0.4), dusk)
 	else:
 		# Moonlight.

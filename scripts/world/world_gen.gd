@@ -1,55 +1,83 @@
 class_name WorldGen
 extends RefCounted
-## Deterministic world description. Everything (terrain height, biomes, towns,
-## houses, loot) is computed from the seed on demand, so a 16 km map costs no
-## storage and any chunk can be generated on any thread at any time.
+## The whole generated world. generate() builds, in order: terrain, rivers
+## and lakes, settlements and special sites, the road network, and town
+## layouts. After that everything is read-only, so chunk worker threads can
+## query it freely.
+##
+## Final terrain height = natural terrain, smoothed in towns, flattened under
+## site pads, carved by rivers and lakes, and graded under roads.
 
 const CHUNK_SIZE := 64.0
-const WORLD_CHUNKS := 256 # 256 * 64 m = 16.4 km per side.
-const WORLD_SIZE := CHUNK_SIZE * WORLD_CHUNKS
-const BORDER := 400.0 # Mountains rise near the map edge.
-const REGION_SIZE := 384.0 # At most one town per region.
-const TOWN_CHANCE := 0.4
-const TOWN_BLEND := 40.0
-const LOT := 28.0 # Town grid spacing (road to road).
-const ROAD_HALF := 4.0 # Multiple of the 2 m terrain grid so road edges stay straight.
-
-const COLOR_GRASS := Color(0.33, 0.43, 0.22)
-const COLOR_FOREST := Color(0.24, 0.33, 0.17)
-const COLOR_DIRT := Color(0.4, 0.35, 0.25)
-const COLOR_ROCK := Color(0.44, 0.43, 0.41)
-const COLOR_SNOW := Color(0.86, 0.87, 0.9)
-const COLOR_ROAD := Color(0.2, 0.2, 0.21)
-const COLOR_TOWN := Color(0.36, 0.39, 0.27)
-
-const LOOT_SPOTS := [
-	Vector3(-3.6, 0.08, -2.7), Vector3(3.6, 0.08, -2.7), Vector3(0.0, 0.08, -3.0),
-	Vector3(-3.6, 0.08, 1.8), Vector3(3.6, 0.08, 1.8),
-]
+const TOWN_BLEND := 60.0
+const PAD_BLEND := 50.0
+const SIZES := [8192, 16384, 32768]
 
 var seed_value: int
-var _continent := FastNoiseLite.new()
-var _hills := FastNoiseLite.new()
-var _detail := FastNoiseLite.new()
-var _forest := FastNoiseLite.new()
-var _town_cache := {}
-var _town_mutex := Mutex.new()
+var world_size: float
+var chunks: int
+var terrain: Terrain
+var hydro := Hydrology.new()
+var settlements := Settlements.new()
+var roads := RoadNetwork.new()
+var towns: Array[TownLayout] = []
+var site_layouts := {} # site id -> SiteLayout
+
+var _lots_by_chunk := {} # Vector2i -> [lot]
+var _ctx_cache := {}
+var _ctx_mutex := Mutex.new()
+var _surface_noise := FastNoiseLite.new()
 
 
-func _init(p_seed: int) -> void:
+class ChunkContext:
+	extends RefCounted
+	var river_segs: PackedInt32Array
+	var road_segs: PackedInt32Array
+	var towns: Array
+	var sites: Array
+
+
+func _init(p_seed: int, p_size: float = 8192.0) -> void:
 	seed_value = p_seed
-	_setup_noise(_continent, p_seed, 0.0006, 4)
-	_setup_noise(_hills, p_seed + 1, 0.004, 3)
-	_setup_noise(_detail, p_seed + 2, 0.03, 1)
-	_setup_noise(_forest, p_seed + 3, 0.0025, 2)
+	world_size = p_size
+	chunks = int(world_size / CHUNK_SIZE)
+	terrain = Terrain.new(p_seed, p_size)
+	_surface_noise.seed = p_seed + 9
+	_surface_noise.frequency = 1.0 / 7.0
 
 
-func _setup_noise(n: FastNoiseLite, s: int, freq: float, octaves: int) -> void:
-	n.seed = s
-	n.noise_type = FastNoiseLite.TYPE_SIMPLEX_SMOOTH
-	n.frequency = freq
-	n.fractal_type = FastNoiseLite.FRACTAL_FBM if octaves > 1 else FastNoiseLite.FRACTAL_NONE
-	n.fractal_octaves = octaves
+## Heavy: run on a thread with a loading screen. `progress` gets (0..1, text).
+func generate(progress: Callable = Callable()) -> void:
+	var report := func(f: float, text: String) -> void:
+		if progress.is_valid():
+			progress.call(f, text)
+	report.call(0.0, "Shaping the land")
+	terrain.generate()
+	report.call(0.3, "Carving rivers")
+	hydro.generate(terrain, seed_value)
+	terrain.finalize()
+	report.call(0.45, "Founding towns")
+	settlements.generate(terrain, hydro, seed_value)
+	report.call(0.55, "Building roads")
+	roads.generate_arterials(terrain, hydro, settlements, seed_value)
+	report.call(0.75, "Laying out streets")
+	for s in settlements.list:
+		var t := TownLayout.build(s, terrain, roads, settlements, seed_value)
+		towns.append(t)
+		for lot in t.lots:
+			_bucket_lot(lot)
+	for site in settlements.sites:
+		var sl := SiteLayout.build(site, self)
+		site_layouts[site.id] = sl
+		for lot in sl.lots:
+			_bucket_lot(lot)
+	report.call(1.0, "Done")
+
+
+func _bucket_lot(lot: Dictionary) -> void:
+	var c: Vector2 = lot.center
+	var key := Vector2i(floori(c.x / CHUNK_SIZE), floori(c.y / CHUNK_SIZE))
+	_lots_by_chunk.get_or_add(key, []).append(lot)
 
 
 static func hash3(a: int, b: int, c: int) -> int:
@@ -63,232 +91,167 @@ func rand01(a: int, b: int, c: int) -> float:
 	return float(hash3(a, b, c ^ seed_value) % 100000) / 100000.0
 
 
-# --- Terrain ---------------------------------------------------------------
-
-## Natural terrain height, ignoring towns.
-func raw_height(x: float, z: float) -> float:
-	var h := _continent.get_noise_2d(x, z) * 45.0 + _hills.get_noise_2d(x, z) * 10.0 + _detail.get_noise_2d(x, z) * 0.8
-	var edge := minf(minf(x, z), minf(WORLD_SIZE - x, WORLD_SIZE - z))
-	if edge < BORDER:
-		var t := 1.0 - maxf(edge, 0.0) / BORDER
-		h += t * t * 120.0
-	return h
+static func chunk_key(x: float, z: float) -> Vector2i:
+	return Vector2i(floori(x / CHUNK_SIZE), floori(z / CHUNK_SIZE))
 
 
-## Height including flattened town areas. Pass towns from towns_near_chunk()
-## when sampling many points in one chunk.
-func height_at(x: float, z: float, towns: Array) -> float:
-	var h := raw_height(x, z)
-	for t in towns:
-		var d := Vector2(x, z).distance_to(t.center)
-		var w := 1.0 - smoothstep(t.radius, t.radius + TOWN_BLEND, d)
-		if w > 0.0:
-			h = lerpf(h, t.base, w)
-	return h
+# --- Per-chunk context -------------------------------------------------------
+
+func context(key: Vector2i) -> ChunkContext:
+	_ctx_mutex.lock()
+	var cached: ChunkContext = _ctx_cache.get(key)
+	_ctx_mutex.unlock()
+	if cached != null:
+		return cached
+	var ctx := ChunkContext.new()
+	var center := (Vector2(key) + Vector2(0.5, 0.5)) * CHUNK_SIZE
+	var reach := CHUNK_SIZE * 0.75
+	ctx.river_segs = hydro.index.query_chunk(key)
+	ctx.road_segs = roads.index.query_chunk(key)
+	ctx.towns = settlements.near(center, TOWN_BLEND + reach)
+	ctx.sites = settlements.sites_near(center, PAD_BLEND + reach)
+	_ctx_mutex.lock()
+	if _ctx_cache.size() > 600:
+		_ctx_cache.clear()
+	_ctx_cache[key] = ctx
+	_ctx_mutex.unlock()
+	return ctx
 
 
 func height(x: float, z: float) -> float:
-	return height_at(x, z, towns_near_point(x, z))
+	return height_ctx(x, z, context(chunk_key(x, z)))
 
 
-func forest_value(x: float, z: float) -> float:
-	return _forest.get_noise_2d(x, z)
+func height_ctx(x: float, z: float, ctx: ChunkContext) -> float:
+	var p := Vector2(x, z)
+	var calm := 0.0
+	var town_w := 0.0
+	for t in ctx.towns:
+		var w := 1.0 - smoothstep(t.radius, t.radius + TOWN_BLEND, p.distance_to(t.center))
+		town_w = maxf(town_w, w)
+	calm = town_w
+	var h := terrain.natural_height(x, z, calm)
+	for s in ctx.sites:
+		var local: Vector2 = (p - s.center).rotated(-s.rot)
+		var out := Vector2(maxf(absf(local.x) - s.half.x, 0.0), maxf(absf(local.y) - s.half.y, 0.0)).length()
+		var w := 1.0 - smoothstep(0.0, PAD_BLEND, out)
+		if w > 0.0:
+			h = lerpf(h, s.base, w)
+	h = hydro.carve(p, h, ctx.river_segs)
+	h = roads.flatten(p, h, ctx.road_segs)
+	return h
 
 
-func ground_color(x: float, z: float, h: float, normal_y: float, towns: Array) -> Color:
-	var jitter := (float(hash3(int(x * 3.0), int(z * 3.0), 7) % 1000) / 1000.0 - 0.5) * 0.04
-	for t in towns:
-		var d := Vector2(x, z).distance_to(t.center)
-		if d < t.radius:
-			if is_road_local(x - t.center.x, z - t.center.y):
-				return COLOR_ROAD.lightened(jitter + 0.02)
-			return COLOR_TOWN.lightened(jitter)
-	if normal_y < 0.78:
-		return COLOR_ROCK.lightened(jitter)
-	if h > 72.0 and normal_y > 0.85:
-		return COLOR_SNOW
-	var f := clampf(forest_value(x, z) * 2.5 + 0.5, 0.0, 1.0)
-	var c := COLOR_GRASS.lerp(COLOR_FOREST, f)
-	if normal_y < 0.9:
-		c = c.lerp(COLOR_DIRT, 0.5)
-	return c.lightened(jitter)
+## Water surface height (sea level 0 for the ocean), or -INF where dry.
+func water_level(x: float, z: float) -> float:
+	var ctx := context(chunk_key(x, z))
+	var level := hydro.water_level(Vector2(x, z), ctx.river_segs)
+	if terrain.macro_height(x, z) < 1.0:
+		level = maxf(level, 0.0)
+	return level
 
 
-func is_road_local(lx: float, lz: float) -> bool:
-	var mx := fposmod(lx, LOT)
-	var mz := fposmod(lz, LOT)
-	return mx < ROAD_HALF or mx > LOT - ROAD_HALF or mz < ROAD_HALF or mz > LOT - ROAD_HALF
+func lots_in_chunk(key: Vector2i) -> Array:
+	return _lots_by_chunk.get(key, [])
 
 
-# --- Towns -----------------------------------------------------------------
+# --- Gameplay queries --------------------------------------------------------
 
-## Returns {} or {center: Vector2, radius, base, rx, rz} for a region.
-func town_for_region(rx: int, rz: int) -> Dictionary:
-	var key := Vector2i(rx, rz)
-	_town_mutex.lock()
-	var cached: Variant = _town_cache.get(key)
-	_town_mutex.unlock()
-	if cached != null:
-		return cached
-	var town := _compute_town(rx, rz)
-	_town_mutex.lock()
-	_town_cache[key] = town
-	_town_mutex.unlock()
-	return town
-
-
-func _start_region() -> Vector2i:
-	var c := WORLD_SIZE * 0.5
-	return Vector2i(int(floor(c / REGION_SIZE)), int(floor(c / REGION_SIZE)))
-
-
-func _compute_town(rx: int, rz: int) -> Dictionary:
-	var start := _start_region()
-	var is_start := Vector2i(rx, rz) == start
-	if not is_start and rand01(rx, rz, 1) > TOWN_CHANCE:
-		return {}
-	var center := Vector2(
-		(rx + 0.3 + 0.4 * rand01(rx, rz, 2)) * REGION_SIZE,
-		(rz + 0.3 + 0.4 * rand01(rx, rz, 3)) * REGION_SIZE)
-	var radius := 60.0 + 35.0 * rand01(rx, rz, 4)
-	if is_start:
-		# The starting town is a bigger city, centred in its region.
-		center = Vector2((rx + 0.5) * REGION_SIZE, (rz + 0.5) * REGION_SIZE)
-		radius = 135.0
-	# Snap to the near-terrain grid so roads line up with triangle edges.
-	center = (center / 2.0).round() * 2.0
-	var edge := minf(minf(center.x, center.y), minf(WORLD_SIZE - center.x, WORLD_SIZE - center.y))
-	if edge < BORDER + radius:
-		return {}
-	if not is_start:
-		var sc := Vector2((start.x + 0.5) * REGION_SIZE, (start.y + 0.5) * REGION_SIZE)
-		if center.distance_to(sc) < radius + 135.0 + TOWN_BLEND * 2.0:
-			return {}
-	return {"center": center, "radius": radius, "base": raw_height(center.x, center.y), "rx": rx, "rz": rz}
-
-
-func _towns_around(x: float, z: float, margin: float) -> Array:
-	var result := []
-	var rx := int(floor(x / REGION_SIZE))
-	var rz := int(floor(z / REGION_SIZE))
-	for dz in range(-1, 2):
-		for dx in range(-1, 2):
-			var t := town_for_region(rx + dx, rz + dz)
-			if t.is_empty():
-				continue
-			if Vector2(x, z).distance_to(t.center) < t.radius + TOWN_BLEND + margin:
-				result.append(t)
-	return result
-
-
-func towns_near_chunk(cx: int, cz: int) -> Array:
-	return _towns_around((cx + 0.5) * CHUNK_SIZE, (cz + 0.5) * CHUNK_SIZE, CHUNK_SIZE)
-
-
-func towns_near_point(x: float, z: float) -> Array:
-	return _towns_around(x, z, 0.0)
-
-
-## 1 inside a town, fading to 0 across the blend ring.
+## 1 inside a settlement, fading to 0 just outside.
 func town_weight(x: float, z: float) -> float:
 	var w := 0.0
-	for t in towns_near_point(x, z):
-		var d := Vector2(x, z).distance_to(t.center)
-		w = maxf(w, 1.0 - smoothstep(t.radius, t.radius + TOWN_BLEND, d))
+	for t in settlements.near(Vector2(x, z), TOWN_BLEND):
+		w = maxf(w, 1.0 - smoothstep(t.radius * 0.9, t.radius + TOWN_BLEND, Vector2(x, z).distance_to(t.center)))
 	return w
 
 
-func spawn_point() -> Vector3:
-	var s := _start_region()
-	var t := town_for_region(s.x, s.y)
-	return Vector3(t.center.x, t.base + 1.0, t.center.y)
-
-
-# --- Buildings -------------------------------------------------------------
-
-## Houses whose centre lies in the chunk. Positions are in world space.
-func houses_in_chunk(cx: int, cz: int, towns: Array) -> Array:
-	var out := []
-	var x0 := cx * CHUNK_SIZE
-	var z0 := cz * CHUNK_SIZE
-	for t in towns:
-		var c: Vector2 = t.center
-		for j in range(int(floor((z0 - c.y) / LOT)) - 1, int(floor((z0 + CHUNK_SIZE - c.y) / LOT)) + 1):
-			for i in range(int(floor((x0 - c.x) / LOT)) - 1, int(floor((x0 + CHUNK_SIZE - c.x) / LOT)) + 1):
-				var p := c + Vector2((i + 0.5) * LOT, (j + 0.5) * LOT)
-				if p.x < x0 or p.x >= x0 + CHUNK_SIZE or p.y < z0 or p.y >= z0 + CHUNK_SIZE:
-					continue
-				if p.distance_to(c) > t.radius - 10.0:
-					continue
-				var hsh := hash3(t.rx * 4096 + i, t.rz * 4096 + j, seed_value)
-				if hsh % 100 >= 78:
-					continue
-				out.append({
-					"pos": Vector3(p.x, t.base, p.y),
-					"rot": (hsh >> 8) % 4,
-					"variant": (hsh >> 4) % 3,
-					"id": "%d_%d_%d_%d" % [t.rx, t.rz, i, j],
-					"seed": hsh,
-				})
-	return out
-
-
-## Abandoned cars parked along town roads, as world-space transforms.
-func cars_in_chunk(cx: int, cz: int, towns: Array) -> Array:
-	var out := []
-	var x0 := cx * CHUNK_SIZE
-	var z0 := cz * CHUNK_SIZE
-	for t in towns:
-		var c: Vector2 = t.center
-		for j in range(int(floor((z0 - c.y) / LOT)) - 1, int(floor((z0 + CHUNK_SIZE - c.y) / LOT)) + 1):
-			for i in range(int(floor((x0 - c.x) / LOT)) - 1, int(floor((x0 + CHUNK_SIZE - c.x) / LOT)) + 1):
-				var hsh := hash3(t.rx * 4096 + i, t.rz * 4096 + j, seed_value + 99)
-				if hsh % 100 >= 30:
-					continue
-				var side := 2.0 if (hsh >> 3) % 2 == 0 else -2.0
-				var along := (float((hsh >> 5) % 1000) / 1000.0 - 0.5) * 16.0
-				var p := c + Vector2(i * LOT + side, (j + 0.5) * LOT + along)
-				if p.x < x0 or p.x >= x0 + CHUNK_SIZE or p.y < z0 or p.y >= z0 + CHUNK_SIZE:
-					continue
-				if p.distance_to(c) > t.radius - 4.0:
-					continue
-				var yaw := (PI if side < 0.0 else 0.0) + (float((hsh >> 9) % 100) / 100.0 - 0.5) * 0.5
-				out.append(Transform3D(Basis(Vector3.UP, yaw), Vector3(p.x, t.base, p.y)))
-	return out
-
-
-func house_transform(house: Dictionary) -> Transform3D:
-	return Transform3D(Basis(Vector3.UP, house.rot * PI * 0.5), house.pos)
-
-
-## Loot inside a house: [{id, type, pos (world)}].
-func house_loot(house: Dictionary) -> Array:
-	var out := []
-	var hsh: int = house.seed
-	var xf := house_transform(house)
-	var count := 1 + (hsh >> 12) % 3
-	var first := (hsh >> 3) % LOOT_SPOTS.size()
-	for k in count:
-		var roll := hash3(hsh, k, 77) % 100
-		var type := "food" if roll < 40 else ("water" if roll < 80 else "bandage")
-		out.append({
-			"id": "%s_%d" % [house.id, k],
-			"type": type,
-			"pos": xf * LOOT_SPOTS[(first + k * 2) % LOOT_SPOTS.size()],
-		})
-	return out
-
-
 func is_inside_building(x: float, z: float) -> bool:
-	var cx := int(floor(x / CHUNK_SIZE))
-	var cz := int(floor(z / CHUNK_SIZE))
-	var towns := towns_near_chunk(cx, cz)
-	if towns.is_empty():
-		return false
+	var key := chunk_key(x, z)
+	var p := Vector2(x, z)
 	for dz in range(-1, 2):
 		for dx in range(-1, 2):
-			for house in houses_in_chunk(cx + dx, cz + dz, towns):
-				var local := house_transform(house).affine_inverse() * Vector3(x, house.pos.y, z)
-				if absf(local.x) < Assets.HOUSE_W * 0.5 + 1.0 and absf(local.z) < Assets.HOUSE_D * 0.5 + 1.0:
+			for lot in lots_in_chunk(key + Vector2i(dx, dz)):
+				if Geometry2D.is_point_in_polygon(p, lot.corners):
 					return true
 	return false
+
+
+## A street corner in a random small town (or village). `pick` chooses which.
+func spawn_point(pick := 0) -> Vector3:
+	var small := settlements.list.filter(func(s): return s.kind != Settlements.Kind.CITY)
+	if small.is_empty():
+		small = settlements.list
+	if small.is_empty():
+		var mid := world_size * 0.5
+		return Vector3(mid, height(mid, mid) + 1.0, mid)
+	var s: Dictionary = small[(hash3(seed_value, pick, 5) % small.size())]
+	var best: Vector2 = s.center
+	var bd := INF
+	for nd in roads.nodes:
+		var d: float = nd.pos.distance_to(s.center)
+		if d < bd:
+			bd = d
+			best = nd.pos
+	return Vector3(best.x, height(best.x, best.y) + 1.0, best.y)
+
+
+# --- Ground colours ------------------------------------------------------------
+
+const COLOR_GRASS := Color(0.32, 0.41, 0.21)
+const COLOR_DRY_GRASS := Color(0.5, 0.48, 0.28)
+const COLOR_FOREST := Color(0.22, 0.31, 0.16)
+const COLOR_SAND := Color(0.76, 0.68, 0.48)
+const COLOR_DESERT := Color(0.72, 0.56, 0.38)
+const COLOR_ROCK := Color(0.45, 0.43, 0.41)
+const COLOR_SNOW := Color(0.88, 0.89, 0.92)
+const COLOR_MUD := Color(0.3, 0.26, 0.2)
+const COLOR_LAWN := Color(0.3, 0.4, 0.2)
+const FIELD_COLORS := [Color(0.62, 0.55, 0.3), Color(0.42, 0.5, 0.22), Color(0.36, 0.29, 0.2), Color(0.55, 0.52, 0.26)]
+
+
+func ground_color(x: float, z: float, h: float, normal_y: float, ctx: ChunkContext) -> Color:
+	var jitter := _surface_noise.get_noise_2d(x, z) * 0.035
+	var b := terrain.biome_at(x, z, h)
+	var c: Color
+	if h < 0.6 and terrain.macro_height(x, z) < 3.0:
+		c = COLOR_SAND
+	elif normal_y < 0.72:
+		c = COLOR_ROCK
+	elif h > 190.0 and normal_y > 0.8:
+		c = COLOR_SNOW
+	else:
+		match b:
+			Terrain.Biome.BEACH:
+				c = COLOR_SAND
+			Terrain.Biome.DESERT:
+				c = COLOR_DESERT
+			Terrain.Biome.FOREST:
+				c = COLOR_FOREST
+			Terrain.Biome.MOUNTAIN:
+				c = COLOR_ROCK.lerp(COLOR_GRASS, 0.35)
+			Terrain.Biome.FARMLAND:
+				c = _field_color(x, z)
+			_:
+				c = COLOR_GRASS.lerp(COLOR_DRY_GRASS, clampf(terrain.temperature_at(x, z) * 1.5 - 0.6, 0.0, 1.0))
+	for t in ctx.towns:
+		var d: float = Vector2(x, z).distance_to(t.center)
+		if d < t.radius:
+			c = COLOR_LAWN
+	if not ctx.river_segs.is_empty() or hydro.lake_cell_count > 0:
+		var wl := hydro.water_level(Vector2(x, z), ctx.river_segs)
+		if wl > -INF and h < wl + 0.3:
+			c = COLOR_MUD
+	return c.lightened(jitter) if jitter > 0.0 else c.darkened(-jitter)
+
+
+## Farmland is a patchwork of rectangular fields in different crops.
+func _field_color(x: float, z: float) -> Color:
+	var region := Vector2i(floori(x / 900.0), floori(z / 900.0))
+	var a := rand01(region.x, region.y, 11) * PI
+	var p := Vector2(x, z).rotated(-a)
+	var cell := Vector2i(floori(p.x / 140.0), floori(p.y / 95.0))
+	var crop: Color = FIELD_COLORS[hash3(cell.x, cell.y, seed_value) % FIELD_COLORS.size()]
+	# Grass strips between fields.
+	if fposmod(p.x, 140.0) < 4.0 or fposmod(p.y, 95.0) < 4.0:
+		crop = COLOR_GRASS
+	return crop

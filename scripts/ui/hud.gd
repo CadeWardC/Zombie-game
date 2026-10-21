@@ -13,6 +13,7 @@ var _clock: Label
 var _inventory: Label
 var _toast: Label
 var _debug: Label
+var _prompt: Label
 var _flash: ColorRect
 var _loading: ColorRect
 var _death: ColorRect
@@ -52,6 +53,10 @@ func _ready() -> void:
 	_toast = _label(root, 22)
 	_toast.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	_place(_toast, Vector2(0.5, 1), Rect2(-300, -130, 600, 40))
+
+	_prompt = _label(root, 20)
+	_prompt.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	_place(_prompt, Vector2(0.5, 0.5), Rect2(-250, 40, 500, 30))
 
 	_debug = _label(root, 14)
 	_place(_debug, Vector2(0, 1), Rect2(20, -40, 900, 24))
@@ -182,6 +187,8 @@ func _update_inventory() -> void:
 
 func _process(delta: float) -> void:
 	if player:
+		var key_hint := "" if GameState.uses_touch() else "[E] "
+		_prompt.text = (key_hint + player.prompt) if player.prompt != "" else ""
 		_bars.health.value = player.health
 		_bars.hunger.value = player.hunger
 		_bars.thirst.value = player.thirst

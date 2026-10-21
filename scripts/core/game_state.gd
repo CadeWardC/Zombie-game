@@ -32,6 +32,7 @@ const ITEM_NAMES := {"food": "Canned Food", "water": "Water Bottle", "bandage": 
 
 var quality: int = Quality.MEDIUM
 var world_seed := 20261021
+var world_size := 8192.0
 var time_of_day := 8.0
 var day := 1
 var kills := 0
@@ -223,6 +224,7 @@ func _setup_input() -> void:
 	_action("use_water", [_key(KEY_2), _button(JOY_BUTTON_DPAD_UP)])
 	_action("use_bandage", [_key(KEY_3), _button(JOY_BUTTON_DPAD_RIGHT)])
 	_action("flashlight", [_key(KEY_F), _button(JOY_BUTTON_Y)])
+	_action("interact", [_key(KEY_E), _button(JOY_BUTTON_B)])
 	_action("pause", [_key(KEY_ESCAPE), _key(KEY_P), _button(JOY_BUTTON_START)])
 	_action("toggle_fps", [_key(KEY_F3)])
 

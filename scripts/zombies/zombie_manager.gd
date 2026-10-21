@@ -95,7 +95,7 @@ func _try_spawn(ppos: Vector3, night: bool) -> void:
 		var d := _rng.randf_range(SPAWN_MIN, SPAWN_MAX)
 		var x := ppos.x + cos(ang) * d
 		var z := ppos.z + sin(ang) * d
-		if x < 50.0 or z < 50.0 or x > WorldGen.WORLD_SIZE - 50.0 or z > WorldGen.WORLD_SIZE - 50.0:
+		if x < 50.0 or z < 50.0 or x > gen.world_size - 50.0 or z > gen.world_size - 50.0:
 			continue
 		if gen.is_inside_building(x, z):
 			continue

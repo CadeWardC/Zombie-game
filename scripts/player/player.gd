@@ -33,6 +33,10 @@ var active := false # False while the world is still loading.
 var sprinting := false
 var touch: TouchControls
 var gen: WorldGen
+var streamer: WorldStreamer
+var swimming := false
+## Text for the HUD's interaction prompt ("" when nothing is in reach).
+var prompt := ""
 
 var head: Node3D
 var camera: Camera3D
@@ -44,6 +48,8 @@ var _exhausted := false
 var _noise_t := 0.0
 var _bob_t := 0.0
 var _shake := 0.0
+var _prompt_t := 0.0
+var _focus: Variant = null # DoorBody or container dictionary in reach.
 
 
 func _ready() -> void:
@@ -126,7 +132,18 @@ func _physics_process(delta: float) -> void:
 	var accel := 12.0 if is_on_floor() else 3.0
 	velocity.x = lerpf(velocity.x, dir.x * speed, minf(1.0, accel * delta))
 	velocity.z = lerpf(velocity.z, dir.z * speed, minf(1.0, accel * delta))
-	if is_on_floor():
+	var water := gen.water_level(position.x, position.z) if gen else -INF
+	swimming = water > -INF and position.y < water - 1.1
+	if swimming:
+		# Float with the head just above the surface; jump swims up.
+		var target := water - 1.35
+		velocity.y = lerpf(velocity.y, (target - position.y) * 3.0, minf(1.0, delta * 4.0))
+		if Input.is_action_pressed("jump"):
+			velocity.y = 1.5
+		velocity.x *= 0.55
+		velocity.z *= 0.55
+		sprinting = false
+	elif is_on_floor():
 		if Input.is_action_just_pressed("jump") and stamina > 10.0:
 			velocity.y = JUMP_VELOCITY
 			_use_stamina(10.0)
@@ -150,10 +167,16 @@ func _physics_process(delta: float) -> void:
 		use_item("bandage")
 	if Input.is_action_just_pressed("flashlight"):
 		flashlight.visible = not flashlight.visible
+	_prompt_t -= delta
+	if _prompt_t <= 0.0:
+		_prompt_t = 0.12
+		_update_focus()
+	if Input.is_action_just_pressed("interact"):
+		_interact()
 
 
 func _keep_in_world() -> void:
-	var lim := WorldGen.WORLD_SIZE - 20.0
+	var lim := gen.world_size - 20.0 if gen else 1e9
 	position.x = clampf(position.x, 20.0, lim)
 	position.z = clampf(position.z, 20.0, lim)
 	# Safety net: if we ever fall through the ground, put us back on top.
@@ -253,6 +276,54 @@ func _attack() -> void:
 	var wall := PhysicsRayQueryParameters3D.create(from, best.global_position + Vector3(0, 1.2, 0), 1)
 	if space.intersect_ray(wall).is_empty():
 		best.take_damage(ATTACK_DAMAGE, push)
+
+
+## Finds what the player is looking at: a door (raycast) or a container
+## (nearest one in front, within reach).
+func _update_focus() -> void:
+	_focus = null
+	prompt = ""
+	var from := camera.global_position
+	var fwd := -camera.global_basis.z
+	var hit := get_world_3d().direct_space_state.intersect_ray(
+			PhysicsRayQueryParameters3D.create(from, from + fwd * 2.6, 1, [get_rid()]))
+	if not hit.is_empty() and hit.collider is DoorBody:
+		_focus = hit.collider
+		prompt = "Close door" if hit.collider.is_open else "Open door"
+		return
+	if streamer == null:
+		return
+	var best_score := 0.0
+	for ct in streamer.containers_near(from, 2.4):
+		var to: Vector3 = ct.pos - from
+		var score := fwd.dot(to.normalized())
+		if score > 0.75 and score > best_score:
+			# Something solid in between (a wall) means it's out of reach.
+			var block := get_world_3d().direct_space_state.intersect_ray(
+					PhysicsRayQueryParameters3D.create(from, ct.pos + to.normalized() * -0.25, 1, [get_rid()]))
+			if block.is_empty():
+				best_score = score
+				_focus = ct
+	if _focus != null:
+		var searched := GameState.looted.has(_focus.id)
+		prompt = ("%s (empty)" if searched else "Search %s") % Loot.label(_focus.type)
+
+
+func _interact() -> void:
+	if _focus == null:
+		return
+	if _focus is DoorBody:
+		_focus.interact(global_position)
+		GameState.make_noise(global_position, 4.0)
+	elif not GameState.looted.has(_focus.id):
+		GameState.looted[_focus.id] = true
+		var items := Loot.roll(_focus.type, _focus.id)
+		if items.is_empty():
+			GameState.notify("Nothing useful in the %s" % Loot.label(_focus.type).to_lower())
+		for it in items:
+			GameState.add_item(it)
+		GameState.make_noise(global_position, 3.0)
+	_prompt_t = 0.0
 
 
 func use_item(type: String) -> void:

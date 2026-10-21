@@ -22,6 +22,7 @@ var _buttons := [
 	{"action": "jump", "label": "JUMP", "anchor": Vector2(1, 1), "offset": Vector2(-290, -90), "radius": 50.0},
 	{"action": "sprint", "label": "RUN", "anchor": Vector2(1, 1), "offset": Vector2(-110, -320), "radius": 50.0, "toggle": true},
 	{"action": "flashlight", "label": "LIGHT", "anchor": Vector2(1, 1), "offset": Vector2(-260, -260), "radius": 40.0},
+	{"action": "interact", "label": "USE", "anchor": Vector2(1, 1), "offset": Vector2(-400, -160), "radius": 48.0},
 	{"action": "use_food", "label": "EAT", "anchor": Vector2(1, 0), "offset": Vector2(-250, 60), "radius": 38.0, "item": "food"},
 	{"action": "use_water", "label": "DRINK", "anchor": Vector2(1, 0), "offset": Vector2(-160, 60), "radius": 38.0, "item": "water"},
 	{"action": "use_bandage", "label": "HEAL", "anchor": Vector2(1, 0), "offset": Vector2(-70, 60), "radius": 38.0, "item": "bandage"},

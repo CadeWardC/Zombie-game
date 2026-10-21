@@ -123,6 +123,9 @@ func update_ai(dt: float, player: Player, dist: float, use_physics: bool, night:
 		dir = (dir + _detour_dir * 1.5).normalized()
 	speed *= _speed_mul
 
+	# Zombies can't swim: they stop at deep water.
+	if dir != Vector3.ZERO and gen.water_level(position.x + dir.x * 1.2, position.z + dir.z * 1.2) > position.y + 0.9:
+		dir = Vector3.ZERO
 	if dir != Vector3.ZERO:
 		rotation.y = lerp_angle(rotation.y, atan2(-dir.x, -dir.z), minf(1.0, dt * 6.0))
 
