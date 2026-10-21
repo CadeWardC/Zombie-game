@@ -518,7 +518,8 @@ func _try_climb() -> bool:
 	var space := get_world_3d().direct_space_state
 	var fwd := -global_basis.z
 	var low := space.intersect_ray(PhysicsRayQueryParameters3D.create(position + Vector3(0, 0.45, 0), position + Vector3(0, 0.45, 0) + fwd * 0.9, 1))
-	if low.is_empty() or low.collider is DoorBody or low.collider is WindowBody:
+	# Only upright obstacles (fences, walls), not a slope in the ground.
+	if low.is_empty() or low.collider is DoorBody or low.collider is WindowBody or absf((low.normal as Vector3).y) > 0.5:
 		return false
 	var high := space.intersect_ray(PhysicsRayQueryParameters3D.create(position + Vector3(0, 1.45, 0), position + Vector3(0, 1.45, 0) + fwd * 1.6, 1))
 	if not high.is_empty():

@@ -149,19 +149,19 @@ func _add_shape(body: StaticBody3D, shape: Shape3D, xf: Transform3D) -> void:
 
 ## All doors in the chunk are drawn by one MultiMesh (one draw call); each
 ## has its own small physics body for collision and interaction.
-func _build_doors(doors: Array) -> void:
-	if doors.is_empty():
+func _build_doors(list: Array) -> void:
+	if list.is_empty():
 		return
 	_door_mm = MultiMesh.new()
 	_door_mm.transform_format = MultiMesh.TRANSFORM_3D
 	_door_mm.use_colors = true
 	_door_mm.mesh = Assets.door_mesh
-	_door_mm.instance_count = doors.size()
+	_door_mm.instance_count = list.size()
 	var mmi := MultiMeshInstance3D.new()
 	mmi.multimesh = _door_mm
 	add_child(mmi)
-	for i in doors.size():
-		var d: Dictionary = doors[i]
+	for i in list.size():
+		var d: Dictionary = list[i]
 		var door := DoorBody.new()
 		add_child(door)
 		door.setup(d, _door_mm, i)

@@ -105,7 +105,9 @@ func _check_traps() -> void:
 			continue
 		var p := _pos(d)
 		if zombies:
-			for z in zombies.in_radius(p, TRAP_RADIUS):
+			for z in zombies.in_radius(p, 1.5):
+				if Vector2(z.position.x - p.x, z.position.z - p.z).length() > TRAP_RADIUS:
+					continue
 				z.trap(7.0)
 				z.take_damage(40.0, Vector3.ZERO)
 				_spring(d)

@@ -237,6 +237,383 @@ func _test_stealth(player: Player, zombies: ZombieManager) -> void:
 	zombies.clear_all()
 
 
+func _test_character(player: Player) -> void:
+	print("Character")
+	var a := Character.random(77)
+	var b := Character.random(77)
+	_check(JSON.stringify(a.to_dict()) == JSON.stringify(b.to_dict()), "random characters are seeded")
+	var c := Character.new()
+	c.background = "unemployed"
+	c.apply_background()
+	_check(c.points_left() == 8, "unemployed starts with 8 trait points")
+	c.toggle_trait("athletic")
+	c.toggle_trait("unfit")
+	_check(c.has_trait("athletic") and not c.has_trait("unfit"), "opposite traits can't be combined")
+	c.toggle_trait("strong")
+	c.toggle_trait("keen_hearing")
+	_check(c.points_left() < 0, "too many good traits overspend the points")
+	c.toggle_trait("hemophiliac")
+	_check(c.points_left() >= 0 and c.mod("bleed") > 1.5 and c.mod("melee") > 1.2, "bad traits pay for good ones; modifiers apply")
+	var copy := Character.from_dict(JSON.parse_string(JSON.stringify(c.to_dict())))
+	_check(copy.traits == c.traits and copy.background == c.background, "character survives JSON")
+	var nurse := Character.new()
+	nurse.background = "nurse"
+	nurse.apply_background()
+	GameState.character = nurse
+	GameState.give_starting_kit()
+	var inv := GameState.inventory
+	_check(inv.equip.torso.get("id", "") == "scrubs_top" and inv.count("suture_kit") == 1 and nurse.skill("first_aid") == 3,
+			"a nurse starts in scrubs with medical supplies")
+	_check(ZombieModel.mesh_for(nurse.body_look(inv.equip, false)) != null, "the survivor's body can be drawn")
+	# The tester: strong, for the rest of the run.
+	var t := Character.new()
+	t.name = "Tester"
+	t.background = "police"
+	t.traits = ["strong"]
+	t.apply_background()
+	GameState.character = t
+	GameState.give_starting_kit()
+	inv.equip.melee = ItemDB.make("baseball_bat")
+	player.weapons.select("melee")
+
+	print("Clothing")
+	var bare := Inventory.new()
+	_check(bare.protection("arm_l", "bite") == 0.0, "bare arms have no protection")
+	bare.equip.jacket = ItemDB.make("leather_jacket")
+	var p0 := bare.protection("arm_l", "bite")
+	_check(p0 > 0.4, "a leather jacket guards the arms against bites (%.0f%%)" % (p0 * 100.0))
+	_check(bare.protection("leg_l", "bite") == 0.0, "... but not the legs")
+	for k in 6:
+		bare.tear("arm_l", 0.1)
+	_check(float(bare.equip.jacket.c) < 0.5 and bare.protection("arm_l", "bite") < p0, "attacks wear clothes down and they protect less")
+	bare.equip.legs = ItemDB.make("cargo_pants")
+	_check(bare.grids().any(func(g: ItemGrid) -> bool: return g.key == "legs"), "cargo pants add pockets")
+	await _wait(0.1)
+
+
+func _test_health(player: Player, zombies: ZombieManager) -> void:
+	print("Injuries")
+	await _reset_arena(player, zombies)
+	var b := player.body
+	b.clear()
+	b.add("laceration", "arm_l")
+	_check(b.bleeding() and b.bleed_rate() > 0.1, "a laceration bleeds")
+	var h0 := player.health
+	await _wait(1.0)
+	_check(player.health < h0, "bleeding drains health (%.1f)" % player.health)
+	GameState.inventory.add(ItemDB.make("bandage", 2))
+	player.quick_use(["medical"], [])
+	_check(not b.bleeding(), "quick heal bandages the wound")
+	b.clear()
+	b.add("deep_wound", "leg_r")
+	GameState.inventory.add(ItemDB.make("suture_kit"))
+	player.quick_use(["medical"], [])
+	_check(b.injuries[0].s and b.bleed_rate() == 0.0, "quick heal stitches a deep wound first")
+	b.clear()
+	player._land(15.5)
+	_check(b.has("fracture", "leg") or b.has("sprain", "leg"), "a long fall hurts your legs")
+	b.clear()
+	b.add("fracture", "leg_l")
+	_check(b.speed_factor() <= 0.5 and not b.can_sprint(), "a broken leg slows you and stops sprinting")
+	GameState.inventory.add(ItemDB.make("splint"))
+	player.quick_use(["medical"], [])
+	_check(b.speed_factor() > 0.7, "a splint helps")
+	var w := b.add("bite", "arm_r", true)
+	w.b = true
+	b.tick(GameState.DAY_LENGTH * 0.5, GameState.character)
+	_check(b.fever(), "a dirty wound gets infected over time (fever)")
+	GameState.inventory.add(ItemDB.make("alcohol_wipes", 2))
+	player.consume(GameState.inventory.find("alcohol_wipes"))
+	_check(float(w.inf) < Health.FEVER_AT, "alcohol wipes clean it")
+	b.clear()
+	b.add("fracture", "leg_l") # Kept for the save test.
+
+	print("Infection")
+	b.infect(0.5)
+	b.tick(GameState.DAY_LENGTH * 0.4, GameState.character)
+	_check(b.symptoms() > 0.0, "symptoms show after a while (%.0f%%)" % (b.infection * 100.0))
+	var before := b.infection
+	b.antibiotics = 12.0
+	b.tick(GameState.DAY_LENGTH * 0.1, GameState.character)
+	var slow := b.infection - before
+	b.antibiotics = 0.0
+	before = b.infection
+	b.tick(GameState.DAY_LENGTH * 0.1, GameState.character)
+	_check(slow < (b.infection - before) * 0.5, "antibiotics slow the infection")
+	GameState.inventory.add(ItemDB.make("cure_vial"))
+	player.consume(GameState.inventory.find("cure_vial"))
+	_check(not b.infected and b.infection == 0.0, "the cure vial cures it")
+	# A bite on bare skin with a 100% infection chance.
+	var saved_inf: float = GameState.world.get("infection", 0.15)
+	GameState.world.infection = 1.0
+	var jacket: Dictionary = GameState.inventory.equip.jacket
+	GameState.inventory.equip.jacket = {}
+	GameState.inventory.equip.torso = {}
+	GameState.inventory.equip.head = {}
+	for k in 8:
+		player.zombie_hit(1.0, player.global_position, "bite")
+		if b.infected:
+			break
+	_check(b.has("bite") and b.infected, "an unprotected bite can infect")
+	GameState.world.infection = saved_inf
+	GameState.inventory.equip.jacket = jacket
+	b.infected = false
+	b.infection = 0.0
+	player.health = 100.0
+
+
+func _test_zombie_types(player: Player, zombies: ZombieManager) -> void:
+	print("Zombie types")
+	await _reset_arena(player, zombies)
+	var types := {}
+	for k in 400:
+		types[zombies.pick_type(true, player.global_position)] = true
+	_check(types.has("runner") and types.has("brute") and types.has("crawler") and types.has("screamer"), "night spawns include every type (%s)" % ", ".join(types.keys()))
+	GameState.world.zspeed = 0
+	var shamblers := true
+	for k in 300:
+		if zombies.pick_type(true, player.global_position) == "runner":
+			shamblers = false
+	_check(shamblers, "no runners with the 'shamblers' setting")
+	GameState.world.zspeed = 1
+	var brute := _spawn_zombie(Vector3(0, 0, -1.6))
+	brute.reset(brute.position, "brute", 0, 1.0)
+	_check(brute.health > 300.0 and brute._model.scale.x > 1.1, "brutes are big and tough")
+	brute.stagger(Vector3.FORWARD, 1.0)
+	_check(brute._stagger_t < 0.3, "brutes shrug off shoves")
+	var soldier := _spawn_zombie(Vector3(3, 0, -6))
+	soldier.reset(soldier.position, "soldier", 0, 1.0)
+	soldier.take_damage(50.0, Vector3.ZERO, false)
+	var body_hit := soldier.max_health - soldier.health
+	soldier.health = soldier.max_health
+	soldier.take_damage(50.0, Vector3.ZERO, false, true, true)
+	_check(body_hit < 25.0 and soldier.max_health - soldier.health >= 50.0, "soldiers' armour stops body hits, not headshots")
+	var heard := []
+	var listen := func(_p: Vector3, r: float) -> void: heard.append(r)
+	GameState.noise_made.connect(listen)
+	var screamer := _spawn_zombie(Vector3(-4, 0, -9))
+	screamer.reset(screamer.position, "screamer", 0, 1.0)
+	screamer.see_player()
+	GameState.noise_made.disconnect(listen)
+	_check(heard.any(func(r: float) -> bool: return r >= Zombie.SCREAM_RADIUS), "screamers shriek when they see you")
+	zombies.clear_all()
+	await _wait(0.2)
+	var crawler := _spawn_zombie(Vector3(0, 0, -1.0))
+	crawler.reset(crawler.position, "crawler", 0, 1.0)
+	crawler.see_player()
+	player.body.clear()
+	player.health = 100.0
+	await _wait(2.0)
+	_check(player._grab_t > 0.0 or player.body.has("bite", "leg") or player.body.has("scratch", "leg") or player.health < 100.0,
+			"crawlers grab your ankles")
+	zombies.clear_all()
+	player._grab_t = 0.0
+	player.body.clear()
+	player.body.add("fracture", "leg_l")
+	player.health = 100.0
+
+
+func _test_world_changes(player: Player, zombies: ZombieManager, doors: Array[DoorBody]) -> void:
+	print("Doors and windows")
+	var outside: DoorBody = null
+	for d in doors:
+		if is_instance_valid(d) and d.out != 0 and d.key == "":
+			outside = d
+			break
+	if outside == null:
+		for c: Chunk in _near_chunks():
+			for d in c.doors:
+				if d.out != 0 and d.key == "":
+					outside = d
+	_check(outside != null, "found an outside door")
+	if outside:
+		outside.is_open = false
+		outside.locked = true
+		outside.hp = DoorBody.MAX_HP
+		var out_pos := outside.global_transform * Vector3(0.45, 0, 1.0 * outside.out)
+		var in_pos := outside.global_transform * Vector3(0.45, 0, -1.0 * outside.out)
+		_check(outside.inside(in_pos) and not outside.inside(out_pos), "doors know which side is inside")
+		_check(not outside.can_lock(out_pos) and outside.can_lock(in_pos), "doors lock from the inside only")
+		outside.interact(out_pos)
+		_check(not outside.is_open, "a locked door won't open from outside")
+		_check(not outside.zombie_push(out_pos), "zombies can't push a locked door open")
+		for k in 12:
+			outside.damage(10.0, out_pos)
+		_check(outside.broken() and outside.zombie_push(out_pos), "battering breaks it down")
+		_check(GameState.door_state(outside.id).get("hp", 1.0) == 0.0, "the broken door is remembered")
+	var unlocked: DoorBody = null
+	for c: Chunk in _near_chunks():
+		for d in c.doors:
+			if not d.locked and not d.is_open and d.key == "" and not d.broken():
+				unlocked = d
+	if unlocked:
+		_check(unlocked.zombie_push(unlocked.global_position + Vector3(1, 0, 1)) and unlocked.is_open, "zombies open unlocked doors")
+	# A zombie chasing you into a house finds the door and gets in.
+	var front: DoorBody = null
+	for c: Chunk in _near_chunks():
+		for d in c.doors:
+			if d.out != 0 and d.key == "" and not d.broken() and d != outside and d.id.ends_with("_d0"):
+				front = d
+				break
+	if front:
+		front.locked = false
+		front.is_open = false
+		front._target = 0.0
+		var inside := front.global_transform * Vector3(0.45, 0, -2.5 * front.out)
+		var outdoor := front.global_transform * Vector3(0.45 + 1.5, 0, 6.0 * front.out)
+		player.global_position = inside + Vector3(0, 0.3, 0)
+		player.health = 100.0
+		await _wait(0.3)
+		var hz := zombies._spawn(Vector3(outdoor.x, _main.gen.height(outdoor.x, outdoor.z), outdoor.z))
+		hz.see_player()
+		var got_in := await _wait_for(func() -> bool: return front.is_open or hz.global_position.distance_to(player.global_position) < 2.0, 15000)
+		_check(front.is_open, "a chasing zombie opens the front door to get in (%d ms)" % got_in)
+		zombies.clear_all()
+		player.body.clear()
+		player.body.add("fracture", "leg_l")
+		player.health = 100.0
+	var win: WindowBody = null
+	for c: Chunk in _near_chunks():
+		if not c.windows.is_empty():
+			win = c.windows[0]
+	_check(win != null, "ground-floor windows are smashable bodies")
+	if win:
+		win.smash()
+		_check(win.smashed and win.collision_layer == WindowBody.SMASHED_LAYER and GameState.window_smashed(win.id), "smashing a window opens it for good")
+	# A keycard door on its own.
+	var mm := MultiMesh.new()
+	mm.transform_format = MultiMesh.TRANSFORM_3D
+	mm.use_colors = true
+	mm.instance_count = 1
+	var sec := DoorBody.new()
+	add_child(sec)
+	sec.setup({"xf": Transform3D(Basis.IDENTITY, player.global_position + Vector3(0, 0, -30)), "w": 1.0, "h": 2.2, "t": 0.06,
+		"color": Color.BLUE, "id": "test_sec", "key": "keycard_blue", "power": "test_site", "out": 0}, mm, 0)
+	sec.interact(player.global_position)
+	_check(sec.locked, "security doors stay shut without power")
+	GameState.set_power("test_site", player.global_position)
+	sec.interact(player.global_position)
+	_check(sec.locked, "... and without the keycard")
+	GameState.inventory.add(ItemDB.make("keycard_blue"))
+	sec.interact(player.global_position)
+	_check(not sec.locked and sec.is_open, "power plus the keycard opens them")
+	sec.damage(500.0, player.global_position)
+	_check(not sec.broken(), "security doors can't be broken")
+	sec.queue_free()
+	GameState.ws.power.erase("test_site")
+	GameState.explore(player.global_position)
+	_check(GameState.explored_fraction() > 0.0, "the map remembers where you've been (%.2f%%)" % (GameState.explored_fraction() * 100.0))
+
+
+func _test_lab(gen: WorldGen) -> void:
+	print("Research lab")
+	var site: Dictionary = gen.settlements.sites.filter(func(s): return s.type == "research")[0]
+	var layout := SiteLayout.build(site, gen)
+	var lab: BuildingData
+	var shed: BuildingData
+	for lot in layout.lots:
+		if lot.type == "research_lab":
+			lab = BuildingGen.build(gen, lot, true)
+		elif lot.type == "generator_shed":
+			shed = BuildingGen.build(gen, lot, true)
+	var keyed := lab.doors.filter(func(d: Dictionary) -> bool: return d.get("key", "") != "")
+	_check(keyed.size() >= 4, "the lab has %d security doors" % keyed.size())
+	var musts := []
+	for ct in lab.containers:
+		for m in ct.get("must", []):
+			musts.append(m[0])
+	_check("keycard_blue" in musts and "keycard_red" in musts and "cure_vial" in musts, "keycards and the cure are inside")
+	_check(lab.spawns.size() >= 12, "%d zombies wait inside" % lab.spawns.size())
+	_check(shed.containers.any(func(c: Dictionary) -> bool: return c.type == "generator" and c.site == lab.id.get_slice("_", 0)),
+			"the generator powers the lab")
+	var vault: Dictionary = lab.containers.filter(func(c: Dictionary) -> bool: return c.type == "cryo_fridge" and not c.get("must", []).is_empty())[0]
+	var items := Loot.fill(vault.type, "research_lab", vault.id, vault.must)
+	_check(items.any(func(it: Dictionary) -> bool: return it.id == "cure_vial"), "the vault holds the cure")
+
+
+func _test_death_rules(player: Player, zombies: ZombieManager) -> void:
+	print("Death rules")
+	await _reset_arena(player, zombies)
+	# Turning: the infection kills you and your body walks on with your gear.
+	GameState.inventory.add(ItemDB.make("hammer"))
+	player.body.infect(0.0)
+	player.body.infection = 0.9999
+	player.body.turn_hours = 0.001
+	await _wait(0.3)
+	_check(player.dead and player.turned, "the infection kills and turns you")
+	var turned: Array = GameState.ws.turned
+	_check(turned.size() == 1 and _has_item(turned[0].items, "hammer"), "your turned body carries your gear")
+	_check(_main.hud._respawn_btn.visible, "respawn world: you can respawn")
+	var name_before := GameState.character.name
+	_main._respawn()
+	await _wait_for(func() -> bool: return player.active, 30000)
+	_check(not player.dead and GameState.character.name == name_before and GameState.character.has_trait("strong"),
+			"respawning keeps your character")
+	# Your turned self is out there.
+	var entry: Dictionary = GameState.ws.turned[0]
+	var near := player.global_position + Vector3(14, 0, 0)
+	entry.p = [near.x, _main.gen.height(near.x, near.z), near.z]
+	zombies._spawn_turned(player.global_position)
+	var tz: Zombie = zombies._by_turned.get(entry.id)
+	_check(tz != null and tz.turned_name == name_before, "your turned self roams the world")
+	if tz:
+		tz.take_damage(500.0, Vector3.ZERO)
+		_check(tz.state == Zombie.State.DEAD and GameState.ws.turned.is_empty(), "killing it ends it (solo: no cure)")
+		await _wait(0.3)
+		_check(_has_item(_main.drops.near(tz.global_position, 3.0).map(func(d: Dictionary) -> Dictionary: return d.it), "hammer"), "... and drops your gear")
+	# A friend's turned body can be subdued and cured (multiplayer).
+	var friend := {"id": "friend_1", "name": "Friend", "owner": "p2", "p": [near.x, _main.gen.height(near.x, near.z), near.z],
+		"items": [], "char": Character.random(5).to_dict(), "equip": {}}
+	GameState.add_turned(friend)
+	zombies._spawn_turned(player.global_position)
+	var fz: Zombie = zombies._by_turned.get("friend_1")
+	var cured := []
+	zombies.turned_cured.connect(func(e: Dictionary) -> void: cured.append(e.id))
+	if fz:
+		fz.take_damage(500.0, Vector3.ZERO)
+		_check(fz.subdued and fz.state == Zombie.State.SUBDUED, "a turned friend can be beaten down without killing them")
+		fz.cure()
+		_check(cured == ["friend_1"] and GameState.ws.turned.is_empty(), "the cure brings them back")
+	else:
+		_check(false, "a turned friend spawns")
+	# New character world.
+	GameState.world.death_rule = GameState.DeathRule.NEW_CHARACTER
+	player.death_cause = "Testing"
+	player.take_damage(500.0, Vector3.ZERO)
+	await _wait(0.2)
+	_check(_main.hud._new_char_btn.visible and not _main.hud._respawn_btn.visible, "new-character world: no respawn, a new survivor")
+	_main._new_character()
+	await _wait(0.3)
+	var cc: CharacterCreator = _main._creator.get_child(0)
+	_check(cc != null, "the character creator opens")
+	var fresh := Character.random(99)
+	fresh.name = "Second"
+	cc.done.emit(fresh)
+	await _wait_for(func() -> bool: return player.active, 30000)
+	_check(GameState.character.name == "Second" and not player.dead, "play goes on as someone new")
+	# Permadeath: the world is lost and kept as a memorial.
+	GameState.world.death_rule = GameState.DeathRule.PERMADEATH
+	player.death_cause = "Testing permadeath"
+	player.take_damage(500.0, Vector3.ZERO)
+	await _wait(0.2)
+	var meta: Dictionary = GameState.list_worlds().filter(func(w): return w.id == "smoketest")[0]
+	_check(meta.lost and meta.cause == "Testing permadeath" and meta.survivor == "Second", "permadeath loses the world, with a memorial")
+	_check(not _main.hud._respawn_btn.visible and not _main.hud._new_char_btn.visible, "... and no way back")
+	var mv := MapView.new()
+	add_child(mv)
+	mv.load_world(meta)
+	_check(mv._tex != null, "the memorial shows the explored map")
+	mv.queue_free()
+
+
+## Is an item with this id in the list (or inside bags and pockets in it)?
+func _has_item(items: Array, id: String) -> bool:
+	for it in items:
+		if it.id == id or _has_item(it.get("items", []), id):
+			return true
+	return false
+
+
 func _near_chunks() -> Array:
 	return _main.streamer.get_children().filter(func(c: Node) -> bool: return c is Chunk and c.lod == 0)
 
@@ -278,6 +655,7 @@ func _run() -> void:
 	_check(containers.size() > 10, "%d loot containers near spawn" % containers.size())
 
 	print("Player")
+	var town_spot := player.global_position
 	var ground := gen.height(player.position.x, player.position.z)
 	_check(absf(player.position.y - ground) < 1.0, "at terrain height (%.2f vs %.2f)" % [player.position.y, ground])
 	var start := player.position
@@ -290,6 +668,10 @@ func _run() -> void:
 	print("Doors and loot")
 	if not doors.is_empty():
 		var door: DoorBody = doors[0]
+		for d in doors:
+			if not d.locked and d.key == "":
+				door = d
+				break
 		var front := door.global_transform * Vector3(0.5, 0, 1.2)
 		player.global_position = Vector3(front.x, front.y + 0.1, front.z)
 		player.look_at_from_position(player.global_position, door.global_transform * Vector3(0.5, 1.6, 0), Vector3.UP)
@@ -380,6 +762,16 @@ func _run() -> void:
 
 	await _test_combat(player, zombies)
 	await _test_stealth(player, zombies)
+	await _test_character(player)
+	await _test_health(player, zombies)
+	await _test_zombie_types(player, zombies)
+	# Back to town, where the doors and windows are.
+	player.global_position = town_spot
+	streamer.refresh()
+	await _wait_for(func() -> bool: return streamer.is_ready_at(town_spot), 15000)
+	await _wait(2.0)
+	await _test_world_changes(player, zombies, doors)
+	_test_lab(gen)
 
 	print("Survival")
 	GameState.add_item(ItemDB.make("canned_beans"))
@@ -406,6 +798,12 @@ func _run() -> void:
 	_check(GameState.drops.size() == n_drops and GameState.containers.size() == n_containers, "save restores drops and opened containers")
 	var listed := GameState.list_worlds().filter(func(w): return w.id == "smoketest")
 	_check(listed.size() == 1 and int(listed[0].kills) == kills, "world listed with its stats")
+	_check(GameState.character.name == "Tester" and GameState.character.has_trait("strong"), "save restores the character")
+	_check(GameState.ws.doors.size() > 0 and GameState.ws.windows.size() > 0, "save restores door and window changes")
+	player.from_dict(data)
+	_check(player.body.has("fracture"), "save restores injuries")
+
+	await _test_death_rules(player, zombies)
 
 	print("Performance (headless, CPU only)")
 	for lod in [0, 1]:

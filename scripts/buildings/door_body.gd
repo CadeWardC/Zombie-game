@@ -69,11 +69,18 @@ func broken() -> bool:
 	return hp <= 0.0
 
 
+## `from` (a world position) in the closed door's frame.
+func _local(from: Vector3) -> Vector3:
+	var parent := get_parent() as Node3D
+	var xf := parent.global_transform * _closed_xf if parent else _closed_xf
+	return xf.affine_inverse() * from
+
+
 ## Is `from` on the inside of this door (where the lock is)?
 func inside(from: Vector3) -> bool:
 	if out == 0:
 		return true
-	var local := _closed_xf.affine_inverse() * from
+	var local := _local(from)
 	return signf(local.z) != float(out)
 
 
@@ -139,7 +146,7 @@ func toggle_lock(from: Vector3) -> void:
 
 ## Opens away from `from`.
 func _open_from(from: Vector3) -> void:
-	var local := _closed_xf.affine_inverse() * from
+	var local := _local(from)
 	_swing = -1.0 if local.z > 0.0 else 1.0
 	is_open = true
 	_target = OPEN_ANGLE * _swing
