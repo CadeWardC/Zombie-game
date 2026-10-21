@@ -155,8 +155,11 @@ static func build(id: String) -> MeshData:
 			m.append(_cyl(0.026, 0.026, 0.05, DARK, 8), Transform3D(_FWD, Vector3(0, 0.03, -0.1)))
 			_b(m, Vector3(0, 0.005, 0), Vector3(0.02, 0.02, 0.06), DARK)
 		"red_dot":
+			# Base and an open window frame (the dot itself is drawn by the HUD).
 			_b(m, Vector3(0, 0.01, 0), Vector3(0.028, 0.02, 0.05), DARK)
-			_b(m, Vector3(0, 0.035, 0), Vector3(0.03, 0.03, 0.006), Color(0.4, 0.5, 0.6))
+			_b(m, Vector3(-0.016, 0.036, 0.0), Vector3(0.004, 0.034, 0.012), DARK)
+			_b(m, Vector3(0.016, 0.036, 0.0), Vector3(0.004, 0.034, 0.012), DARK)
+			_b(m, Vector3(0, 0.054, 0.0), Vector3(0.036, 0.004, 0.012), DARK)
 		"suppressor":
 			m.append(_cyl(0.017, 0.017, 0.16, DARK, 8), Transform3D(_FWD, Vector3(0, 0.017, 0.08)))
 		"weapon_light":

@@ -487,8 +487,8 @@ Each stage ends with a playable build on the Tab S6 Lite and iPhone.
 |---|---|
 | **0. Prototype** ✅ | Streaming world, towns, zombies, survival needs, touch and gamepad, APK CI |
 | **1. Map and art** ✅ | New world generator (sizes, coast, rivers, biomes), road network, American towns, cities and suburbs, special-location framework (research center and airport first), procedural realistic houses, cars and animated zombies, enterable interiors with doors and loot containers, world-creation screen with multiple saves, unsigned iOS CI |
-| **2. Items and combat** ← next | Tetris inventory, loot tables, guns, bows, throwables, melee shove and durability, stealth, gamepad menu navigation and prompts |
-| **3. Character and health** | Character creation with traits, injuries, clothing protection, infection with symptoms, cure vials, the three death rules, curing zombified friends, memorial worlds, all zombie types and abilities |
+| **2. Items and combat** ✅ | Tetris inventory, loot tables, guns, bows, throwables, melee shove and durability, stealth, gamepad menu navigation and prompts |
+| **3. Character and health** ← next | Character creation with traits, injuries, clothing protection, infection with symptoms, cure vials, the three death rules, curing zombified friends, memorial worlds, all zombie types and abilities |
 | **4. Multiplayer** | 2–4 player hosting, join codes, Wi-Fi discovery, pings, PvP setting, sync of zombies, loot and vehicles |
 | **5. Vehicles** | Cars, bikes, fuel, boats, then helicopters and planes at airports |
 | **6. Survival depth** | Crafting, base building, skills, farming, cooking, spoilage, sleep, temperature, weather and seasons, utilities and power plant, traders, hunting, fishing, foraging, water purification, dog companion |
@@ -518,7 +518,42 @@ Moved to later stages:
   keycards and the generator (stage 3, together with the cure).
 - **Zombies**: opening doors and breaking barricades (stage 3).
 
-## 20. Open questions
+## 20. Stage 2 notes
+
+Done:
+- Item database (about 50 items) with procedural 3D models and inventory
+  icons rendered from them.
+- Tetris inventory:
+  - pockets, vest and backpack grids, plus weapon, bag and vest slots;
+  - weight that slows you down; long items need a backpack or a slot;
+  - touch drag and drop, mouse, and full gamepad cursor control.
+- Loot rolled per container from pools that depend on the building, and
+  saved. Car trunks are searchable. Items can be dropped on the ground and
+  stay there.
+- Melee wear, the shove, and silent takedowns.
+- Guns:
+  - aim down sights, recoil, spread;
+  - reloading from loose ammo (shotguns and revolvers load shell by shell);
+  - jams on worn guns, and noise;
+  - scope, red dot, suppressor and weapon light.
+- Compound bow and crossbow, with arrows and bolts you can recover.
+- Throwables and traps: bottles, alarm clocks, molotovs, grenades and bear
+  traps.
+- Zombies stagger, burn, get trapped, and build up awareness before
+  chasing.
+- Stealth: crouching, bushes, dark interiors, and the HUD eye.
+- Button prompts per controller, and basic gamepad aim assist.
+- On death your gear drops where you fell.
+
+Simplified or moved:
+- **Magazines**: guns reload straight from loose ammo; there are no
+  separate magazine items. They can be added later if wanted.
+- **Hiding in tall grass** waits for grass (stage 6, with farming and
+  foraging). Bushes and dark rooms work now.
+- **Aim assist strength and remapping settings**: stage 7, with the other
+  settings.
+
+## 21. Open questions
 
 - Which free relay service to use for internet join codes.
 - Exact asset packs (checked for license and Tab S6 Lite performance).

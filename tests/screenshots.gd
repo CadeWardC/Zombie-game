@@ -2,6 +2,7 @@ extends Node
 ## Renders gameplay screenshots into user://screenshots/ for quick visual
 ## checks. Needs a real renderer (not --headless), e.g.:
 ##   xvfb-run godot res://tests/screenshots.tscn -- --touch
+## Add --items for just the stage 2 shots (inventory, weapons, stealth).
 
 var _main: Node3D
 var _cam: Camera3D
@@ -67,6 +68,11 @@ func _run() -> void:
 	add_child(_cam)
 	GameState.time_of_day = 10.0
 	var gen: WorldGen = _main.gen
+	if "--items" in OS.get_cmdline_user_args():
+		await _items_shots()
+		GameState.delete_world("screenshots")
+		get_tree().quit()
+		return
 
 	# A street corner in the spawn town.
 	var spawn: Vector3 = gen.spawn_point()
@@ -160,3 +166,116 @@ func _run() -> void:
 	await _shot("11_main_menu")
 	GameState.delete_world("screenshots")
 	get_tree().quit()
+
+
+func _equip(slot: String, id: String, ammo := 0, parts := {}) -> void:
+	var it := ItemDB.make(id, 1, 0.8)
+	if ammo > 0:
+		it.a = ammo
+	if not parts.is_empty():
+		it.att = parts
+	GameState.inventory.equip[slot] = it
+	GameState.inventory.notify()
+	_main.player.weapons.current = ""
+	_main.player.weapons.select(slot)
+
+
+## Stage 2: inventory, weapons in hand, scope, stealth eye, fire.
+func _items_shots() -> void:
+	var player: Player = _main.player
+	var gen: WorldGen = _main.gen
+	var w := player.weapons
+	var inv := GameState.inventory
+	var spawn: Vector3 = gen.spawn_point()
+	await _go(Vector2(spawn.x, spawn.z), player.rotation.y, -4.0)
+	_main.zombies.clear_all()
+	_main.zombies.max_zombies = 0
+	# Wait for the icon atlas.
+	var t0 := Time.get_ticks_msec()
+	while ItemIcons.texture == null and Time.get_ticks_msec() - t0 < 5000:
+		await get_tree().process_frame
+	if ItemIcons.texture:
+		ItemIcons.texture.get_image().save_png("user://screenshots/20_item_icons.png")
+
+	# A loaded-out survivor looting a police locker.
+	inv.add(ItemDB.make("hiking_backpack"))
+	inv.add(ItemDB.make("tactical_vest"))
+	_equip("primary", "assault_rifle", 22, {"scope": "red_dot"})
+	_equip("sidearm", "pistol_9mm", 9)
+	_equip("melee", "fire_axe")
+	inv.equip.throw = ItemDB.make("molotov", 1)
+	for id in ["ammo_556", "ammo_9mm", "bandage", "canned_beans", "water_bottle", "first_aid_kit", "painkillers",
+			"crowbar", "energy_bar", "hunting_knife", "grenade", "noise_maker", "suppressor"]:
+		inv.add(ItemDB.make(id, 30 if id.begins_with("ammo") else 1, 0.7))
+	var locker := {"id": "shot_locker", "type": "locker", "bld": "police", "pos": player.global_position}
+	var items: Array = []
+	var g := ItemGrid.new("c", "", 4, 6, items)
+	for id in ["pump_shotgun", "ammo_12g", "ammo_12g", "weapon_light", "bandage", "school_backpack"]:
+		g.add(ItemDB.make(id, 8 if id.begins_with("ammo") else 1, 0.6))
+	GameState.containers[locker.id] = items
+	_main.inventory_ui.open(locker)
+	await get_tree().create_timer(0.3).timeout
+	_main.inventory_ui._selected = inv.equip.primary
+	_main.inventory_ui._update_info()
+	_main.inventory_ui._board.queue_redraw()
+	await _shot("12_inventory_touch")
+	GameState.device = "xbox"
+	_main.inventory_ui._pad_mode = true
+	_main.inventory_ui._cursor = {"area": _main.inventory_ui._area_index("container"), "x": 0, "y": 0}
+	_main.inventory_ui._update_info()
+	_main.inventory_ui._board.queue_redraw()
+	await _shot("13_inventory_gamepad")
+	_main.inventory_ui.close()
+	GameState.device = "kbm"
+
+	# Weapons in hand.
+	player.head.rotation.x = deg_to_rad(-3.0)
+	w.select("sidearm")
+	await get_tree().create_timer(0.6).timeout
+	await _shot("14_pistol")
+	w.select("primary")
+	Input.action_press("aim")
+	await get_tree().create_timer(0.8).timeout
+	await _shot("15_rifle_red_dot_ads")
+	Input.action_release("aim")
+	_equip("primary", "hunting_rifle", 5, {"scope": "scope"})
+	Input.action_press("aim")
+	await get_tree().create_timer(0.8).timeout
+	await _shot("16_scope")
+	Input.action_release("aim")
+	_equip("primary", "compound_bow")
+	inv.add(ItemDB.make("arrow", 6))
+	Input.action_press("attack")
+	await get_tree().create_timer(0.8).timeout
+	await _shot("17_bow_drawn")
+	Input.action_release("attack")
+	await get_tree().create_timer(0.3).timeout
+	w.select("melee")
+	await get_tree().create_timer(0.6).timeout
+	await _shot("18_fire_axe")
+
+	# Sneaking up on a zombie: the stealth eye fills.
+	player.crouching = true
+	_main.zombies.max_zombies = 0
+	var fwd := -player.global_basis.z
+	var zp: Vector3 = player.global_position + fwd * 9.0
+	zp.y = gen.height(zp.x, zp.z)
+	_main.zombies._spawn(zp)
+	var z: Zombie = _main.zombies._active[-1]
+	z.rotation.y = player.rotation.y + PI
+	z.awareness = 0.6
+	z.state = Zombie.State.INVESTIGATE
+	z.target = z.position
+	w.select("throw")
+	# Software rendering is slow, so hold the zombie at "suspicious".
+	for k in 4:
+		await get_tree().process_frame
+		z.awareness = 0.6
+		z.state = Zombie.State.INVESTIGATE
+	await _shot("19_stealth")
+	player.head.rotation.x = deg_to_rad(-25.0)
+	w._throw(0.4)
+	await get_tree().create_timer(1.6).timeout
+	player.head.rotation.x = deg_to_rad(-12.0)
+	await get_tree().create_timer(0.3).timeout
+	await _shot("21_molotov_fire")

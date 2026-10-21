@@ -199,8 +199,8 @@ func _start_fire(pos: Vector3) -> void:
 		f.mesh = Assets.flame_mesh
 		f.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 		var a := k * TAU / 5.0
-		f.position = Vector3(cos(a), 0.0, sin(a)) * (0.0 if k == 0 else 1.4)
-		f.scale = Vector3.ONE * (1.6 if k == 0 else 1.1)
+		f.position = Vector3(cos(a), 0.0, sin(a)) * (0.0 if k == 0 else 1.3)
+		f.scale = Vector3(1.0, 0.9, 1.0) * (1.0 if k == 0 else 0.65)
 		root.add_child(f)
 	var light := OmniLight3D.new()
 	light.light_color = Color(1.0, 0.55, 0.2)

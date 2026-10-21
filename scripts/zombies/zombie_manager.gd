@@ -219,4 +219,5 @@ func _check_sight(ppos: Vector3, night: bool) -> void:
 		if close or z.state == Zombie.State.CHASE:
 			z.see_player()
 		else:
-			z.notice(dt * (0.4 + 2.6 * (1.0 - dist / range_)), ppos)
+			var near := 1.0 - dist / range_
+			z.notice(dt * (0.25 + 1.8 * near * near), ppos)

@@ -187,6 +187,10 @@ func _physics_process(delta: float) -> void:
 		quick_use(["medical"], [])
 	if Input.is_action_just_pressed("flashlight"):
 		flashlight.visible = not flashlight.visible
+	# A weapon light throws a longer, tighter beam while that gun is out.
+	var gun_light := weapons.has_part("light") != ""
+	flashlight.spot_range = 42.0 if gun_light else 28.0
+	flashlight.spot_angle = 20.0 if gun_light else 30.0
 	if Input.is_action_just_pressed("inventory"):
 		open_inventory.emit({})
 	_prompt_t -= delta

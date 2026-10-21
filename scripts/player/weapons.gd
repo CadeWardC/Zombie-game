@@ -105,6 +105,11 @@ func scoped() -> bool:
 	return aim_blend > 0.9 and has_part("scope") == "scope"
 
 
+## Aiming through a red dot sight (the HUD draws the dot).
+func red_dot() -> bool:
+	return aim_blend > 0.8 and has_part("scope") == "red_dot"
+
+
 func _refresh_model() -> void:
 	var it := item()
 	var sig := "%s|%s|%s" % [current, it.get("id", ""), str(it.get("att", {}))]
@@ -221,8 +226,9 @@ func _update_view(delta: float, moving: bool) -> void:
 			hip = Vector3(0.17, -0.19, -0.32 if long else -0.42)
 			hip_rot = Vector3(0, 0, 0)
 			if current == "primary" and d.cat == "bow" and item().id == "compound_bow":
-				hip = Vector3(0.08, -0.12, -0.5)
-				hip_rot = Vector3(0, 0, -12)
+				# Held to the left and canted, so the crosshair stays clear.
+				hip = Vector3(-0.14, -0.08, -0.6)
+				hip_rot = Vector3(0, 0, 18)
 		"throw":
 			hip = Vector3(0.25, -0.25, -0.4)
 			hip_rot = Vector3(-10, 0, 0)
@@ -230,7 +236,13 @@ func _update_view(delta: float, moving: bool) -> void:
 			if d.get("reach", 2.0) < 2.1:
 				hip = Vector3(0.26, -0.26, -0.4)
 				hip_rot = Vector3(-20, 15, -10)
-	var ads := Vector3(0, -float(d.get("sight", 0.1)) - (0.03 if has_part("scope") != "" else 0.0), -0.3)
+	# Aiming down sights puts the sight line (iron sights or an optic) on the
+	# centre of the screen.
+	var sight := float(d.get("sight", 0.1))
+	var optic := has_part("scope")
+	if optic != "":
+		sight = ItemModels.mount(item().id, "scope").y + (0.03 if optic == "scope" else 0.036)
+	var ads := Vector3(0, -sight, -0.3)
 	var pos := hip.lerp(ads, aim_blend)
 	var rot := hip_rot.lerp(Vector3.ZERO, aim_blend)
 	# Sway while walking, a kick when firing, a dip when switching or reloading.

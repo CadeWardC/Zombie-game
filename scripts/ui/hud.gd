@@ -260,6 +260,9 @@ func _draw_overlay() -> void:
 
 func _draw_crosshair(ci: Control, c: Vector2, w: Weapons) -> void:
 	var col := Color(1, 1, 1, 0.85)
+	if w.red_dot():
+		ci.draw_circle(c, 2.5, Color(1.0, 0.1, 0.05))
+		return
 	if not w.is_ranged():
 		ci.draw_rect(Rect2(c - Vector2(2, 2), Vector2(4, 4)), col)
 		return
@@ -306,7 +309,7 @@ func _draw_stealth(ci: Control, c: Vector2, font: Font) -> void:
 	var det := zombies.detection if zombies else 0.0
 	if det < 0.05 and not player.crouching:
 		return
-	var p := c + Vector2(0, -64)
+	var p := c + Vector2(0, -96)
 	var col := Color(0.75, 0.75, 0.75, 0.7)
 	if det >= 1.0:
 		col = Color(0.95, 0.2, 0.15, 0.95)

@@ -5,7 +5,7 @@ built with **Godot 4.7** and designed to run well on phones and tablets
 (minimum target: Samsung Galaxy Tab S6 Lite). The full plan is in
 [docs/DESIGN.md](docs/DESIGN.md).
 
-**What's in the game now (stage 1):**
+**What's in the game now (stages 1 and 2):**
 
 - **Random worlds of 8, 16 or 32 km**: coastlines, mountains, forests,
   farmland, deserts, beaches, and river networks with lakes from a drainage
@@ -22,19 +22,42 @@ built with **Godot 4.7** and designed to run well on phones and tablets
 - **Special sites**: airports (runway, terminal, tower, hangars, planes and
   helicopters) and remote research centers.
 - **Houses you can enter**: five house styles plus trailers, with rooms,
-  stairs, doors that open, furniture, and fridges, cabinets and dressers to
-  search for scarce loot.
-- **Animated zombies** in eight outfits that shamble, sprint, grab, flinch
-  and fall. They hear you, see you, open doors (later), and can't swim.
-- **Survival**: health, hunger, thirst, stamina, a day/night cycle, swimming,
-  melee with headshots, and a flashlight.
+  stairs, doors that open, and furniture.
+- **Tetris inventory**: pockets, a vest and a backpack, each with its own
+  grid; weapon, bag and vest slots. Items have shapes (a rifle is 5 x 1),
+  weight slows you down, long things don't fit in pockets. Drag and drop,
+  rotate, double-tap to move, auto-sort, take all. Fully playable with a
+  gamepad.
+- **Loot that makes sense**: about 50 items. Fridges, cabinets, dressers,
+  shelves, lockers and car trunks are rolled once per world, from pools
+  that depend on the building (a police locker vs. a school locker).
+  Containers stay as you left them. Guns are uncommon.
+- **Weapons**:
+  - melee: knives, hammer, crowbar, machete, bat, fire axe and
+    sledgehammer. Each one wears out.
+  - guns: pistol, revolver, pump shotgun, hunting rifle and assault rifle.
+    You can aim down the sights. They have recoil, reload from loose ammo
+    and jam when worn.
+  - attachments: scope, red dot, suppressor and weapon light.
+  - bows: a compound bow and a crossbow, with arrows you can recover.
+  - throwables: bottles and alarm clocks to distract, molotovs, grenades,
+    and bear traps.
+  - a shove for when you're surrounded.
+- **Stealth**: zombies grow suspicious before they chase you (the eye on
+  the HUD shows it). Crouch, hide in bushes or dark rooms, and do silent
+  takedowns from behind. Gunshots carry for a hundred metres.
+- **Animated zombies** in eight outfits that shamble, sprint, grab, flinch,
+  stagger, burn and fall. They hear you, see you, and can't swim.
+- **Survival**: health, hunger, thirst, stamina, a day/night cycle and
+  swimming.
 - **Main menu with multiple saved worlds**: choose map size, seed,
   difficulty and death rule (respawn, new character, permadeath; lost
-  permadeath worlds stay as memorials).
+  permadeath worlds stay as memorials). When you die, your gear stays where
+  you fell.
 
-All art (terrain, buildings, furniture, cars, aircraft, zombies) is
-generated in code as realistic low-poly geometry, so the app stays small and
-needs no art files.
+All art (terrain, buildings, furniture, cars, aircraft, zombies, items and
+their inventory icons) is generated in code as realistic low-poly geometry,
+so the app stays small and needs no art files.
 
 ## Controls
 
@@ -42,16 +65,32 @@ needs no art files.
 |--------------|---------------------------|------------------|---------------|
 | Move         | Left side: floating stick | WASD / arrows    | Left stick    |
 | Look         | Drag on the right side    | Mouse            | Right stick   |
-| Attack       | HIT                       | Left click       | RT / X        |
-| Use (doors, search) | USE                | E                | B             |
+| Attack / fire / throw (hold to draw a bow or wind up a throw) | FIRE / HIT | Left click | RT |
+| Aim down sights | AIM (toggle)           | Right click      | LT            |
+| Reload / clear a jam | RELOAD            | R                | X             |
+| Shove        | SHOVE                     | V                | RB            |
+| Quick throw  | –                         | G                | LB            |
+| Use (doors, search, pick up) | USE       | E                | B             |
+| Crouch / sneak | CROUCH                  | C / Ctrl         | R3            |
 | Sprint       | RUN (toggle)              | Shift            | L3            |
 | Jump / swim up | JUMP                    | Space            | A             |
+| Switch weapon | WEAPON                   | 1-4 / wheel      | D-pad left / right |
+| Eat or drink / heal | EAT / HEAL         | Z / H            | D-pad up / down |
+| Inventory    | BAG                       | Tab / I          | View / Select |
 | Flashlight   | LIGHT                     | F                | Y             |
-| Eat / drink / bandage | EAT / DRINK / HEAL | 1 / 2 / 3      | D-pad         |
 | Pause        | II                        | Esc / P          | Start         |
 | Debug stats  | –                         | F3               | –             |
 
-Menus work with the gamepad too (D-pad / stick to move, A to select).
+On screen, button prompts match the controller you're using: Xbox
+letters, PlayStation shapes, Nintendo letters, or keyboard keys. Menus work
+with the gamepad too. In the inventory:
+- A picks up and puts down; X quick-moves; Y uses or equips;
+- RB rotates; LB drops;
+- LT sorts; RT takes everything;
+- B cancels or closes.
+
+On gamepads, aim assist slows your aim and pulls it gently toward a zombie
+near the crosshair while you aim down sights.
 
 ## How it stays fast on phones
 
@@ -97,7 +136,12 @@ scripts/
     map_renderer.gd             top-down map image
   buildings/                  Procedural buildings, interiors, furniture, doors
   zombies/                    Zombie model (rig + animations), AI, manager
-  player/, items/, ui/        Player, loot, HUD, touch controls, menus
+  items/                      Item database, models, grid inventory, loot,
+                              dropped items
+  combat/effects.gd           Arrows, thrown items, fire, explosions, blood
+  player/                     Player (movement, stealth, items) and weapons
+  ui/                         HUD, inventory screen, item icons, button
+                              glyphs, touch controls, menus
 tests/smoke_test.tscn         Automated gameplay test (runs in CI)
 tests/screenshots.tscn        Renders gameplay screenshots
 tools/map_preview.gd          Renders a world map PNG

@@ -178,6 +178,7 @@ func _test_combat(player: Player, zombies: ZombieManager) -> void:
 	await _reset_arena(player, zombies)
 	z = _spawn_zombie(Vector3(0, 0, -6))
 	z.state = Zombie.State.WANDER
+	z.trap(10.0) # Hold it in place.
 	inv.equip.throw = ItemDB.make("grenade", 1)
 	w.select("throw")
 	await _wait(0.4)
@@ -230,6 +231,7 @@ func _test_stealth(player: Player, zombies: ZombieManager) -> void:
 	var z2 := _spawn_zombie(Vector3(0, 0, -10))
 	z2.rotation.y = player.rotation.y + PI # Facing the player.
 	z2.state = Zombie.State.WANDER
+	z2.trap(10.0) # Standing still, looking our way.
 	await _wait(2.5)
 	_check(z2.state != Zombie.State.WANDER or z2.awareness > 0.0, "a zombie in view notices you (awareness %.2f)" % z2.awareness)
 	zombies.clear_all()
@@ -308,6 +310,29 @@ func _run() -> void:
 		_check(_main.inventory_ui.is_open() and GameState.ui_open, "searching opens the inventory")
 		_main.inventory_ui.close()
 		_check(not GameState.ui_open, "inventory closes")
+	# Inventory screen actions on a staged container.
+	var ui: InventoryScreen = _main.inventory_ui
+	var box := {"id": "test_box", "type": "car_trunk", "bld": "", "pos": player.global_position}
+	var staged: Array = []
+	var sg := ItemGrid.new("c", "", 7, 4, staged)
+	sg.add(ItemDB.make("ammo_9mm", 12))
+	sg.add(ItemDB.make("red_dot"))
+	sg.add(ItemDB.make("canned_soup"))
+	GameState.containers[box.id] = staged
+	ui.open(box)
+	var gun := ItemDB.make("pistol_9mm")
+	sg.place(gun, 4, 0, false)
+	ui._refresh()
+	var ammo: Dictionary = staged[0]
+	ui._lift(ammo)
+	_check(ui._combine(ammo, gun) and int(gun.a) == 12, "dropping ammo on a gun loads it")
+	var dot := sg.items.filter(func(o: Dictionary) -> bool: return o.id == "red_dot")[0] as Dictionary
+	ui._lift(dot)
+	_check(ui._combine(dot, gun) and gun.att.get("scope", "") == "red_dot", "dropping a sight on a gun attaches it")
+	var soups := GameState.inventory.count("canned_soup")
+	ui._take_all()
+	_check(staged.is_empty() and GameState.inventory.count("canned_soup") == soups + 1, "Take All empties the container")
+	ui.close()
 	var trunks := containers.filter(func(c: Dictionary) -> bool: return c.type == "car_trunk")
 	print("  (%d car trunks near spawn)" % trunks.size())
 

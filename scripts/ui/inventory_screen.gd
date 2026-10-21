@@ -69,6 +69,7 @@ func _ready() -> void:
 	bar.offset_top = -118
 	bar.offset_bottom = -10
 	bar.add_theme_constant_override("separation", 6)
+	bar.theme = _button_theme()
 	add_child(bar)
 	_info = Label.new()
 	_info.add_theme_font_size_override("font_size", 17)
@@ -99,6 +100,23 @@ func _ready() -> void:
 	row.add_child(_weight)
 	GameState.inventory_changed.connect(_refresh)
 	GameState.device_changed.connect(func() -> void: _board.queue_redraw())
+
+
+func _button_theme() -> Theme:
+	var t := Theme.new()
+	var normal := StyleBoxFlat.new()
+	normal.bg_color = Color(0.16, 0.17, 0.17, 0.95)
+	normal.set_corner_radius_all(6)
+	normal.set_content_margin_all(8)
+	var hover := normal.duplicate()
+	hover.bg_color = Color(0.24, 0.25, 0.25, 0.95)
+	var pressed := normal.duplicate()
+	pressed.bg_color = Color(0.62, 0.12, 0.1)
+	t.set_stylebox("normal", "Button", normal)
+	t.set_stylebox("hover", "Button", hover)
+	t.set_stylebox("pressed", "Button", pressed)
+	t.set_stylebox("focus", "Button", StyleBoxEmpty.new())
+	return t
 
 
 func is_open() -> bool:
