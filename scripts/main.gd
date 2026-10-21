@@ -17,6 +17,9 @@ var zombies: ZombieManager
 var hud: Hud
 var touch: TouchControls
 var pause_menu: PauseMenu
+var inventory_ui: InventoryScreen
+var effects: Effects
+var drops: DropManager
 var perf: PerformanceMonitor
 var ocean: MeshInstance3D
 var world_ready := false
@@ -73,8 +76,30 @@ func _setup_world() -> void:
 	zombies.gen = gen
 	zombies.player = player
 	add_child(zombies)
-	hud.player = player
+	player.zombies = zombies
+	hud.connect_player(player)
 	hud.zombies = zombies
+
+	drops = DropManager.new()
+	drops.player = player
+	drops.zombies = zombies
+	add_child(drops)
+	player.drops = drops
+	effects = Effects.new()
+	effects.player = player
+	effects.zombies = zombies
+	effects.drops = drops
+	effects.gen = gen
+	add_child(effects)
+	player.weapons.effects = effects
+	player.weapons.drops = drops
+
+	inventory_ui = InventoryScreen.new()
+	inventory_ui.player = player
+	inventory_ui.drops = drops
+	add_child(inventory_ui)
+	player.open_inventory.connect(inventory_ui.open)
+	ItemIcons.build(self)
 
 	touch = TouchControls.new()
 	touch.visible = GameState.uses_touch()
@@ -82,6 +107,7 @@ func _setup_world() -> void:
 	touch_layer.layer = 2
 	add_child(touch_layer)
 	touch_layer.add_child(touch)
+	touch.player = player
 	if touch.visible:
 		player.touch = touch
 
@@ -173,7 +199,7 @@ func _process(delta: float) -> void:
 	ocean.global_position = Vector3(snappedf(p.x, 64.0), -0.05, snappedf(p.z, 64.0))
 	if not player.active:
 		return
-	if Input.is_action_just_pressed("pause") and not player.dead:
+	if Input.is_action_just_pressed("pause") and not player.dead and not inventory_ui.is_open():
 		pause_menu.open()
 	if Input.is_action_just_pressed("toggle_fps"):
 		hud.toggle_debug()
@@ -189,7 +215,7 @@ func _process(delta: float) -> void:
 func _unhandled_input(event: InputEvent) -> void:
 	# Desktop: click to recapture the mouse after alt-tabbing.
 	if world_ready and event is InputEventMouseButton and event.pressed and not GameState.uses_touch() \
-			and player.active and not player.dead and Input.mouse_mode != Input.MOUSE_MODE_CAPTURED:
+			and player.active and not player.dead and not GameState.ui_open and Input.mouse_mode != Input.MOUSE_MODE_CAPTURED:
 		Input.mouse_mode = Input.MOUSE_MODE_CAPTURED
 
 
@@ -223,9 +249,15 @@ func save_game() -> void:
 
 
 func _on_player_died() -> void:
+	if inventory_ui.is_open():
+		inventory_ui.close()
 	Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
-	GameState.inventory = {"food": 0, "water": 0, "bandage": 0}
-	GameState.inventory_changed.emit()
+	# Everything you carried stays where you fell, for your next life.
+	var at := player.global_position
+	var items := GameState.inventory.all_items()
+	for k in items.size():
+		drops.drop(items[k], at + Vector3(cos(k * 2.4), 0.3, sin(k * 2.4)) * 0.6)
+	GameState.inventory.clear()
 	var permadeath := GameState.death_rule() == GameState.DeathRule.PERMADEATH
 	if permadeath:
 		# Stage 3 adds the infection cure, the only way back.
@@ -235,10 +267,10 @@ func _on_player_died() -> void:
 
 func _respawn() -> void:
 	zombies.clear_all()
+	effects.clear()
 	var p := gen.spawn_point(randi())
 	player.respawn(Vector3(p.x, gen.height(p.x, p.z) + 1.0, p.z))
-	GameState.inventory = {"food": 1, "water": 1, "bandage": 0}
-	GameState.inventory_changed.emit()
+	GameState.give_starting_kit()
 	hud.show_death(false)
 	# The spawn town may be far away; wait for its chunks before resuming.
 	player.active = false
@@ -250,6 +282,7 @@ func _respawn() -> void:
 func _quit_to_menu() -> void:
 	save_game()
 	get_tree().paused = false
+	GameState.ui_open = false
 	Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
 	GameState.world = {}
 	get_tree().change_scene_to_file("res://scenes/menu.tscn")

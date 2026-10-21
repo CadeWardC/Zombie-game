@@ -17,11 +17,12 @@ static var cars: Array[ArrayMesh] = []
 static var car_shape: BoxShape3D
 static var door_mesh: ArrayMesh
 static var tree_shape: CylinderShape3D
-static var zombie_meshes: Array[ArrayMesh] = []
 static var zombie_shape: CapsuleShape3D
-static var item_meshes := {}
-static var item_shape: SphereShape3D
-static var weapon_mesh: ArrayMesh
+static var item_meshes := {} # item id -> ArrayMesh (see ItemModels)
+static var particle_material: StandardMaterial3D
+static var flash_material: StandardMaterial3D # Additive glow (muzzle flash, explosions).
+static var flame_mesh: ArrayMesh
+static var muzzle_flash_mesh: ArrayMesh
 static var _built := false
 
 const PROP_NAMES := ["pine", "pine_far", "broadleaf", "broadleaf_far", "yard_tree", "dead_tree", "bush", "dry_bush",
@@ -77,10 +78,11 @@ static func build() -> void:
 	tree_shape = CylinderShape3D.new()
 	tree_shape.radius = 0.3
 	tree_shape.height = 4.0
-	_build_zombies()
+	zombie_shape = CapsuleShape3D.new()
+	zombie_shape.radius = 0.3
+	zombie_shape.height = 1.8
 	ZombieModel.build_assets()
 	_build_items()
-	_build_weapon()
 
 
 ## Per-vertex lighting is much cheaper on weak GPUs and looks almost the same
@@ -101,43 +103,38 @@ static func _vc_material(cull: BaseMaterial3D.CullMode) -> StandardMaterial3D:
 	return m
 
 
-static func _build_zombies() -> void:
-	var skin := Color(0.42, 0.5, 0.36)
-	var pants := Color(0.2, 0.22, 0.28)
-	var shirts := [Color(0.5, 0.18, 0.15), Color(0.25, 0.3, 0.4), Color(0.55, 0.52, 0.45)]
-	for shirt in shirts:
-		var st := MeshFactory.begin()
-		for x: float in [-0.12, 0.12]:
-			MeshFactory.box(st, Vector3(x, 0.425, 0), Vector3(0.2, 0.85, 0.22), pants)
-			MeshFactory.box(st, Vector3(x * 2.65, 1.4, -0.25), Vector3(0.13, 0.13, 0.6), skin)
-		MeshFactory.box(st, Vector3(0, 1.175, 0), Vector3(0.5, 0.65, 0.28), shirt)
-		MeshFactory.box(st, Vector3(0, 1.68, -0.03), Vector3(0.3, 0.32, 0.3), skin)
-		zombie_meshes.append(MeshFactory.finish(st, material))
-	zombie_shape = CapsuleShape3D.new()
-	zombie_shape.radius = 0.3
-	zombie_shape.height = 1.8
-
-
 static func _build_items() -> void:
-	var st := MeshFactory.begin()
-	MeshFactory.cylinder(st, Vector3.ZERO, 0.14, 0.14, 0.22, 8, Color(0.75, 0.15, 0.1))
-	MeshFactory.cylinder(st, Vector3(0, 0.22, 0), 0.13, 0.13, 0.02, 8, Color(0.75, 0.75, 0.75))
-	item_meshes["food"] = MeshFactory.finish(st, material)
-	st = MeshFactory.begin()
-	MeshFactory.cylinder(st, Vector3.ZERO, 0.1, 0.1, 0.38, 8, Color(0.2, 0.45, 0.85))
-	MeshFactory.cylinder(st, Vector3(0, 0.38, 0), 0.05, 0.05, 0.06, 6, Color(0.9, 0.9, 0.95))
-	item_meshes["water"] = MeshFactory.finish(st, material)
-	st = MeshFactory.begin()
-	MeshFactory.box(st, Vector3(0, 0.08, 0), Vector3(0.32, 0.16, 0.24), Color(0.92, 0.92, 0.9))
-	MeshFactory.box(st, Vector3(0, 0.165, 0), Vector3(0.18, 0.01, 0.05), Color(0.85, 0.1, 0.1))
-	MeshFactory.box(st, Vector3(0, 0.165, 0), Vector3(0.05, 0.01, 0.16), Color(0.85, 0.1, 0.1))
-	item_meshes["bandage"] = MeshFactory.finish(st, material)
-	item_shape = SphereShape3D.new()
-	item_shape.radius = 0.9
-
-
-static func _build_weapon() -> void:
-	var st := MeshFactory.begin()
-	MeshFactory.cylinder(st, Vector3.ZERO, 0.022, 0.022, 0.2, 6, Color(0.1, 0.1, 0.1))
-	MeshFactory.cylinder(st, Vector3(0, 0.2, 0), 0.024, 0.045, 0.6, 6, Color(0.5, 0.34, 0.18))
-	weapon_mesh = MeshFactory.finish(st, material)
+	for id in ItemDB.ITEMS:
+		item_meshes[id] = ItemModels.build(id).to_mesh(material)
+	particle_material = StandardMaterial3D.new()
+	particle_material.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	particle_material.vertex_color_use_as_albedo = true
+	flash_material = StandardMaterial3D.new()
+	flash_material.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	flash_material.vertex_color_use_as_albedo = true
+	flash_material.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+	flash_material.blend_mode = BaseMaterial3D.BLEND_MODE_ADD
+	flash_material.cull_mode = BaseMaterial3D.CULL_DISABLED
+	flash_material.albedo_color = Color(1.0, 0.75, 0.4, 0.9)
+	# Flames: three crossed tongues of fire.
+	var fm := MeshData.new()
+	for k in 3:
+		var a := k * PI / 3.0
+		var side := Vector3(cos(a), 0, sin(a)) * 0.35
+		var n := Vector3(-sin(a), 0, cos(a))
+		var base_col := Color(1.0, 0.35, 0.05)
+		var top := Vector3(0, 1.1, 0)
+		fm.tri(-side, side, top, base_col, n)
+		fm.tri(-side * 0.6 + Vector3(0, 0.05, 0), side * 0.6 + Vector3(0, 0.05, 0), Vector3(0, 0.7, 0), Color(1.0, 0.8, 0.3), n)
+	flame_mesh = fm.to_mesh(flash_material)
+	# Muzzle flash: a small star of quads facing forward (-Z).
+	var mf := MeshData.new()
+	for k in 4:
+		var a := k * PI / 4.0
+		var d := Vector3(cos(a), sin(a), 0) * 0.07
+		mf.tri(-d, d, Vector3(0, 0, -0.16), Color(1.0, 0.8, 0.4), Vector3(-d.y, d.x, 0))
+	for k in 6:
+		var a0 := k * TAU / 6.0
+		var a1 := (k + 1) * TAU / 6.0
+		mf.tri(Vector3.ZERO, Vector3(cos(a0), sin(a0), 0) * 0.06, Vector3(cos(a1), sin(a1), 0) * 0.06, Color(1.0, 0.9, 0.6), Vector3.BACK)
+	muzzle_flash_mesh = mf.to_mesh(flash_material)

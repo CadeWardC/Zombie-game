@@ -28,6 +28,7 @@ var signs: Array = []
 var props := {} # mesh name -> PackedFloat32Array (MultiMesh buffer)
 var prop_counts := {}
 var tree_points := PackedVector3Array()
+var cover_points := PackedVector3Array() # Bushes you can hide in (stealth).
 var car_boxes: Array = []
 var heights := PackedFloat32Array()
 var _cols := PackedColorArray()
@@ -67,7 +68,7 @@ func _result() -> Dictionary:
 		"terrain": terrain, "water": water, "road": road, "solid": solid,
 		"building": building, "glass": glass, "boxes": boxes, "doors": doors,
 		"containers": containers, "signs": signs, "props": props, "prop_counts": prop_counts,
-		"tree_points": tree_points, "car_boxes": car_boxes,
+		"tree_points": tree_points, "car_boxes": car_boxes, "cover_points": cover_points,
 		"collision_batches": _collision_batches(),
 	}
 	if lod == 0:
@@ -333,6 +334,10 @@ func _add_prop(type: String, xf: Transform3D) -> void:
 		name = "car_%d" % (absi(int(xf.origin.x * 13.0 + xf.origin.z * 7.0)) % Assets.CAR_COUNT)
 		if lod == 0:
 			car_boxes.append(xf * Transform3D(Basis.IDENTITY, Vector3(0, 0.8, 0)))
+			# Searchable trunk at the back of the car.
+			var w := xf.origin + Vector3(origin.x, 0, origin.y)
+			containers.append({"pos": xf * Vector3(0, 0.9, -2.5), "type": "car_trunk", "bld": "",
+				"id": "trunk_%d_%d" % [int(w.x * 4.0), int(w.z * 4.0)]})
 	elif type.begins_with("car_") and lod == 0:
 		car_boxes.append(xf * Transform3D(Basis.IDENTITY, Vector3(0, 0.8, 0)))
 	if lod == 1:
@@ -348,6 +353,8 @@ func _add_prop(type: String, xf: Transform3D) -> void:
 	prop_counts[name] = prop_counts.get(name, 0) + 1
 	if lod == 0 and type in ["pine", "broadleaf", "yard_tree", "dead_tree", "cactus"]:
 		tree_points.append(o)
+	if lod == 0 and type in ["bush", "dry_bush"]:
+		cover_points.append(o)
 
 
 func _blocked(p: Vector2, margin: float) -> bool:

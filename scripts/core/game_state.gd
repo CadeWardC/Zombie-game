@@ -1,11 +1,14 @@
 extends Node
 ## Global game state (autoload "GameState"): settings, inventory, world clock,
-## save/load and input bindings.
+## containers and dropped items, save/load, input bindings and which input
+## device is in use (for button prompts).
 
 signal noise_made(position: Vector3, radius: float)
 signal inventory_changed
 signal message(text: String)
 signal quality_changed
+signal device_changed
+signal drops_changed
 
 enum Quality { LOW, MEDIUM, HIGH }
 
@@ -27,8 +30,8 @@ const QUALITY_PRESETS := {
 const DAY_LENGTH := 1200.0 # Real seconds per in-game day.
 const WORLDS_DIR := "user://worlds"
 const SETTINGS_PATH := "user://settings.cfg"
-const SAVE_VERSION := 1
-const ITEM_NAMES := {"food": "Canned Food", "water": "Water Bottle", "bandage": "Bandage"}
+const SAVE_VERSION := 2
+const STARTING_KIT := [["kitchen_knife", 1], ["canned_beans", 1], ["water_bottle", 1], ["bandage", 1]]
 const SIZE_NAMES := {8192.0: "8 x 8 km", 16384.0: "16 x 16 km", 32768.0: "32 x 32 km"}
 
 enum DeathRule { RESPAWN, NEW_CHARACTER, PERMADEATH }
@@ -45,8 +48,14 @@ var world_size := 8192.0
 var time_of_day := 8.0
 var day := 1
 var kills := 0
-var inventory := {"food": 1, "water": 1, "bandage": 0}
-var looted := {}
+var inventory := Inventory.new()
+## Opened containers: id -> Array of items (each with grid x, y, r).
+var containers := {}
+## Items on the ground: [{p: [x, y, z], it: item, armed: bool (traps)}].
+var drops: Array = []
+var ui_open := false # Inventory (or another full-screen menu) is open.
+## Last input device used: "kbm", "touch", "xbox", "ps" or "nintendo".
+var device := "kbm"
 var force_touch_ui := false
 var world := {} # Current world's settings and summary (see create_world).
 
@@ -56,6 +65,33 @@ func _ready() -> void:
 	_load_settings()
 	_parse_args()
 	_setup_input()
+	inventory.changed.connect(func() -> void: inventory_changed.emit())
+	if OS.has_feature("mobile"):
+		device = "touch"
+
+
+func _input(event: InputEvent) -> void:
+	var d := device
+	if event is InputEventJoypadButton or (event is InputEventJoypadMotion and absf(event.axis_value) > 0.5):
+		var joy := Input.get_joy_name(event.device).to_lower()
+		d = "xbox"
+		for k in ["ps", "sony", "dualsense", "dualshock", "playstation"]:
+			if k in joy:
+				d = "ps"
+		for k in ["nintendo", "switch", "joy-con", "pro controller"]:
+			if k in joy:
+				d = "nintendo"
+	elif event is InputEventScreenTouch:
+		d = "touch"
+	elif event is InputEventKey or (event is InputEventMouseButton and not OS.has_feature("mobile")):
+		d = "kbm"
+	if d != device:
+		device = d
+		device_changed.emit()
+
+
+func using_gamepad() -> bool:
+	return device in ["xbox", "ps", "nintendo"]
 
 
 func _process(delta: float) -> void:
@@ -105,23 +141,52 @@ func notify(text: String) -> void:
 
 # --- Inventory -------------------------------------------------------------
 
-func add_item(type: String, count := 1) -> void:
-	inventory[type] = int(inventory.get(type, 0)) + count
-	inventory_changed.emit()
-	notify("Picked up %s" % ITEM_NAMES.get(type, type))
+## Picks up an item (grids, or an empty matching slot). Returns how many
+## didn't fit; those are dropped at `drop_pos` when one is given.
+func add_item(it: Dictionary, drop_pos: Variant = null) -> int:
+	var left := inventory.add(it)
+	if left < int(it.get("n", 1)):
+		notify("Picked up %s" % ItemDB.item_name(it.id))
+	if left > 0 and drop_pos != null:
+		var rest := it.duplicate(true)
+		rest.n = left
+		drop_item(rest, drop_pos)
+		notify("No room: dropped %s" % ItemDB.item_name(it.id))
+	return left
 
 
-func take_item(type: String) -> bool:
-	var have := int(inventory.get(type, 0))
-	if have <= 0:
-		return false
-	inventory[type] = have - 1
-	inventory_changed.emit()
-	return true
+func item_count(id: String) -> int:
+	return inventory.count(id)
 
 
-func item_count(type: String) -> int:
-	return int(inventory.get(type, 0))
+func drop_item(it: Dictionary, pos: Vector3, armed := false) -> void:
+	var d := it.duplicate(true)
+	d.erase("x")
+	d.erase("y")
+	d.erase("r")
+	drops.append({"p": [pos.x, pos.y, pos.z], "it": d, "armed": armed})
+	drops_changed.emit()
+
+
+func remove_drop(drop: Dictionary) -> void:
+	for k in drops.size():
+		if is_same(drops[k], drop):
+			drops.remove_at(k)
+			drops_changed.emit()
+			return
+
+
+## Contents of a container, rolled the first time it's opened.
+func container_items(ct: Dictionary) -> Array:
+	if not containers.has(ct.id):
+		containers[ct.id] = Loot.fill(ct.type, ct.get("bld", ""), ct.id)
+	return containers[ct.id]
+
+
+func give_starting_kit() -> void:
+	inventory.clear()
+	for k in STARTING_KIT:
+		inventory.add(ItemDB.make(k[0], k[1], 0.8))
 
 
 # --- Worlds and saves ----------------------------------------------------------
@@ -183,8 +248,9 @@ func start_world(meta: Dictionary) -> void:
 	time_of_day = 8.0
 	day = 1
 	kills = 0
-	inventory = {"food": 1, "water": 1, "bandage": 0}
-	looted.clear()
+	give_starting_kit()
+	containers.clear()
+	drops.clear()
 
 
 func has_save() -> bool:
@@ -203,8 +269,9 @@ func save_game(player_data: Dictionary) -> void:
 		"time": time_of_day,
 		"day": day,
 		"kills": kills,
-		"inventory": inventory,
-		"looted": looted.keys(),
+		"inventory": inventory.to_dict(),
+		"containers": containers,
+		"drops": drops,
 		"player": player_data,
 	}
 	_write_json(_world_path("save.json"), data)
@@ -220,17 +287,27 @@ func load_game() -> Dictionary:
 	if not has_save():
 		return {}
 	var data := _read_json(_world_path("save.json"))
-	if data.is_empty() or int(data.get("version", 0)) != SAVE_VERSION:
+	var version := int(data.get("version", 0))
+	if data.is_empty() or version < 1 or version > SAVE_VERSION:
 		return {}
 	time_of_day = float(data.get("time", 8.0))
 	day = int(data.get("day", 1))
 	kills = int(data.get("kills", 0))
-	var inv: Dictionary = data.get("inventory", {})
-	for k in inv:
-		inventory[k] = int(inv[k])
-	looted.clear()
-	for id in data.get("looted", []):
-		looted[str(id)] = true
+	containers.clear()
+	drops.clear()
+	if version == 1:
+		# Stage 1 saves had simple item counts; keep the world, give a fresh kit.
+		give_starting_kit()
+		for id in data.get("looted", []):
+			containers[str(id)] = []
+	else:
+		inventory.from_dict(data.get("inventory", {}))
+		var saved: Dictionary = data.get("containers", {})
+		for id in saved:
+			containers[id] = (saved[id] as Array).map(func(o: Dictionary) -> Dictionary: return Inventory._clean(o))
+		for d in data.get("drops", []):
+			drops.append({"p": d.p, "it": Inventory._clean(d.it), "armed": bool(d.get("armed", false))})
+	drops_changed.emit()
 	return data.get("player", {})
 
 
@@ -308,12 +385,28 @@ func _setup_input() -> void:
 		mb.button_index = MOUSE_BUTTON_LEFT
 		attack_events.append(mb)
 	_action("attack", attack_events)
-	_action("use_food", [_key(KEY_1), _button(JOY_BUTTON_DPAD_LEFT)])
-	_action("use_water", [_key(KEY_2), _button(JOY_BUTTON_DPAD_UP)])
-	_action("use_bandage", [_key(KEY_3), _button(JOY_BUTTON_DPAD_RIGHT)])
+	var aim_events: Array = [_axis(JOY_AXIS_TRIGGER_LEFT, 1.0)]
+	if not OS.has_feature("mobile"):
+		var rmb := InputEventMouseButton.new()
+		rmb.button_index = MOUSE_BUTTON_RIGHT
+		aim_events.append(rmb)
+	_action("aim", aim_events)
+	_action("reload", [_key(KEY_R), _button(JOY_BUTTON_X)])
+	_action("shove", [_key(KEY_V), _button(JOY_BUTTON_RIGHT_SHOULDER)])
+	_action("crouch", [_key(KEY_C), _key(KEY_CTRL), _button(JOY_BUTTON_RIGHT_STICK)])
+	_action("inventory", [_key(KEY_TAB), _key(KEY_I), _button(JOY_BUTTON_BACK)])
+	_action("weapon_next", [_wheel(MOUSE_BUTTON_WHEEL_DOWN), _button(JOY_BUTTON_DPAD_RIGHT)])
+	_action("weapon_prev", [_wheel(MOUSE_BUTTON_WHEEL_UP), _button(JOY_BUTTON_DPAD_LEFT)])
+	for k in 4:
+		_action("slot_%d" % (k + 1), [_key(KEY_1 + k)])
+	_action("quick_eat", [_key(KEY_Z), _button(JOY_BUTTON_DPAD_UP)])
+	_action("quick_heal", [_key(KEY_H), _button(JOY_BUTTON_DPAD_DOWN)])
 	_action("flashlight", [_key(KEY_F), _button(JOY_BUTTON_Y)])
 	_action("interact", [_key(KEY_E), _button(JOY_BUTTON_B)])
+	_action("throw_quick", [_key(KEY_G), _button(JOY_BUTTON_LEFT_SHOULDER)])
 	_action("pause", [_key(KEY_ESCAPE), _key(KEY_P), _button(JOY_BUTTON_START)])
+	# Inventory screen (gamepad face buttons are read directly there).
+	_action("ui_rotate", [_key(KEY_R)])
 	_action("toggle_fps", [_key(KEY_F3)])
 
 
@@ -332,6 +425,12 @@ func _key(code: Key) -> InputEventKey:
 
 func _button(b: JoyButton) -> InputEventJoypadButton:
 	var e := InputEventJoypadButton.new()
+	e.button_index = b
+	return e
+
+
+func _wheel(b: MouseButton) -> InputEventMouseButton:
+	var e := InputEventMouseButton.new()
 	e.button_index = b
 	return e
 

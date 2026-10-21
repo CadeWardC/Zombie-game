@@ -71,6 +71,19 @@ func containers_near(pos: Vector3, radius: float) -> Array:
 	return out
 
 
+## Distance to the nearest bush (cover) around `pos`, up to `radius`.
+func cover_distance(pos: Vector3, radius: float) -> float:
+	var best := INF
+	var c: Chunk = _chunks.get(chunk_of(pos))
+	if c == null:
+		return best
+	for p in c.cover:
+		var d := Vector2(p.x - pos.x, p.z - pos.z).length()
+		if d < best:
+			best = d
+	return best if best < radius else INF
+
+
 ## Emits spawn_area_ready again once the chunk under the player is ready.
 func wait_for_spawn_area() -> void:
 	_spawn_ready = false

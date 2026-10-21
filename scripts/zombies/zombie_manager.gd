@@ -16,12 +16,15 @@ const SPAWN_MAX := 110.0
 const SIGHT_DAY := 26.0
 const SIGHT_NIGHT := 12.0
 const SIGHT_FLASHLIGHT := 22.0
-const LOS_CHECKS_PER_FRAME := 2
+const LOS_CHECKS_PER_FRAME := 3
 
 var player: Player
 var gen: WorldGen
 var max_zombies := 28
 var shadows := false
+## 0..1: how close any zombie is to spotting the player (1 = being chased).
+## Drives the HUD's stealth eye.
+var detection := 0.0
 
 var _active: Array[Zombie] = []
 var _pool: Array[Zombie] = []
@@ -38,6 +41,16 @@ func _ready() -> void:
 
 func active_count() -> int:
 	return _active.size()
+
+
+## Live zombies within `radius` of `pos`.
+func in_radius(pos: Vector3, radius: float) -> Array[Zombie]:
+	var out: Array[Zombie] = []
+	var r2 := radius * radius
+	for z in _active:
+		if z.state != Zombie.State.DEAD and z.position.distance_squared_to(pos) < r2:
+			out.append(z)
+	return out
 
 
 func clear_all() -> void:
@@ -89,6 +102,11 @@ func _physics_process(delta: float) -> void:
 
 	_separate(ppos)
 	_check_sight(ppos, night)
+	var det := 0.0
+	for z in _active:
+		if z.state != Zombie.State.DEAD and z.position.distance_squared_to(ppos) < 1600.0:
+			det = maxf(det, 1.0 if z.state == Zombie.State.CHASE else z.awareness)
+	detection = det
 
 
 func _try_spawn(ppos: Vector3, night: bool) -> void:
@@ -167,19 +185,23 @@ func _separate(ppos: Vector3) -> void:
 				zb.position -= push
 
 
+## Stealth: zombies that can see the player build up awareness, faster when
+## close; crouching, cover and darkness shrink how far they can see.
 func _check_sight(ppos: Vector3, night: bool) -> void:
 	if _active.is_empty() or player.dead:
 		return
 	var range_ := SIGHT_DAY
 	if night:
 		range_ = SIGHT_FLASHLIGHT if player.flashlight.visible else SIGHT_NIGHT
-	if player.sprinting:
-		range_ *= 1.2
+	range_ *= player.visibility()
 	var space := get_world_3d().direct_space_state
-	var eye := ppos + Vector3(0, Player.EYE_HEIGHT, 0)
+	var eye := ppos + Vector3(0, player.head.position.y, 0)
+	var now := Time.get_ticks_msec()
 	for k in mini(LOS_CHECKS_PER_FRAME, _active.size()):
 		_los_cursor = (_los_cursor + 1) % _active.size()
 		var z := _active[_los_cursor]
+		var dt := minf((now - z.last_sight_check) / 1000.0, 0.5)
+		z.last_sight_check = now
 		if z.state == Zombie.State.DEAD:
 			continue
 		var to := ppos - z.position
@@ -187,8 +209,14 @@ func _check_sight(ppos: Vector3, night: bool) -> void:
 		if dist > range_:
 			continue
 		var forward := -z.global_basis.z
-		if dist > 4.0 and forward.dot(to / dist) < 0.35:
+		# Right next to a zombie it senses you anyway, unless you're sneaking.
+		var close := dist < 2.5 and not player.crouching
+		if not close and forward.dot(to / maxf(dist, 0.01)) < 0.35:
 			continue
 		var query := PhysicsRayQueryParameters3D.create(z.position + Vector3(0, 1.6, 0), eye, 1)
-		if space.intersect_ray(query).is_empty():
+		if not space.intersect_ray(query).is_empty():
+			continue
+		if close or z.state == Zombie.State.CHASE:
 			z.see_player()
+		else:
+			z.notice(dt * (0.4 + 2.6 * (1.0 - dist / range_)), ppos)

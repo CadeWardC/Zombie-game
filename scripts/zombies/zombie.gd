@@ -23,6 +23,9 @@ var accum := 0.0
 var anim_accum := 0.0
 var dead_timer := 0.0
 var physics_active := false
+## 0..1: how sure this zombie is that it has spotted the player (stealth).
+var awareness := 0.0
+var last_sight_check := 0
 
 var _model: Node3D
 var _body: MeshInstance3D
@@ -35,6 +38,10 @@ var _stuck_t := 0.0
 var _detour_t := 0.0
 var _detour_dir := Vector3.ZERO
 var _speed_mul := 1.0
+var _stagger_t := 0.0 # Shoved or hit hard: can't move or attack.
+var _trap_t := 0.0 # Caught in a bear trap.
+var _burn_t := 0.0
+var _flames: MeshInstance3D
 
 
 func _init() -> void:
@@ -49,6 +56,12 @@ func _init() -> void:
 	add_child(_model)
 	_body = _model.get_node("Skeleton3D/Body")
 	_anim = _model.get_node("AnimationPlayer")
+	_flames = MeshInstance3D.new()
+	_flames.mesh = Assets.flame_mesh
+	_flames.position.y = 0.9
+	_flames.visible = false
+	_flames.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	add_child(_flames)
 
 
 func reset(pos: Vector3, variant: int, speed_mul: float) -> void:
@@ -67,6 +80,12 @@ func reset(pos: Vector3, variant: int, speed_mul: float) -> void:
 	accum = 0.0
 	_speed_mul = speed_mul
 	_think_t = 0.0
+	awareness = 0.0
+	last_sight_check = Time.get_ticks_msec()
+	_stagger_t = 0.0
+	_trap_t = 0.0
+	_burn_t = 0.0
+	_flames.visible = false
 	visible = true
 
 
@@ -83,7 +102,55 @@ func hear(pos: Vector3) -> void:
 func see_player() -> void:
 	if state != State.DEAD:
 		state = State.CHASE
+		awareness = 1.0
 		_lost_t = 0.0
+
+
+## Partial sighting: builds awareness; a suspicious zombie turns to look, a
+## sure one gives chase.
+func notice(amount: float, where: Vector3) -> void:
+	if state == State.DEAD or state == State.CHASE:
+		if state == State.CHASE:
+			_lost_t = 0.0
+		return
+	awareness = minf(1.0, awareness + amount)
+	if awareness >= 1.0:
+		see_player()
+	elif awareness >= 0.4:
+		state = State.INVESTIGATE
+		target = where
+
+
+func unaware() -> bool:
+	return state != State.CHASE and state != State.DEAD
+
+
+## True when `from` is behind this zombie (for silent takedowns).
+func is_behind(from: Vector3) -> bool:
+	var to := from - position
+	to.y = 0.0
+	return (-global_basis.z).dot(to.normalized()) < -0.25
+
+
+func stagger(push: Vector3, time: float) -> void:
+	if state == State.DEAD:
+		return
+	_stagger_t = maxf(_stagger_t, time)
+	velocity += push * 5.0
+	position += push * 0.35
+	_play_once("hit", minf(time, 0.6))
+
+
+func ignite(time: float) -> void:
+	if state == State.DEAD:
+		return
+	_burn_t = maxf(_burn_t, time)
+	_flames.visible = true
+
+
+func trap(time: float) -> void:
+	if state != State.DEAD:
+		_trap_t = time
 
 
 ## `use_physics` is true only close to the player, where collision matters.
@@ -95,6 +162,15 @@ func update_ai(dt: float, player: Player, dist: float, use_physics: bool, night:
 		return
 	_attack_cd -= dt
 	_think_t -= dt
+	if state != State.CHASE:
+		awareness = maxf(0.0, awareness - 0.1 * dt)
+	if _burn_t > 0.0:
+		_burn_t -= dt
+		_flames.visible = _burn_t > 0.0
+		take_damage(14.0 * dt, Vector3.ZERO, true, false)
+		if state == State.DEAD:
+			_flames.visible = false
+			return
 
 	var speed := 0.0
 	match state:
@@ -123,7 +199,14 @@ func update_ai(dt: float, player: Player, dist: float, use_physics: bool, night:
 	var dir := to.normalized() if to.length() > 0.05 else Vector3.ZERO
 	if state == State.CHASE and dist < ATTACK_RANGE:
 		dir = Vector3.ZERO
-		_try_attack(player)
+		if _stagger_t <= 0.0:
+			_try_attack(player)
+	if _stagger_t > 0.0:
+		_stagger_t -= dt
+		dir = Vector3.ZERO
+	if _trap_t > 0.0:
+		_trap_t -= dt
+		dir = Vector3.ZERO
 	if _detour_t > 0.0:
 		_detour_t -= dt
 		dir = (dir + _detour_dir * 1.5).normalized()
@@ -210,23 +293,33 @@ func _try_attack(player: Player) -> void:
 	_play_once("attack", 0.85)
 
 
-func take_damage(amount: float, push: Vector3) -> void:
+func take_damage(amount: float, push: Vector3, alert := true, flinch := true) -> void:
 	if state == State.DEAD:
 		return
 	health -= amount
-	see_player()
+	if alert:
+		see_player()
 	velocity += push * 4.0
 	position += push * 0.25
 	if health <= 0.0:
 		_die()
 		return
-	_play_once("hit", 0.38)
+	if flinch:
+		_play_once("hit", 0.38)
+
+
+## Silent kill from behind.
+func takedown() -> void:
+	if state != State.DEAD:
+		health = 0.0
+		_die()
 
 
 func _die() -> void:
 	state = State.DEAD
 	dead_timer = CORPSE_TIME
 	collision_layer = 0
+	_flames.visible = false
 	GameState.kills += 1
 	_anim.play("death", 0.1)
 	_anim.speed_scale = 1.0

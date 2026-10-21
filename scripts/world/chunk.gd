@@ -8,6 +8,8 @@ var key: Vector2i
 var lod := 0
 ## Searchable containers: {pos: Vector3 (world), type, id}
 var containers: Array = []
+## Bushes to hide in (world positions).
+var cover := PackedVector3Array()
 var _doors: Array[DoorBody] = []
 ## Work deferred to later frames so a big town chunk never causes a hitch.
 var _pending: Array[Callable] = []
@@ -53,6 +55,8 @@ func setup(data: Dictionary, shadows: bool) -> void:
 	for faces: PackedVector3Array in data.collision_batches:
 		_pending.append(_add_concave.bind(body, faces))
 	_pending.append(_build_doors.bind(data.doors))
+	for p: Vector3 in data.cover_points:
+		cover.append(position + p)
 	for c in data.containers:
 		var cc: Dictionary = c.duplicate()
 		cc.pos = position + (c.pos as Vector3)

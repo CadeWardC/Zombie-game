@@ -1,0 +1,898 @@
+class_name InventoryScreen
+extends CanvasLayer
+## Tetris-style inventory: equipment slots, pockets / vest / backpack grids,
+## and the open container or the ground nearby. Works three ways:
+## - touch and mouse: drag and drop; tap to select, double-tap (or right
+##   click) to quick-move; buttons for the rest.
+## - gamepad: a cell cursor moved with the D-pad or stick. A picks up / puts
+##   down, X quick-moves, Y uses or equips, RB rotates, LB drops, LT sorts,
+##   RT takes everything, B cancels or closes.
+## The game keeps running while it's open (it's a survival game).
+
+signal closed
+
+const MARGIN := 24.0
+const GAP := 1.0 # Cells between columns.
+const BG := Color(0.05, 0.06, 0.06, 0.86)
+const FRAME := Color(0.3, 0.32, 0.3, 0.9)
+const CELL_BG := Color(0.12, 0.13, 0.13, 0.85)
+const GOOD := Color(0.35, 0.8, 0.35, 0.5)
+const BAD := Color(0.85, 0.25, 0.2, 0.5)
+## Equipment slot boxes, in cells (x, y, w, h) inside the equipment column.
+const SLOT_BOXES := {
+	"primary": Rect2(0, 0, 5, 2), "sidearm": Rect2(0, 2.6, 3, 2), "throw": Rect2(3.2, 2.6, 1.8, 2),
+	"melee": Rect2(0, 5.2, 5, 2), "back": Rect2(0, 7.8, 2.4, 2), "vest": Rect2(2.6, 7.8, 2.4, 2),
+}
+
+var player: Player
+var drops: DropManager
+
+var _board: Control
+var _info: Label
+var _weight: Label
+var _buttons := {}
+var _container := {} # The container being looted (empty: none).
+var _areas: Array = [] # {kind: "slot"/"grid", slot, grid, rect (screen px), cells (grid origin)}
+var _cell := 46.0
+var _ground_map: Array = [] # [[item, drop], ...] for the "Nearby" grid.
+var _held := {} # {it, from_area_key, x, y, r, slot}
+var _grab := Vector2i.ZERO # Cell of the held item under the pointer.
+var _pointer := Vector2.ZERO
+var _selected := {}
+var _press := {}
+var _last_tap := {"it": null, "t": 0}
+var _cursor := {"area": 0, "x": 0, "y": 0}
+var _pad_mode := false
+var _repeat_t := 0.0
+var _repeating := false
+var _trigger_down := {}
+var _opened_frame := -1
+
+
+func _ready() -> void:
+	layer = 8
+	visible = false
+	_board = Control.new()
+	_board.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	_board.mouse_filter = Control.MOUSE_FILTER_STOP
+	_board.draw.connect(_draw_board)
+	_board.gui_input.connect(_on_board_input)
+	add_child(_board)
+
+	var bar := VBoxContainer.new()
+	bar.anchor_left = 0.0
+	bar.anchor_right = 1.0
+	bar.anchor_top = 1.0
+	bar.anchor_bottom = 1.0
+	bar.offset_left = MARGIN
+	bar.offset_right = -MARGIN
+	bar.offset_top = -118
+	bar.offset_bottom = -10
+	bar.add_theme_constant_override("separation", 6)
+	add_child(bar)
+	_info = Label.new()
+	_info.add_theme_font_size_override("font_size", 17)
+	_info.add_theme_color_override("font_outline_color", Color.BLACK)
+	_info.add_theme_constant_override("outline_size", 4)
+	_info.autowrap_mode = TextServer.AUTOWRAP_WORD
+	_info.custom_minimum_size.y = 44
+	bar.add_child(_info)
+	var row := HBoxContainer.new()
+	row.add_theme_constant_override("separation", 8)
+	bar.add_child(row)
+	for b in [["use", "Use"], ["equip", "Equip"], ["rotate", "Rotate"], ["drop", "Drop"], ["unload", "Unload"],
+			["detach", "Detach"], ["sort", "Sort"], ["take_all", "Take All"], ["close", "Close"]]:
+		var btn := Button.new()
+		btn.text = b[1]
+		btn.focus_mode = Control.FOCUS_NONE
+		btn.custom_minimum_size = Vector2(104, 52)
+		btn.add_theme_font_size_override("font_size", 19)
+		btn.pressed.connect(_on_button.bind(b[0]))
+		row.add_child(btn)
+		_buttons[b[0]] = btn
+	_weight = Label.new()
+	_weight.add_theme_font_size_override("font_size", 16)
+	_weight.add_theme_color_override("font_outline_color", Color.BLACK)
+	_weight.add_theme_constant_override("outline_size", 4)
+	_weight.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	_weight.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
+	row.add_child(_weight)
+	GameState.inventory_changed.connect(_refresh)
+	GameState.device_changed.connect(func() -> void: _board.queue_redraw())
+
+
+func is_open() -> bool:
+	return visible
+
+
+## Opens the inventory, with a container to loot (or {} for none).
+func open(container: Dictionary) -> void:
+	_container = container
+	_held = {}
+	_selected = {}
+	_press = {}
+	visible = true
+	GameState.ui_open = true
+	_opened_frame = Engine.get_process_frames()
+	Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
+	_pad_mode = GameState.using_gamepad()
+	if not ItemIcons.texture:
+		ItemIcons.build(self)
+	_layout()
+	# Start the cursor on the container if there is one, else the pockets.
+	_cursor = {"area": _area_index("container" if not container.is_empty() else "pockets"), "x": 0, "y": 0}
+	_refresh()
+
+
+func close() -> void:
+	if not _held.is_empty():
+		_return_held()
+	visible = false
+	GameState.ui_open = false
+	if not GameState.uses_touch():
+		Input.mouse_mode = Input.MOUSE_MODE_CAPTURED
+	closed.emit()
+
+
+# --- Layout ------------------------------------------------------------------
+
+func _layout() -> void:
+	var size := _board.get_viewport_rect().size
+	var grids := GameState.inventory.grids()
+	var mid_cells := 0.0
+	var mid_w := 4.0
+	for g in grids:
+		mid_cells += g.h + 0.8
+		mid_w = maxf(mid_w, g.w)
+	var right := _right_grids()
+	var right_cells := 0.0
+	var right_w := 5.0
+	for g in right:
+		right_cells += g.h + 0.8
+		right_w = maxf(right_w, g.w)
+	var need_w := 5.0 + mid_w + right_w + GAP * 2.0
+	var need_h := maxf(maxf(10.4, mid_cells), right_cells) + 1.0
+	_cell = clampf(minf((size.x - MARGIN * 2.0) / need_w, (size.y - 190.0) / need_h), 28.0, 58.0)
+	var total_w := need_w * _cell
+	var x0 := (size.x - total_w) * 0.5
+	var y0 := 46.0
+	_areas.clear()
+	for s in SLOT_BOXES:
+		var b: Rect2 = SLOT_BOXES[s]
+		_areas.append({"kind": "slot", "key": s, "slot": s, "rect": Rect2(x0 + b.position.x * _cell, y0 + 22 + b.position.y * _cell, b.size.x * _cell, b.size.y * _cell)})
+	var x := x0 + (5.0 + GAP) * _cell
+	var y := y0
+	for g in grids:
+		_areas.append({"kind": "grid", "key": g.key, "grid": g, "rect": Rect2(x, y + 22, g.w * _cell, g.h * _cell)})
+		y += 22 + g.h * _cell + _cell * 0.5
+	x += (mid_w + GAP) * _cell
+	y = y0
+	for g in right:
+		_areas.append({"kind": "grid", "key": g.key, "grid": g, "rect": Rect2(x, y + 22, g.w * _cell, g.h * _cell)})
+		y += 22 + g.h * _cell + _cell * 0.5
+
+
+## The container being looted (if any) and the ground nearby.
+func _right_grids() -> Array[ItemGrid]:
+	var out: Array[ItemGrid] = []
+	if not _container.is_empty():
+		var size: Vector2i = Loot.SIZES.get(_container.type, Vector2i(4, 3))
+		out.append(ItemGrid.new("container", Loot.label(_container.type), size.x, size.y, GameState.container_items(_container)))
+	var ground := ItemGrid.new("ground", "Nearby", 6, 3 if not _container.is_empty() else 5, [])
+	_ground_map.clear()
+	if drops and player:
+		for d in drops.near(player.global_position, 2.5):
+			var it: Dictionary = d.it
+			var spot := ground.find_spot(it)
+			if spot.x < 0:
+				continue
+			ground.place(it, spot.x, spot.y, spot.z == 1)
+			_ground_map.append([it, d])
+	out.append(ground)
+	return out
+
+
+func _area_index(key: String) -> int:
+	for k in _areas.size():
+		if _areas[k].key == key:
+			return k
+	return 0
+
+
+func _area(key: String) -> Dictionary:
+	for a in _areas:
+		if a.key == key:
+			return a
+	return {}
+
+
+func _refresh() -> void:
+	if not visible:
+		return
+	_layout()
+	_cursor.area = clampi(_cursor.area, 0, _areas.size() - 1)
+	_update_info()
+	_board.queue_redraw()
+
+
+# --- Item helpers -----------------------------------------------------------
+
+func _inv() -> Inventory:
+	return GameState.inventory
+
+
+## Where an item is: [area dict, item] or [] if not found.
+func _locate(it: Dictionary) -> Dictionary:
+	for a in _areas:
+		if a.kind == "slot" and is_same(_inv().equip[a.slot], it):
+			return a
+		if a.kind == "grid" and (a.grid as ItemGrid).index_of(it) >= 0:
+			return a
+	return {}
+
+
+## Takes an item out of wherever it is. Returns false if it can't move.
+func _lift(it: Dictionary) -> bool:
+	var a := _locate(it)
+	if a.is_empty():
+		return false
+	if a.kind == "slot":
+		_inv().equip[a.slot] = {}
+	elif a.key == "ground":
+		for pair in _ground_map:
+			if is_same(pair[0], it):
+				GameState.remove_drop(pair[1])
+				break
+	else:
+		(a.grid as ItemGrid).remove(it)
+	return true
+
+
+## Puts an item into the player's grids / slots, or failing that on the ground.
+func _give_to_player(it: Dictionary) -> void:
+	var left := _inv().add(it)
+	if left > 0:
+		var rest := it.duplicate(true)
+		rest.n = left
+		_drop(rest)
+
+
+func _drop(it: Dictionary) -> void:
+	if drops and player:
+		drops.drop(it, player.global_position + (-player.global_basis.z) * 0.6)
+	else:
+		GameState.drop_item(it, Vector3.ZERO)
+
+
+## Tries to put `it` into area `a` with its top-left at cell (x, y).
+## Returns true if it went in (merged, loaded, attached or placed).
+func _put(it: Dictionary, a: Dictionary, x: int, y: int, rotated: bool) -> bool:
+	if a.is_empty():
+		return false
+	if a.kind == "slot":
+		if not _inv().slot_accepts(a.slot, it) or not _inv().equip[a.slot].is_empty():
+			return false
+		it.erase("x")
+		it.erase("y")
+		it.erase("r")
+		_inv().equip[a.slot] = it
+		return true
+	if a.key == "ground":
+		_drop(it)
+		return true
+	var g: ItemGrid = a.grid
+	# A bag can't go inside itself.
+	if it.has("items") and is_same(it.items, g.items):
+		return false
+	var target := g.item_at(x, y)
+	if not target.is_empty() and not is_same(target, it):
+		return _combine(it, target)
+	return g.place(it, x, y, rotated)
+
+
+## Dropping one item onto another: stack, load ammo, or fit an attachment.
+func _combine(it: Dictionary, target: Dictionary) -> bool:
+	var d := ItemDB.get_def(it.id)
+	var td := ItemDB.get_def(target.id)
+	if it.id == target.id and int(d.get("stack", 1)) > 1:
+		var room := int(d.stack) - int(target.n)
+		if room <= 0:
+			return false
+		var moved := mini(room, int(it.n))
+		target.n = int(target.n) + moved
+		it.n = int(it.n) - moved
+		if int(it.n) > 0:
+			_give_to_player(it)
+		return true
+	if td.get("cat", "") == "gun" and td.ammo == it.id:
+		var need := int(td.mag) - int(target.a)
+		var moved := mini(need, int(it.n))
+		if moved <= 0:
+			return false
+		target.a = int(target.a) + moved
+		it.n = int(it.n) - moved
+		if int(it.n) > 0:
+			_give_to_player(it)
+		GameState.notify("Loaded %d rounds" % moved)
+		return true
+	if d.get("cat", "") == "attachment" and target.id in d.fits:
+		var att: Dictionary = target.att
+		var old: String = att.get(d.part, "")
+		att[d.part] = it.id
+		if old != "":
+			_give_to_player(ItemDB.make(old))
+		GameState.notify("Attached %s" % d.name)
+		return true
+	return false
+
+
+func _return_held() -> void:
+	var h := _held
+	_held = {}
+	var it: Dictionary = h.it
+	var a := _area(h.from)
+	if a.is_empty() or not _put(it, a, h.x, h.y, h.r):
+		_give_to_player(it)
+	_inv().notify()
+
+
+func _pick(it: Dictionary, grab := Vector2i.ZERO) -> void:
+	var a := _locate(it)
+	if a.is_empty() or not _lift(it):
+		return
+	_held = {"it": it, "from": a.key, "x": int(it.get("x", 0)), "y": int(it.get("y", 0)), "r": bool(it.get("r", false))}
+	_grab = grab
+	_selected = it
+	_inv().notify()
+
+
+## Puts the held item down with its grabbed cell at (cx, cy) of area `a`.
+func _place_held(a: Dictionary, cx: int, cy: int) -> bool:
+	var it: Dictionary = _held.it
+	var x := cx - _grab.x
+	var y := cy - _grab.y
+	if a.kind == "slot" and not _inv().equip[a.slot].is_empty() and _inv().slot_accepts(a.slot, it):
+		# Swap with what's in the slot.
+		var old: Dictionary = _inv().equip[a.slot]
+		_inv().equip[a.slot] = {}
+		_put(it, a, 0, 0, false)
+		_held = {"it": old, "from": _held.from, "x": _held.x, "y": _held.y, "r": false}
+		_grab = Vector2i.ZERO
+		_inv().notify()
+		return true
+	if _put(it, a, x, y, bool(it.get("r", false))):
+		_held = {}
+		_inv().notify()
+		return true
+	return false
+
+
+func _rotate(it: Dictionary) -> void:
+	if it.is_empty():
+		return
+	if not _held.is_empty() and is_same(_held.it, it):
+		it.r = not bool(it.get("r", false))
+		_grab = Vector2i(_grab.y, _grab.x)
+		_board.queue_redraw()
+		return
+	var a := _locate(it)
+	if a.is_empty() or a.kind != "grid":
+		return
+	var g: ItemGrid = a.grid
+	var r := not bool(it.get("r", false))
+	if g.fits(it, int(it.x), int(it.y), r):
+		it.r = r
+		_inv().notify()
+
+
+## Container <-> player in one go.
+func _quick_move(it: Dictionary) -> void:
+	var a := _locate(it)
+	if a.is_empty():
+		return
+	if a.key == "container" or a.key == "ground":
+		_lift(it)
+		var left := _inv().add(it)
+		if left > 0:
+			it.n = left
+			if not _put(it, a, int(it.get("x", 0)), int(it.get("y", 0)), bool(it.get("r", false))):
+				_drop(it)
+			GameState.notify("No room")
+	else:
+		_lift(it)
+		var dest := _area("container")
+		if not dest.is_empty():
+			var g: ItemGrid = dest.grid
+			var left := g.add(it)
+			if left > 0:
+				it.n = left
+				_give_to_player(it)
+				GameState.notify("No room")
+		else:
+			_drop(it)
+	_selected = {}
+	_inv().notify()
+
+
+## Use / equip / unequip, depending on the item.
+func _use(it: Dictionary) -> void:
+	if it.is_empty():
+		return
+	if ItemDB.is_consumable(it.id):
+		if _locate(it).key in ["container", "ground"]:
+			_quick_move(it) # Take it first.
+			return
+		player.consume(it)
+		return
+	var slot := ItemDB.slot_for(it.id)
+	if slot == "":
+		return
+	var a := _locate(it)
+	if a.kind == "slot":
+		_lift(it)
+		var left := 0
+		for g in _inv().grids():
+			left = g.add(it)
+			if left == 0:
+				break
+		if left > 0:
+			_drop(it)
+	else:
+		var old: Dictionary = _inv().equip[slot]
+		_lift(it)
+		_inv().equip[slot] = {}
+		_put(it, {"kind": "slot", "slot": slot, "key": slot}, 0, 0, false)
+		if not old.is_empty():
+			_give_to_player(old)
+		if slot in Weapons.SLOT_ORDER:
+			player.weapons.select(slot)
+	_inv().notify()
+
+
+func _unload(it: Dictionary) -> void:
+	if it.is_empty() or int(it.get("a", 0)) <= 0 or ItemDB.get_def(it.id).get("cat", "") != "gun":
+		return
+	var n := int(it.a)
+	it.a = 0
+	_give_to_player(ItemDB.make(ItemDB.get_def(it.id).ammo, n))
+	GameState.notify("Unloaded %d rounds" % n)
+	_inv().notify()
+
+
+func _detach(it: Dictionary) -> void:
+	var att: Dictionary = it.get("att", {})
+	if att.is_empty():
+		return
+	var part: String = att.keys()[0]
+	var id: String = att[part]
+	att.erase(part)
+	_give_to_player(ItemDB.make(id))
+	GameState.notify("Removed %s" % ItemDB.item_name(id))
+	_inv().notify()
+
+
+func _take_all() -> void:
+	var a := _area("container")
+	if a.is_empty():
+		a = _area("ground")
+	if a.is_empty():
+		return
+	var items: Array = (a.grid as ItemGrid).items.duplicate()
+	for it in items:
+		_quick_move(it)
+
+
+func _sort(a: Dictionary) -> void:
+	if a.is_empty() or a.kind != "grid" or a.key == "ground":
+		return
+	(a.grid as ItemGrid).sort()
+	_inv().notify()
+
+
+func _on_button(id: String) -> void:
+	var it := _selected
+	match id:
+		"use", "equip":
+			_use(it)
+		"rotate":
+			_rotate(_held.it if not _held.is_empty() else it)
+		"drop":
+			if not it.is_empty() and not _locate(it).is_empty():
+				_lift(it)
+				_drop(it)
+				_selected = {}
+				_inv().notify()
+		"unload":
+			_unload(it)
+		"detach":
+			_detach(it)
+		"sort":
+			var a := _locate(it) if not it.is_empty() else _area("pockets")
+			_sort(a if a.kind == "grid" else _area("pockets"))
+		"take_all":
+			_take_all()
+		"close":
+			close()
+
+
+# --- Pointer (mouse and touch) -----------------------------------------------
+
+## Area and cell under a screen point: [area, Vector2i cell] or [].
+func _hit(pos: Vector2) -> Array:
+	for a in _areas:
+		var r: Rect2 = a.rect
+		if r.grow(2).has_point(pos):
+			if a.kind == "slot":
+				return [a, Vector2i.ZERO]
+			var c := Vector2i(floori((pos.x - r.position.x) / _cell), floori((pos.y - r.position.y) / _cell))
+			return [a, c.clamp(Vector2i.ZERO, Vector2i(a.grid.w - 1, a.grid.h - 1))]
+	return []
+
+
+func _item_at_hit(h: Array) -> Dictionary:
+	if h.is_empty():
+		return {}
+	var a: Dictionary = h[0]
+	if a.kind == "slot":
+		return _inv().equip[a.slot]
+	return (a.grid as ItemGrid).item_at(h[1].x, h[1].y)
+
+
+func _on_board_input(event: InputEvent) -> void:
+	if event is InputEventMouseButton:
+		_pad_mode = false
+		_pointer = event.position
+		var h := _hit(event.position)
+		if event.button_index == MOUSE_BUTTON_LEFT:
+			if event.pressed:
+				var it := _item_at_hit(h)
+				_press = {"it": it, "pos": event.position, "hit": h}
+			else:
+				if not _held.is_empty():
+					var placed := false
+					if not h.is_empty():
+						placed = _place_held(h[0], h[1].x, h[1].y)
+					if not placed and not _held.is_empty():
+						_return_held()
+				elif not _press.is_empty():
+					var it: Dictionary = _press.it
+					if not it.is_empty():
+						var now := Time.get_ticks_msec()
+						if is_same(_last_tap.it, it) and now - int(_last_tap.t) < 350:
+							_quick_move(it)
+							_last_tap = {"it": null, "t": 0}
+						else:
+							_selected = it
+							_last_tap = {"it": it, "t": now}
+					else:
+						_selected = {}
+				_press = {}
+				_update_info()
+		elif event.button_index == MOUSE_BUTTON_RIGHT and event.pressed:
+			var it := _item_at_hit(h)
+			if _held.is_empty() and not it.is_empty():
+				_quick_move(it)
+			elif not _held.is_empty():
+				_rotate(_held.it)
+		_board.queue_redraw()
+	elif event is InputEventMouseMotion:
+		_pointer = event.position
+		if not _press.is_empty() and _held.is_empty() and not (_press.it as Dictionary).is_empty() \
+				and event.position.distance_to(_press.pos) > 10.0:
+			var it: Dictionary = _press.it
+			var h: Array = _press.hit
+			var grab := Vector2i.ZERO
+			if h[0].kind == "grid":
+				grab = (h[1] as Vector2i) - Vector2i(int(it.x), int(it.y))
+			_pick(it, grab)
+			_press = {}
+		if not _held.is_empty():
+			_board.queue_redraw()
+
+
+# --- Gamepad and keys -------------------------------------------------------
+
+func _process(delta: float) -> void:
+	if not visible:
+		return
+	if Engine.get_process_frames() != _opened_frame and (Input.is_action_just_pressed("inventory") or Input.is_action_just_pressed("pause")):
+		close()
+		return
+	if Input.is_action_just_pressed("ui_rotate") and not _held.is_empty():
+		_rotate(_held.it)
+	if player and player.dead:
+		close()
+		return
+	# Cursor movement with repeat.
+	var v := Input.get_vector("ui_left", "ui_right", "ui_up", "ui_down")
+	var pv := Input.get_vector("move_left", "move_right", "move_forward", "move_back") if GameState.using_gamepad() else Vector2.ZERO
+	if pv.length() > v.length():
+		v = pv
+	if v.length() > 0.5:
+		_repeat_t -= delta
+		if not _repeating or _repeat_t <= 0.0:
+			_repeat_t = 0.1 if _repeating else 0.3
+			_repeating = true
+			_pad_mode = true
+			_move_cursor(v)
+	else:
+		_repeating = false
+
+
+func _input(event: InputEvent) -> void:
+	if not visible or not (event is InputEventJoypadButton or event is InputEventJoypadMotion):
+		return
+	_pad_mode = true
+	if event is InputEventJoypadMotion:
+		if event.axis in [JOY_AXIS_TRIGGER_LEFT, JOY_AXIS_TRIGGER_RIGHT] and event.axis_value > 0.6 and not _trigger_down.get(event.axis, false):
+			_trigger_down[event.axis] = true
+			if event.axis == JOY_AXIS_TRIGGER_LEFT:
+				_sort(_areas[_cursor.area])
+			else:
+				_take_all()
+		elif event.axis in [JOY_AXIS_TRIGGER_LEFT, JOY_AXIS_TRIGGER_RIGHT] and event.axis_value < 0.3:
+			_trigger_down[event.axis] = false
+		return
+	if not event.pressed:
+		return
+	var a: Dictionary = _areas[_cursor.area]
+	var under := _item_at_hit([a, Vector2i(_cursor.x, _cursor.y)])
+	match event.button_index:
+		JOY_BUTTON_A:
+			if _held.is_empty():
+				if not under.is_empty():
+					var grab := Vector2i.ZERO
+					if a.kind == "grid":
+						grab = Vector2i(_cursor.x - int(under.x), _cursor.y - int(under.y))
+					_pick(under, grab)
+			elif not _place_held(a, _cursor.x, _cursor.y):
+				GameState.notify("Doesn't fit there")
+		JOY_BUTTON_B:
+			if not _held.is_empty():
+				_return_held()
+			else:
+				close()
+		JOY_BUTTON_X:
+			if _held.is_empty() and not under.is_empty():
+				_quick_move(under)
+		JOY_BUTTON_Y:
+			_use(_held.it if not _held.is_empty() else under)
+		JOY_BUTTON_RIGHT_SHOULDER:
+			_rotate(_held.it if not _held.is_empty() else under)
+		JOY_BUTTON_LEFT_SHOULDER:
+			if _held.is_empty() and not under.is_empty():
+				_lift(under)
+				_drop(under)
+				_inv().notify()
+	get_viewport().set_input_as_handled()
+	_update_info()
+	_board.queue_redraw()
+
+
+## Moves the gamepad cursor to the nearest cell in direction `v`, across
+## grids and slots.
+func _move_cursor(v: Vector2) -> void:
+	var dir := v.normalized()
+	var here := _cursor_center()
+	var best := {}
+	var best_score := INF
+	for k in _areas.size():
+		var a: Dictionary = _areas[k]
+		var cells: Array = []
+		if a.kind == "slot":
+			cells.append([Vector2i.ZERO, (a.rect as Rect2).get_center()])
+		else:
+			var g: ItemGrid = a.grid
+			for y in g.h:
+				for x in g.w:
+					cells.append([Vector2i(x, y), (a.rect as Rect2).position + (Vector2(x, y) + Vector2(0.5, 0.5)) * _cell])
+		for c in cells:
+			var to: Vector2 = c[1] - here
+			var along := to.dot(dir)
+			if along < _cell * 0.4:
+				continue
+			var across := absf(to.cross(dir))
+			var score := along + across * 2.5
+			if score < best_score:
+				best_score = score
+				best = {"area": k, "x": c[0].x, "y": c[0].y}
+	if not best.is_empty():
+		_cursor = best
+		_update_info()
+		_board.queue_redraw()
+
+
+func _cursor_center() -> Vector2:
+	var a: Dictionary = _areas[clampi(_cursor.area, 0, _areas.size() - 1)]
+	if a.kind == "slot":
+		return (a.rect as Rect2).get_center()
+	return (a.rect as Rect2).position + (Vector2(_cursor.x, _cursor.y) + Vector2(0.5, 0.5)) * _cell
+
+
+# --- Info bar ------------------------------------------------------------------
+
+func _focus_item() -> Dictionary:
+	if not _held.is_empty():
+		return _held.it
+	if _pad_mode and not _areas.is_empty():
+		return _item_at_hit([_areas[_cursor.area], Vector2i(_cursor.x, _cursor.y)])
+	return _selected
+
+
+func _update_info() -> void:
+	var it := _focus_item()
+	if not _pad_mode and not _selected.is_empty() and _locate(_selected).is_empty() and _held.is_empty():
+		_selected = {}
+		it = {}
+	if it.is_empty():
+		_info.text = "Drag items to move them. Double-tap to move between your bag and a container." if not _pad_mode else ""
+	else:
+		_info.text = "%s%s\n%s" % [ItemDB.item_name(it.id), " x%d" % int(it.n) if int(it.get("n", 1)) > 1 else "", ItemDB.describe(it)]
+	var where: String = _locate(it).get("key", "") if not it.is_empty() else ""
+	var cat: String = ItemDB.get_def(it.get("id", "")).get("cat", "")
+	_buttons.use.visible = ItemDB.is_consumable(it.get("id", ""))
+	_buttons.equip.visible = ItemDB.slot_for(it.get("id", "")) != ""
+	_buttons.equip.text = "Unequip" if where in ItemDB.SLOTS else "Equip"
+	_buttons.rotate.visible = not it.is_empty()
+	_buttons.drop.visible = not it.is_empty() and where != "ground"
+	_buttons.unload.visible = cat == "gun" and int(it.get("a", 0)) > 0
+	_buttons.detach.visible = not it.get("att", {}).is_empty()
+	_buttons.take_all.visible = not _container.is_empty() or not _ground_map.is_empty()
+	_buttons.close.visible = true
+	for b in _buttons.values():
+		if _pad_mode:
+			b.visible = false # Gamepad hints are drawn instead.
+	var inv := _inv()
+	_weight.text = "Carrying %.1f / %.0f kg%s" % [inv.weight(), Inventory.CARRY_KG, "  (slowed)" if inv.speed_factor() < 1.0 else ""]
+
+
+# --- Drawing -------------------------------------------------------------------
+
+func _draw_board() -> void:
+	var size := _board.size
+	_board.draw_rect(Rect2(Vector2.ZERO, size), BG)
+	var font := _board.get_theme_default_font()
+	# Column titles.
+	if not _areas.is_empty():
+		var first: Rect2 = _areas[0].rect
+		_text(font, Vector2(first.position.x, 34), "EQUIPPED", 18, Color(0.85, 0.82, 0.75))
+	for a in _areas:
+		var r: Rect2 = a.rect
+		if a.kind == "slot":
+			_board.draw_rect(r, CELL_BG)
+			_board.draw_rect(r, FRAME, false, 1.5)
+			_text(font, r.position + Vector2(6, 15), ItemDB.SLOT_NAMES[a.slot], 12, Color(0.6, 0.6, 0.58))
+			var it: Dictionary = _inv().equip[a.slot]
+			if not it.is_empty():
+				_draw_item(font, it, _fit_rect(it, r.grow(-4)), false)
+		else:
+			var g: ItemGrid = a.grid
+			var title := g.title
+			if a.key == "ground" and g.items.is_empty():
+				title += " (nothing)"
+			_text(font, r.position + Vector2(0, -6), title.to_upper(), 15, Color(0.85, 0.82, 0.75))
+			_board.draw_rect(r, CELL_BG)
+			for x in g.w + 1:
+				_board.draw_line(r.position + Vector2(x * _cell, 0), r.position + Vector2(x * _cell, g.h * _cell), Color(1, 1, 1, 0.07), 1.0)
+			for y in g.h + 1:
+				_board.draw_line(r.position + Vector2(0, y * _cell), r.position + Vector2(g.w * _cell, y * _cell), Color(1, 1, 1, 0.07), 1.0)
+			_board.draw_rect(r, FRAME, false, 1.5)
+			for it in g.items:
+				var s := ItemGrid.dims(it)
+				var ir := Rect2(r.position + Vector2(int(it.x), int(it.y)) * _cell, Vector2(s) * _cell).grow(-2)
+				_draw_item(font, it, ir, bool(it.get("r", false)))
+	# Selection / cursor.
+	if _pad_mode and not _areas.is_empty():
+		var a: Dictionary = _areas[_cursor.area]
+		var cr: Rect2
+		if a.kind == "slot":
+			cr = a.rect
+		else:
+			cr = Rect2((a.rect as Rect2).position + Vector2(_cursor.x, _cursor.y) * _cell, Vector2(_cell, _cell))
+		_board.draw_rect(cr.grow(1), Color(1.0, 0.85, 0.3), false, 3.0)
+	elif not _selected.is_empty() and _held.is_empty():
+		var a := _locate(_selected)
+		if not a.is_empty():
+			var sr: Rect2 = a.rect if a.kind == "slot" else Rect2((a.rect as Rect2).position + Vector2(int(_selected.x), int(_selected.y)) * _cell, Vector2(ItemGrid.dims(_selected)) * _cell)
+			_board.draw_rect(sr.grow(1), Color(1.0, 0.85, 0.3), false, 2.5)
+	# The held item follows the pointer or cursor, tinted by whether it fits.
+	if not _held.is_empty():
+		var it: Dictionary = _held.it
+		var s := ItemGrid.dims(it)
+		var anchor := _cursor_center() if _pad_mode else _pointer
+		var top_left := anchor - (Vector2(_grab) + Vector2(0.5, 0.5)) * _cell
+		var hr := Rect2(top_left, Vector2(s) * _cell)
+		var h := _hit(anchor)
+		var ok := false
+		if not h.is_empty():
+			var a: Dictionary = h[0]
+			if a.kind == "slot":
+				ok = _inv().slot_accepts(a.slot, it)
+				hr = _fit_rect(it, (a.rect as Rect2).grow(-4))
+			elif a.key == "ground":
+				ok = true
+			else:
+				var g: ItemGrid = a.grid
+				var c: Vector2i = h[1] - _grab
+				var tgt := g.item_at(h[1].x, h[1].y)
+				ok = g.fits(it, c.x, c.y, bool(it.get("r", false))) or (not tgt.is_empty() and _can_combine(it, tgt))
+				hr.position = (a.rect as Rect2).position + Vector2(c) * _cell
+		_board.draw_rect(hr, GOOD if ok else BAD)
+		_draw_item(font, it, hr.grow(-2), bool(it.get("r", false)))
+	if _pad_mode:
+		_draw_pad_hints(font)
+
+
+func _can_combine(it: Dictionary, target: Dictionary) -> bool:
+	var d := ItemDB.get_def(it.id)
+	var td := ItemDB.get_def(target.id)
+	if it.id == target.id and int(d.get("stack", 1)) > int(target.n):
+		return true
+	if td.get("cat", "") == "gun" and td.ammo == it.id and int(target.a) < int(td.mag):
+		return true
+	return d.get("cat", "") == "attachment" and target.id in d.fits
+
+
+## Fits an item's footprint inside a slot box, centred.
+func _fit_rect(it: Dictionary, box: Rect2) -> Rect2:
+	var s := Vector2(ItemGrid.dims(it, false))
+	var k := minf(box.size.x / s.x, box.size.y / s.y)
+	k = minf(k, _cell)
+	var sz := s * k
+	return Rect2(box.get_center() - sz * 0.5, sz)
+
+
+func _draw_item(font: Font, it: Dictionary, r: Rect2, rotated: bool) -> void:
+	var d := ItemDB.get_def(it.id)
+	var col: Color = ItemDB.CAT_COLORS.get(d.get("cat", ""), Color(0.4, 0.4, 0.4))
+	_board.draw_rect(r, Color(col, 0.45))
+	_board.draw_rect(r, Color(col.lightened(0.3), 0.8), false, 1.0)
+	var tex := ItemIcons.texture
+	if tex and ItemIcons.regions.has(it.id):
+		var src: Rect2 = ItemIcons.regions[it.id]
+		if rotated:
+			# Draw rotated 90 degrees about the rect's centre.
+			var c := r.get_center()
+			_board.draw_set_transform(c, PI * 0.5, Vector2.ONE)
+			var rs := Vector2(r.size.y, r.size.x)
+			_board.draw_texture_rect_region(tex, Rect2(-rs * 0.5, rs), src)
+			_board.draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)
+		else:
+			_board.draw_texture_rect_region(tex, r, src)
+	else:
+		var label: String = d.get("name", it.id)
+		_text(font, r.position + Vector2(4, 14), label.left(int(r.size.x / 7.5)), 11, Color(0.95, 0.95, 0.9))
+	var fs := 13
+	if int(it.get("n", 1)) > 1:
+		var t := "x%d" % int(it.n)
+		var w := font.get_string_size(t, HORIZONTAL_ALIGNMENT_LEFT, -1, fs).x
+		_text(font, r.end - Vector2(w + 4, 4), t, fs, Color.WHITE)
+	if d.get("cat", "") == "gun":
+		_text(font, Vector2(r.position.x + 4, r.end.y - 4), "%d/%d" % [int(it.get("a", 0)), int(d.mag)], fs, Color(1, 0.95, 0.7))
+	if it.has("c"):
+		var c := float(it.c)
+		var bar := Rect2(r.position.x + 3, r.position.y + 3, (r.size.x - 6) * c, 3)
+		_board.draw_rect(Rect2(bar.position, Vector2(r.size.x - 6, 3)), Color(0, 0, 0, 0.5))
+		_board.draw_rect(bar, Color(0.3, 0.8, 0.3) if c > 0.5 else (Color(0.9, 0.7, 0.2) if c > 0.25 else Color(0.9, 0.25, 0.2)))
+	if it.get("j", false):
+		_text(font, r.position + Vector2(4, 28), "JAMMED", 11, Color(1, 0.4, 0.3))
+
+
+func _text(font: Font, pos: Vector2, t: String, fs: int, col: Color) -> void:
+	_board.draw_string_outline(font, pos, t, HORIZONTAL_ALIGNMENT_LEFT, -1, fs, 4, Color(0, 0, 0, 0.8))
+	_board.draw_string(font, pos, t, HORIZONTAL_ALIGNMENT_LEFT, -1, fs, col)
+
+
+## Gamepad button hints along the bottom.
+func _draw_pad_hints(font: Font) -> void:
+	var hints := [["ui_accept", "Put down" if not _held.is_empty() else "Pick up"], ["reload", "Quick move"],
+		["flashlight", "Use / equip"], ["shove", "Rotate"], ["throw_quick", "Drop"], ["aim", "Sort"],
+		["attack", "Take all"], ["ui_cancel", "Cancel" if not _held.is_empty() else "Close"]]
+	var x := MARGIN
+	var y := _board.size.y - 52.0
+	for h in hints:
+		var w := InputGlyphs.draw(_board, h[0], Vector2(x, y), 30.0, font)
+		if w == 0.0:
+			continue
+		_text(font, Vector2(x + w + 6, y + 21), h[1], 16, Color(0.9, 0.9, 0.88))
+		x += w + 18 + font.get_string_size(h[1], HORIZONTAL_ALIGNMENT_LEFT, -1, 16).x

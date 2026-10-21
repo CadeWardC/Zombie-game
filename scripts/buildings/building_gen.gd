@@ -41,6 +41,9 @@ static func build(gen: WorldGen, p_lot: Dictionary, with_interior: bool) -> Buil
 	var c: Vector2 = p_lot.center
 	b._xf = Transform3D(Basis(Vector3.UP, p_lot.yaw), Vector3(c.x, p_lot.floor, c.y))
 	b._dispatch()
+	# Loot depends on the building as well as the container.
+	for ct in b.bd.containers:
+		ct.bld = p_lot.type
 	return b.bd
 
 
@@ -828,4 +831,5 @@ func _small_hut(w: float, d: float, col: Color, windows: bool) -> void:
 	BuildingParts.wall(bd, Vector2(r.end.x, r.position.y), r.end, 0.0, 2.6, col, INTERIOR_WALL, Vector2(1, 0), side_ops, 0.2)
 	BuildingParts.flat_roof(bd, r, 2.6, Color(0.3, 0.3, 0.3), 0.2, col)
 	if bd.interior:
-		Furniture.place(bd, "desk" if windows else "store_shelf", Transform3D(Basis.IDENTITY, Vector3(0, 0.07, r.position.y + 0.5)), rng, id)
+		# Guard booths keep an equipment locker; sheds have shelves.
+		Furniture.place(bd, "locker" if windows else "store_shelf", Transform3D(Basis.IDENTITY, Vector3(0, 0.07, r.position.y + 0.5)), rng, id)
