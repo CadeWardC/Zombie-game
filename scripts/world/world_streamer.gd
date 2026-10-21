@@ -1,0 +1,161 @@
+class_name WorldStreamer
+extends Node3D
+## Streams chunks in and out around the player. Chunk data is generated on
+## worker threads; the main thread only turns finished data into nodes, within
+## a small per-frame time budget so streaming never causes a hitch.
+
+signal spawn_area_ready
+
+const NEAR_RADIUS := 1 # Chunks within this ring get full detail + collision.
+const FRAME_BUDGET_USEC := 3000
+const LOADING_BUDGET_USEC := 50000
+
+var gen: WorldGen
+var player: Node3D
+var view_radius := 5
+var shadows := false
+
+var _chunks := {} # Vector2i -> Chunk
+var _jobs := {} # Vector2i -> Job
+var _done: Array[Dictionary] = []
+var _wanted := {} # Vector2i -> lod
+var _order: Array[Vector2i] = [] # Wanted keys, nearest first.
+var _max_jobs := 2
+var _center := Vector2i(1 << 30, 1 << 30)
+var _spawn_ready := false
+
+
+class Job:
+	extends RefCounted
+	var gen: WorldGen
+	var key: Vector2i
+	var lod: int
+	var task_id := -1
+	var result: Dictionary
+
+	func run() -> void:
+		result = ChunkBuilder.build(gen, key.x, key.y, lod)
+
+
+func _ready() -> void:
+	_max_jobs = clampi(OS.get_processor_count() - 1, 1, 4)
+
+
+func _exit_tree() -> void:
+	for job: Job in _jobs.values():
+		WorkerThreadPool.wait_for_task_completion(job.task_id)
+	_jobs.clear()
+
+
+static func chunk_of(pos: Vector3) -> Vector2i:
+	return Vector2i(floori(pos.x / WorldGen.CHUNK_SIZE), floori(pos.z / WorldGen.CHUNK_SIZE))
+
+
+func is_ready_at(pos: Vector3) -> bool:
+	var c: Chunk = _chunks.get(chunk_of(pos))
+	return c != null and c.lod == 0
+
+
+## Emits spawn_area_ready again once the chunk under the player is ready.
+func wait_for_spawn_area() -> void:
+	_spawn_ready = false
+
+
+## Forces a full refresh, e.g. after the view distance changes.
+func refresh() -> void:
+	_center = Vector2i(1 << 30, 1 << 30)
+
+
+## Rebuilds every chunk (used when settings like shadows change).
+func rebuild_all() -> void:
+	for c: Chunk in _chunks.values():
+		c.queue_free()
+	_chunks.clear()
+	refresh()
+
+
+func _process(_delta: float) -> void:
+	if player == null:
+		return
+	var center := chunk_of(player.global_position)
+	if center != _center:
+		_center = center
+		_update_wanted(center)
+	_poll_jobs()
+	_start_jobs()
+	_finalize()
+	if not _spawn_ready and is_ready_at(player.global_position):
+		_spawn_ready = true
+		spawn_area_ready.emit()
+
+
+func _update_wanted(center: Vector2i) -> void:
+	_wanted.clear()
+	_order.clear()
+	var r := view_radius
+	for dz in range(-r, r + 1):
+		for dx in range(-r, r + 1):
+			if dx * dx + dz * dz > r * r + r:
+				continue
+			var key := center + Vector2i(dx, dz)
+			if key.x < -1 or key.y < -1 or key.x > WorldGen.WORLD_CHUNKS or key.y > WorldGen.WORLD_CHUNKS:
+				continue
+			_wanted[key] = 0 if maxi(absi(dx), absi(dz)) <= NEAR_RADIUS else 1
+			_order.append(key)
+	_order.sort_custom(func(a: Vector2i, b: Vector2i) -> bool:
+		return (a - center).length_squared() < (b - center).length_squared())
+	for key: Vector2i in _chunks.keys():
+		if not _wanted.has(key):
+			_chunks[key].queue_free()
+			_chunks.erase(key)
+
+
+func _start_jobs() -> void:
+	if _jobs.size() >= _max_jobs:
+		return
+	for key in _order:
+		if _jobs.has(key):
+			continue
+		var lod: int = _wanted[key]
+		var existing: Chunk = _chunks.get(key)
+		if existing != null and existing.lod == lod:
+			continue
+		var job := Job.new()
+		job.gen = gen
+		job.key = key
+		job.lod = lod
+		job.task_id = WorkerThreadPool.add_task(job.run, false, "chunk")
+		_jobs[key] = job
+		if _jobs.size() >= _max_jobs:
+			return
+
+
+func _poll_jobs() -> void:
+	for key: Vector2i in _jobs.keys():
+		var job: Job = _jobs[key]
+		if not WorkerThreadPool.is_task_completed(job.task_id):
+			continue
+		WorkerThreadPool.wait_for_task_completion(job.task_id)
+		_jobs.erase(key)
+		if _wanted.get(key, -1) == job.lod:
+			_done.append(job.result)
+
+
+func _finalize() -> void:
+	var budget := FRAME_BUDGET_USEC if _spawn_ready else LOADING_BUDGET_USEC
+	var start := Time.get_ticks_usec()
+	# Nearest chunks first, so the area around the player fills in first.
+	_done.sort_custom(func(a: Dictionary, b: Dictionary) -> bool:
+		return a.lod < b.lod)
+	while not _done.is_empty() and Time.get_ticks_usec() - start < budget:
+		var data: Dictionary = _done.pop_front()
+		var key: Vector2i = data.key
+		if _wanted.get(key, -1) != data.lod:
+			continue
+		var chunk := Chunk.new()
+		chunk.setup(data, shadows)
+		add_child(chunk)
+		var old: Chunk = _chunks.get(key)
+		if old != null:
+			old.queue_free()
+		_chunks[key] = chunk
