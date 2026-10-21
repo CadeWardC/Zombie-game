@@ -57,17 +57,31 @@ Every feature is checked against this budget:
 
 ## 4. Death and respawn
 
-When you die you pick one of three modes:
+The **death rule is chosen when the world is created** and can't be changed
+later, so permadeath stays meaningful.
 
-1. **Respawn**: same character, same world. **Keeps your skills and stats.**
-   Your gear drops where you died.
-2. **New character, same world**: skills and stats are wiped.
-3. **New character, new world**: a fresh start.
+| World rule | When you die |
+|---|---|
+| **1. Respawn** | Same character, same world. **Keeps your skills and stats.** Your gear drops where you died. |
+| **2. New character** | Start a fresh character in the same world. Skills and stats are wiped. |
+| **3. Permadeath** | Your character is gone for good. The **only** way back is the cure (below). |
 
-**Revive:** in a hosted game, if you **died from infection**, friends can bring
-you back (for example with a cure) **as long as you haven't respawned yet**.
-Deaths from other causes (bites, starvation, falls) can't be revived.
-Choosing mode 2 or 3 makes that character permanently gone.
+**Infection is the one way back from death:**
+
+- **Single player**: you must take a cure **before you fully turn**. Once you
+  turn, it's over. In a permadeath world the **world is lost**.
+- **Multiplayer**: when an infected player dies, they **rise as a zombie**.
+  Friends can **subdue and cure that zombie** to bring the player back. If
+  the zombie is killed, the player is gone (rules 1 and 2 then respawn them
+  as usual).
+- Death from anything else (bites without infection, starvation, falls,
+  gunshots) follows the world rule immediately.
+
+**Permadeath in multiplayer**: a player who dies for good is **out**: they can
+only spectate friends. If everyone is dead, the world is lost.
+
+**Lost worlds** are kept as a **memorial**: they can't be played, but show
+days survived, kills, cause of death and the explored map.
 
 ## 5. Character, health and needs
 
@@ -108,6 +122,26 @@ temperature** and **infection**.
 **Temperature**
 : Cold nights, mountain snow, winter and desert heat. Clothing layers,
   fires, shelter and being wet or dry all matter.
+
+### 5.4 Clothing
+
+Clothing gives **warmth**, **pockets / storage** and **bite protection**:
+leather jackets, thick pants, riot gear and military armor lower the chance
+that a bite breaks the skin (and can infect). Clothes tear and can be
+repaired with a sewing kit.
+
+### 5.5 Food and water from nature
+
+- **Fishing** in rivers, lakes and the ocean (rods, nets).
+- **Foraging**: berries, mushrooms (some poisonous), wild plants.
+- **Hunting** deer, rabbits and birds for meat and hides.
+- **Water from rivers and lakes must be boiled or purified**, or you get
+  sick. Rain collectors give clean water.
+
+### 5.6 Dog companion
+
+You can find and tame a dog. It follows you, warns you of nearby zombies,
+and can be hurt or killed.
 
 ## 6. Infection and the cure
 
@@ -287,6 +321,8 @@ rises with danger, so the safest areas have the worst loot.
   interest and wander off. Brutes break through much faster.
 - **Hordes**: large groups roam between towns, are drawn to noise, and slowly
   re-fill cleared areas (see 7.2).
+- **Night**: **more zombies are active and runners appear**. Night is when
+  you hide in your base.
 - **Density** follows population: cities are packed, wilderness is sparse.
 - **Performance**: AI level of detail, pooling, and animation detail that
   drops with distance (already built for basic zombies).
@@ -421,7 +457,7 @@ host can pick a preset or tweak any setting.
 | Season length | 1 / 2 / 4 weeks |
 | Utilities shut-off | Day 1 / ~2 weeks (default) / never |
 | PvP | Off / On |
-| Death modes allowed | Which of modes 1–3 are available |
+| Death rule | Respawn / New character / Permadeath (fixed at creation) |
 
 ## 17. Art and audio
 
@@ -455,10 +491,10 @@ Each stage ends with a playable build on the Tab S6 Lite and iPhone.
 | **0. Prototype** ✅ | Streaming world, towns, zombies, survival needs, touch and gamepad, APK CI |
 | **1. Map and art** ← next | New world generator (sizes, coast, rivers, biomes), road network, American towns, cities and suburbs, special-location framework (research center and airport first), CC0 asset packs for houses, cars and animated zombies, enterable interiors with doors and loot containers, world-creation screen with multiple saves, unsigned iOS CI |
 | **2. Items and combat** | Tetris inventory, loot tables, guns, bows, throwables, melee shove and durability, stealth, gamepad menu navigation and prompts |
-| **3. Character and health** | Character creation with traits, injuries, infection with symptoms, cure vials, the three death modes, revive, all zombie types and abilities |
+| **3. Character and health** | Character creation with traits, injuries, clothing protection, infection with symptoms, cure vials, the three death rules, curing zombified friends, memorial worlds, all zombie types and abilities |
 | **4. Multiplayer** | 2–4 player hosting, join codes, Wi-Fi discovery, pings, PvP setting, sync of zombies, loot and vehicles |
 | **5. Vehicles** | Cars, bikes, fuel, boats, then helicopters and planes at airports |
-| **6. Survival depth** | Crafting, base building, skills, farming, cooking, spoilage, sleep, temperature, weather and seasons, utilities and power plant, traders |
+| **6. Survival depth** | Crafting, base building, skills, farming, cooking, spoilage, sleep, temperature, weather and seasons, utilities and power plant, traders, hunting, fishing, foraging, water purification, dog companion |
 | **7. Polish** | Audio, hordes and migration, tutorial and hints, aim assist and remapping, HUD options, settings, performance pass |
 
 Multiplayer comes at stage 4 by request, after the map. To avoid rework,
