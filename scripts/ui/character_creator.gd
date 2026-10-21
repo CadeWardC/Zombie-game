@@ -39,11 +39,11 @@ func _ready() -> void:
 		margin.add_theme_constant_override("margin_" + side, 18)
 	add_child(margin)
 	var outer := VBoxContainer.new()
-	outer.add_theme_constant_override("separation", 10)
+	outer.add_theme_constant_override("separation", 8)
 	margin.add_child(outer)
 	var head := Label.new()
 	head.text = title
-	head.add_theme_font_size_override("font_size", 32)
+	head.add_theme_font_size_override("font_size", 28)
 	head.add_theme_color_override("font_color", MenuTheme.TEXT)
 	outer.add_child(head)
 	var cols := HBoxContainer.new()
@@ -106,7 +106,7 @@ func _build_look(cols: HBoxContainer) -> void:
 	_name.text = character.name
 	_name.placeholder_text = "Name"
 	_name.max_length = 20
-	_name.custom_minimum_size.y = 46
+	_name.custom_minimum_size.y = 40
 	_name.text_changed.connect(func(t: String) -> void: character.name = t.strip_edges())
 	v.add_child(_name)
 	for row: Array in [["build", "Body", Character.BUILDS.size()], ["skin", "Skin", Character.SKIN_TONES.size()],
@@ -119,6 +119,7 @@ func _build_look(cols: HBoxContainer) -> void:
 		l.text = row[1]
 		l.custom_minimum_size.x = 100
 		h.add_child(l)
+		h.add_theme_constant_override("separation", 4)
 		_small(h, "<", func() -> void: _cycle(key, -1, n))
 		var val := Label.new()
 		val.size_flags_horizontal = Control.SIZE_EXPAND_FILL
@@ -130,7 +131,7 @@ func _build_look(cols: HBoxContainer) -> void:
 	# Turning 3D preview in its own little world.
 	var svc := SubViewportContainer.new()
 	svc.stretch = true
-	svc.custom_minimum_size = Vector2(260, 250)
+	svc.custom_minimum_size = Vector2(240, 150)
 	svc.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	v.add_child(svc)
 	var vp := SubViewport.new()
@@ -139,8 +140,7 @@ func _build_look(cols: HBoxContainer) -> void:
 	svc.add_child(vp)
 	var cam := Camera3D.new()
 	cam.fov = 30.0
-	cam.position = Vector3(0, 1.15, 4.4)
-	cam.rotation_degrees.x = -4.0
+	cam.position = Vector3(0, 0.98, 4.2)
 	vp.add_child(cam)
 	var sun := DirectionalLight3D.new()
 	sun.rotation_degrees = Vector3(-30, 25, 0)
@@ -159,7 +159,7 @@ func _build_look(cols: HBoxContainer) -> void:
 func _small(parent: Node, text: String, cb: Callable) -> void:
 	var b := Button.new()
 	b.text = text
-	b.custom_minimum_size = Vector2(44, 42)
+	b.custom_minimum_size = Vector2(44, 36)
 	b.pressed.connect(cb)
 	parent.add_child(b)
 
@@ -182,7 +182,7 @@ func _build_backgrounds(cols: HBoxContainer) -> void:
 		var b := Button.new()
 		b.text = Character.BACKGROUNDS[id].name
 		b.toggle_mode = true
-		b.custom_minimum_size = Vector2(150, 44)
+		b.custom_minimum_size = Vector2(150, 40)
 		b.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 		b.pressed.connect(func() -> void:
 			character.background = id
@@ -192,6 +192,7 @@ func _build_backgrounds(cols: HBoxContainer) -> void:
 		_bg_buttons[id] = b
 	_bg_info = Label.new()
 	_bg_info.autowrap_mode = TextServer.AUTOWRAP_WORD
+	_bg_info.custom_minimum_size.x = 290
 	_bg_info.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	_bg_info.add_theme_color_override("font_color", MenuTheme.DIM)
 	v.add_child(_bg_info)
@@ -201,16 +202,13 @@ func _build_backgrounds(cols: HBoxContainer) -> void:
 
 func _build_traits(cols: HBoxContainer) -> void:
 	var v := _column(cols, "Traits", 420)
-	var scroll := ScrollContainer.new()
-	scroll.size_flags_vertical = Control.SIZE_EXPAND_FILL
-	scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
-	v.add_child(scroll)
 	var grid := GridContainer.new()
 	grid.columns = 2
 	grid.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	grid.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	grid.add_theme_constant_override("h_separation", 6)
-	grid.add_theme_constant_override("v_separation", 6)
-	scroll.add_child(grid)
+	grid.add_theme_constant_override("v_separation", 5)
+	v.add_child(grid)
 	var ids := Character.TRAITS.keys()
 	# Good traits first, then bad ones.
 	ids.sort_custom(func(a: String, b: String) -> bool:
@@ -220,7 +218,7 @@ func _build_traits(cols: HBoxContainer) -> void:
 		var b := Button.new()
 		b.toggle_mode = true
 		b.text = "%s  %s%d" % [tr.name, "-" if int(tr.cost) > 0 else "+", absi(int(tr.cost))]
-		b.custom_minimum_size = Vector2(190, 44)
+		b.custom_minimum_size = Vector2(186, 38)
 		b.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 		b.add_theme_color_override("font_color", Color(0.65, 0.9, 0.65) if int(tr.cost) > 0 else Color(0.95, 0.6, 0.55))
 		b.pressed.connect(func() -> void:
@@ -233,7 +231,8 @@ func _build_traits(cols: HBoxContainer) -> void:
 		_trait_buttons[id] = b
 	_trait_info = Label.new()
 	_trait_info.autowrap_mode = TextServer.AUTOWRAP_WORD
-	_trait_info.custom_minimum_size.y = 50
+	_trait_info.custom_minimum_size.x = 380
+	_trait_info.custom_minimum_size.y = 44
 	_trait_info.add_theme_color_override("font_color", MenuTheme.DIM)
 	_trait_info.text = "Good traits cost points; bad traits give points."
 	v.add_child(_trait_info)

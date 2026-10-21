@@ -5,7 +5,7 @@ built with **Godot 4.7** and designed to run well on phones and tablets
 (minimum target: Samsung Galaxy Tab S6 Lite). The full plan is in
 [docs/DESIGN.md](docs/DESIGN.md).
 
-**What's in the game now (stages 1 and 2):**
+**What's in the game now (stages 1 to 3):**
 
 - **Random worlds of 8, 16 or 32 km**: coastlines, mountains, forests,
   farmland, deserts, beaches, and river networks with lakes from a drainage
@@ -46,14 +46,46 @@ built with **Godot 4.7** and designed to run well on phones and tablets
 - **Stealth**: zombies grow suspicious before they chase you (the eye on
   the HUD shows it). Crouch, hide in bushes or dark rooms, and do silent
   takedowns from behind. Gunshots carry for a hundred metres.
-- **Animated zombies** in eight outfits that shamble, sprint, grab, flinch,
-  stagger, burn and fall. They hear you, see you, and can't swim.
+- **Your survivor**: a name, a look (body, skin, hair, beard, shown on a
+  turning 3D preview), one of ten backgrounds (nurse, police officer,
+  mechanic, hunter...) with skills and starting gear, and traits: good
+  ones cost points, bad ones give them (athletic, strong, keen hearing,
+  short-sighted, smoker, hemophiliac...).
+- **Injuries**: scratches, lacerations, deep wounds, bites, broken bones,
+  sprains and burns, each with its own effect. Bandages and rags stop
+  bleeding, deep wounds need stitches, broken bones a splint; dirty wounds
+  get infected and bring on a fever unless cleaned. Hard falls hurt. Quick
+  heal picks the right treatment.
+- **Clothes**: hats and helmets, shirts, jackets, armour, pants and boots.
+  They decide whether a bite breaks the skin, wear out as zombies tear at
+  them, add pockets, and can be mended with a sewing kit or ripped into
+  rags.
+- **The infection**: a bite that breaks the skin can infect you (15% by
+  default). Over a day or two your sight blurs and fades, your heart
+  pounds, you cough (zombies hear it) and weaken. Antibiotics slow it; only
+  a cure vial stops it. If it wins, you rise as a zombie carrying your
+  gear.
+- **Research centres**: the only source of the cure. A small dungeon:
+  start the generator outside (loud), find the blue keycard in the
+  security room and the red one in the director's office, and fight
+  through labs and containment to the vault.
+- **Zombie types**: walkers, runners (fast, more at night), brutes (huge,
+  break doors), screamers (shriek to call every zombie around), crawlers
+  (lie low, grab ankles) and armoured soldiers around the labs. Some wait
+  inside buildings. Zombies open unlocked doors, batter locked ones while
+  they know you're inside, smash windows and crawl through, and climb low
+  fences. They can't swim.
+- **Doors and windows**: lock doors from the inside, break locked ones
+  down, smash windows and climb through.
 - **Survival**: health, hunger, thirst, stamina, a day/night cycle and
   swimming.
+- **Death rules**, fixed when the world is made: respawn (keep your
+  character), new character, or permadeath. Lost worlds stay in the menu as
+  memorials with the survivor's story and the map they explored. The pause
+  menu has a map of everywhere you've been.
 - **Main menu with multiple saved worlds**: choose map size, seed,
-  difficulty and death rule (respawn, new character, permadeath; lost
-  permadeath worlds stay as memorials). When you die, your gear stays where
-  you fell.
+  difficulty, death rule, zombie speed and infection chance, then your
+  survivor.
 
 All art (terrain, buildings, furniture, cars, aircraft, zombies, items and
 their inventory icons) is generated in code as realistic low-poly geometry,
@@ -70,7 +102,8 @@ so the app stays small and needs no art files.
 | Reload / clear a jam | RELOAD            | R                | X             |
 | Shove        | SHOVE                     | V                | RB            |
 | Quick throw  | –                         | G                | LB            |
-| Use (doors, search, pick up) | USE       | E                | B             |
+| Use (doors, search, pick up, climb through a smashed window) | USE | E | B |
+| Lock / unlock a door (from inside), start a generator | hold USE | hold E | hold B |
 | Crouch / sneak | CROUCH                  | C / Ctrl         | R3            |
 | Sprint       | RUN (toggle)              | Shift            | L3            |
 | Jump / swim up | JUMP                    | Space            | A             |
@@ -78,7 +111,7 @@ so the app stays small and needs no art files.
 | Eat or drink / heal | EAT / HEAL         | Z / H            | D-pad up / down |
 | Inventory    | BAG                       | Tab / I          | View / Select |
 | Flashlight   | LIGHT                     | F                | Y             |
-| Pause        | II                        | Esc / P          | Start         |
+| Pause (and the map) | II                 | Esc / P          | Start         |
 | Debug stats  | –                         | F3               | –             |
 
 On screen, button prompts match the controller you're using: Xbox
@@ -87,6 +120,7 @@ with the gamepad too. In the inventory:
 - A picks up and puts down; X quick-moves; Y uses or equips;
 - RB rotates; LB drops;
 - LT sorts; RT takes everything;
+- L3 switches between the Gear and Body tabs (clothes, injuries);
 - B cancels or closes.
 
 On gamepads, aim assist slows your aim and pulls it gently toward a zombie
@@ -134,14 +168,18 @@ scripts/
     road_mesher.gd              road, sidewalk and bridge meshes
     world_streamer.gd           loads chunks around the player
     map_renderer.gd             top-down map image
-  buildings/                  Procedural buildings, interiors, furniture, doors
+  buildings/                  Procedural buildings, interiors, furniture,
+                              doors and windows
   zombies/                    Zombie model (rig + animations), AI, manager
   items/                      Item database, models, grid inventory, loot,
                               dropped items
   combat/effects.gd           Arrows, thrown items, fire, explosions, blood
-  player/                     Player (movement, stealth, items) and weapons
+  player/                     Player (movement, stealth, items), weapons,
+                              character (traits, backgrounds) and health
+                              (injuries, infection)
   ui/                         HUD, inventory screen, item icons, button
-                              glyphs, touch controls, menus
+                              glyphs, touch controls, menus, character
+                              creator, map
 tests/smoke_test.tscn         Automated gameplay test (runs in CI)
 tests/screenshots.tscn        Renders gameplay screenshots
 tools/map_preview.gd          Renders a world map PNG

@@ -2,7 +2,8 @@ extends Node
 ## Renders gameplay screenshots into user://screenshots/ for quick visual
 ## checks. Needs a real renderer (not --headless), e.g.:
 ##   xvfb-run godot res://tests/screenshots.tscn -- --touch
-## Add --items for just the stage 2 shots (inventory, weapons, stealth).
+## Add --items for just the stage 2 shots (inventory, weapons, stealth), or
+## --stage3 for the stage 3 ones (character, health, zombie types, the lab).
 
 var _main: Node3D
 var _cam: Camera3D
@@ -70,6 +71,11 @@ func _run() -> void:
 	var gen: WorldGen = _main.gen
 	if "--items" in OS.get_cmdline_user_args():
 		await _items_shots()
+		GameState.delete_world("screenshots")
+		get_tree().quit()
+		return
+	if "--stage3" in OS.get_cmdline_user_args():
+		await _stage3_shots()
 		GameState.delete_world("screenshots")
 		get_tree().quit()
 		return
@@ -279,3 +285,151 @@ func _items_shots() -> void:
 	player.head.rotation.x = deg_to_rad(-12.0)
 	await get_tree().create_timer(0.3).timeout
 	await _shot("21_molotov_fire")
+
+
+## Stage 3: character creation, the Body tab, zombie types, infection, the
+## research lab, the map, death and memorials.
+func _stage3_shots() -> void:
+	var player: Player = _main.player
+	var gen: WorldGen = _main.gen
+	var inv := GameState.inventory
+	var spawn: Vector3 = gen.spawn_point()
+	_main.zombies.max_zombies = 0
+	_main.zombies.clear_all()
+	await _go(Vector2(spawn.x, spawn.z), player.rotation.y, -4.0)
+	var t0 := Time.get_ticks_msec()
+	while ItemIcons.texture == null and Time.get_ticks_msec() - t0 < 5000:
+		await get_tree().process_frame
+	if ItemIcons.texture:
+		ItemIcons.texture.get_image().save_png("user://screenshots/31_item_icons.png")
+
+	# Character creator over the game.
+	var layer := CanvasLayer.new()
+	layer.layer = 20
+	add_child(layer)
+	var cc := CharacterCreator.new()
+	layer.add_child(cc)
+	await get_tree().create_timer(0.5).timeout
+	cc.character.background = "hunter"
+	cc.character.apply_background()
+	cc.character.traits = ["athletic", "smoker", "clumsy", "short_sighted"]
+	cc.character.look = {"build": 1, "skin": 2, "hair": 2, "hair_col": 4, "beard": 0}
+	cc.character.name = "Robin"
+	cc._name.text = "Robin"
+	cc._refresh()
+	await get_tree().create_timer(0.6).timeout
+	await _shot("22_character_creator")
+	layer.queue_free()
+	GameState.character = cc.character
+	GameState.give_starting_kit()
+
+	# Body tab: clothes, injuries, protection.
+	var b := player.body
+	b.add("bite", "arm_l", true).b = true
+	b.add("deep_wound", "leg_r")
+	b.add("fracture", "arm_r").s = true
+	b.injuries[0].inf = 0.25
+	inv.add(ItemDB.make("bandage", 2))
+	inv.add(ItemDB.make("suture_kit"))
+	inv.add(ItemDB.make("sewing_kit"))
+	inv.add(ItemDB.make("antibiotics"))
+	inv.add(ItemDB.make("motorcycle_helmet"))
+	inv.equip.jacket.c = 0.55
+	player.health = 62.0
+	_main.inventory_ui.open({})
+	_main.inventory_ui._set_tab("body")
+	await get_tree().create_timer(0.3).timeout
+	_main.inventory_ui._selected = inv.equip.jacket
+	_main.inventory_ui._update_info()
+	_main.inventory_ui._board.queue_redraw()
+	await _shot("23_body_tab")
+	_main.inventory_ui.close()
+
+	# Infected and bleeding: the screen fades and pulses.
+	b.infect(0.5)
+	b.infection = 0.62
+	player.head.rotation.x = deg_to_rad(-3.0)
+	player.weapons.select("melee")
+	await get_tree().create_timer(0.8).timeout
+	await _shot("24_infected_view")
+	b.clear()
+	player.health = 100.0
+
+	# Every zombie type in a row.
+	var fwd := -player.global_basis.z
+	var side := player.global_basis.x
+	var types := ["walker", "runner", "brute", "screamer", "crawler", "soldier", "scientist"]
+	for k in types.size():
+		var zp: Vector3 = player.global_position + fwd * 7.0 + side * (k - 3) * 1.7
+		zp.y = gen.height(zp.x, zp.z)
+		var z: Zombie
+		if types[k] == "scientist":
+			z = _main.zombies._spawn(zp, "walker", ZombieModel.type_meshes.scientist[0])
+		else:
+			z = _main.zombies._spawn(zp, types[k])
+		z.rotation.y = player.rotation.y + PI
+		z.trap(30.0)
+		if types[k] == "screamer":
+			z._play_once("scream", 30.0)
+			z._anim.seek(0.6, true)
+	var mid: Vector3 = player.global_position + fwd * 7.0
+	_cam.global_position = mid - fwd * 6.5 + Vector3(0, 2.2, 0)
+	_cam.look_at(mid + Vector3(0, 0.9, 0))
+	_cam.current = true
+	await get_tree().create_timer(0.6).timeout
+	await _shot("25_zombie_types")
+	_main.zombies.clear_all()
+
+	# The research lab: outside, then the corridor inside by flashlight.
+	var site: Dictionary = gen.settlements.sites.filter(func(st): return st.type == "research")[0]
+	var lab_lot: Dictionary = SiteLayout.build(site, gen).lots.filter(func(l): return l.type == "research_lab")[0]
+	var c: Vector2 = lab_lot.center
+	var xf := Transform3D(Basis(Vector3.UP, lab_lot.yaw), Vector3(c.x, lab_lot.floor, c.y))
+	var front := xf * Vector3(0, 0, 45)
+	await _fly(front + Vector3(0, 28, 0), xf * Vector3(0, 2, 0))
+	await get_tree().create_timer(0.5).timeout
+	await _shot("26_research_site")
+	GameState.time_of_day = 22.0
+	var lobby := xf * Vector3(0, 0.1, 9.0)
+	_cam.current = false
+	player.camera.current = true
+	player.global_position = lobby
+	player.rotation.y = lab_lot.yaw
+	player.head.rotation.x = deg_to_rad(-6.0)
+	player.flashlight.visible = true
+	await _wait_streaming()
+	player.global_position = lobby
+	await get_tree().create_timer(0.8).timeout
+	player._update_focus()
+	await _shot("27_lab_corridor")
+	player.flashlight.visible = false
+	GameState.time_of_day = 11.0
+
+	# The map.
+	await _go(Vector2(spawn.x, spawn.z), player.rotation.y, -4.0)
+	for k in 30:
+		GameState.explore(spawn + Vector3(k * 40.0, 0, sin(k * 0.3) * 200.0), 160.0)
+	_main.pause_menu.open()
+	_main.pause_menu._open_map()
+	await get_tree().create_timer(0.4).timeout
+	await _shot("28_map")
+	_main.pause_menu.close()
+
+	# Turned: the death screen.
+	player.body.infect(0.0)
+	player.body.infection = 0.9999
+	player.body.turn_hours = 0.001
+	await get_tree().create_timer(0.6).timeout
+	await _shot("29_turned")
+
+	# A memorial in the menu.
+	GameState.world.death_rule = GameState.DeathRule.PERMADEATH
+	GameState.mark_world_lost("Turned into a zombie")
+	var meta := GameState.world.duplicate()
+	_main.queue_free()
+	var menu: Control = load("res://scenes/menu.tscn").instantiate()
+	add_child(menu)
+	await get_tree().create_timer(0.3).timeout
+	menu._show_memorial(meta)
+	await get_tree().create_timer(0.4).timeout
+	await _shot("30_memorial")

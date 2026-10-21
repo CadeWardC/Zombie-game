@@ -248,7 +248,7 @@ func show_death(on: bool, rule := 0, cause := "", turned := false) -> void:
 	var lines: PackedStringArray = ["%s, %s" % [ch.name, Character.BACKGROUNDS[ch.background].name]]
 	if cause != "":
 		lines.append(cause)
-	lines.append("Survived %d days  -  %d zombies killed" % [GameState.day, GameState.kills])
+	lines.append("Survived %d day%s  -  %d zombies killed" % [GameState.day, "" if GameState.day == 1 else "s", GameState.kills])
 	if turned and not lost:
 		lines.append("Your body walks on, carrying your gear.")
 	elif not lost:
@@ -503,7 +503,7 @@ func _draw_weapon_panel(ci: Control, size: Vector2, font: Font, w: Weapons) -> v
 	if st.name == "":
 		return
 	var touch := GameState.uses_touch() and not GameState.using_gamepad()
-	var pos := Vector2(20, 128) if touch else Vector2(size.x - 280, size.y - 92)
+	var pos := Vector2(20, 156) if touch else Vector2(size.x - 280, size.y - 92)
 	var panel := Rect2(pos, Vector2(260, 72))
 	ci.draw_rect(panel, Color(0, 0, 0, 0.4))
 	var name_text: String = st.name

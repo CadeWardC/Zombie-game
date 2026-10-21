@@ -285,7 +285,7 @@ func _show_memorial(w: Dictionary) -> void:
 	var lines: PackedStringArray = []
 	if w.has("background"):
 		lines.append(str(w.background))
-	lines.append("Survived %d days" % int(w.get("day", 1)))
+	lines.append("Survived %d day%s" % [int(w.get("day", 1)), "" if int(w.get("day", 1)) == 1 else "s"])
 	lines.append("%d zombies killed" % int(w.get("kills", 0)))
 	lines.append("Cause of death: %s" % w.get("cause", "unknown"))
 	lines.append("Explored %.1f%% of the map" % (float(w.get("explored", 0.0)) * 100.0))

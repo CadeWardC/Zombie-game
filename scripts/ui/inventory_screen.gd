@@ -177,7 +177,7 @@ func _layout() -> void:
 		mid_w = maxf(mid_w, g.w)
 	var right := _right_grids() if _tab == "gear" else ([] as Array[ItemGrid])
 	var right_cells := 0.0
-	var right_w := 5.0 if _tab == "gear" else 7.0
+	var right_w := 5.0 if _tab == "gear" else 8.0
 	for g in right:
 		right_cells += g.h + 0.8
 		right_w = maxf(right_w, g.w)
@@ -1021,7 +1021,7 @@ func _draw_health(font: Font) -> void:
 		_health_line(font, "No injuries", Color(0.6, 0.8, 0.6), 15)
 	for inj in b.injuries:
 		var bad: bool = float(inj.inf) >= Health.FEVER_AT or (not inj.b and not inj.s and float(Health.KINDS[inj.k].bleed) > 0.0)
-		_health_line(font, Health.describe(inj), Color(1.0, 0.55, 0.45) if bad else Color(0.85, 0.82, 0.75), 14)
+		_health_line(font, Health.describe(inj), Color(1.0, 0.55, 0.45) if bad else Color(0.85, 0.82, 0.75), 13)
 	if b.fever():
 		_health_line(font, "Fever: an infected wound. Clean it or take antibiotics.", Color(1.0, 0.6, 0.3), 14)
 	var sym := b.symptoms()

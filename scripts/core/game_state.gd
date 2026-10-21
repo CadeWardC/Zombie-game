@@ -64,7 +64,7 @@ var pending_character: Character
 ##   spawns: interior spawn id -> in-game hour its zombie was killed
 ##   turned: players who died infected and rose as zombies:
 ##           [{id, name, p: [x, y, z], items, look, owner}]
-var ws := {}
+var ws := {"doors": {}, "windows": {}, "power": {}, "spawns": {}, "turned": []}
 ## Which parts of the map have been seen (one byte per EXPLORE_CELL square).
 var explored: Image
 ## Opened containers: id -> Array of items (each with grid x, y, r).

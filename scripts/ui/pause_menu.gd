@@ -9,6 +9,7 @@ var player: Player
 var _quality_btn: Button
 var _map_layer: Control
 var _map: MapView
+var _map_info: Label
 var _box: VBoxContainer
 var _first_btn: Button
 var _opened_frame := -1
@@ -69,6 +70,11 @@ func _ready() -> void:
 	_map.offset_top = 20
 	_map.offset_bottom = -90
 	_map_layer.add_child(_map)
+	_map_info = Label.new()
+	_map_info.position = Vector2(20, 16)
+	_map_info.add_theme_font_size_override("font_size", 18)
+	_map_info.add_theme_color_override("font_color", Color(0.85, 0.82, 0.75))
+	_map_layer.add_child(_map_info)
 	var back := _button(_map_layer, "Back", _close_map)
 	back.anchor_left = 0.5
 	back.anchor_right = 0.5
@@ -85,9 +91,11 @@ func _open_map() -> void:
 	if player:
 		_map.player_pos = player.global_position
 		_map.player_yaw = player.rotation.y
+	_map_info.text = "MAP\nDay %d\nExplored %.1f%%\n\nYou: yellow arrow\nResearch centres: purple\nAirports: blue" % [
+		GameState.day, GameState.explored_fraction() * 100.0]
 	_map_layer.visible = true
 	_box.visible = false
-	(_map_layer.get_child(1) as Button).grab_focus()
+	(_map_layer.get_child(2) as Button).grab_focus()
 
 
 func _close_map() -> void:

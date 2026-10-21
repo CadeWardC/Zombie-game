@@ -443,15 +443,22 @@ func _find_entry(player: Player) -> bool:
 	return true
 
 
+## The middle of the doorway or window.
+func _entry_center() -> Vector3:
+	var c := _entry.global_position
+	if _entry is DoorBody:
+		c += _entry.global_basis.x * 0.45 # Door transform is at the hinge.
+	return c
+
+
+## Which side of the entry this zombie is on (+1 / -1 along its normal).
+func _entry_side() -> float:
+	return 1.0 if (position - _entry_center()).dot(_entry.global_basis.z) >= 0.0 else -1.0
+
+
 ## Where to stand to use the entry: just in front of it, on this side.
 func _entry_goal() -> Vector3:
-	var e := _entry
-	var n := e.global_basis.z
-	var c := e.global_position
-	if e is DoorBody:
-		c += e.global_basis.x * 0.45 # Door transform is at the hinge.
-	var side := 1.0 if (position - c).dot(n) >= 0.0 else -1.0
-	return c + n * side * 0.7
+	return _entry_center() + _entry.global_basis.z * _entry_side() * 0.7
 
 
 ## Close to the entry: open, batter, smash or climb through it.
@@ -467,7 +474,7 @@ func _use_entry(dt: float, dir: Vector3) -> Vector3:
 	if _flat_dist(goal) > 0.6:
 		return dir
 	var n := _entry.global_basis.z
-	var side := 1.0 if (position - goal + n * 0.7).dot(n) >= 0.0 else -1.0
+	var side := _entry_side()
 	if _entry is DoorBody:
 		var door := _entry as DoorBody
 		if door.zombie_push(position):

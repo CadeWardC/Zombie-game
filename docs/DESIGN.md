@@ -488,8 +488,8 @@ Each stage ends with a playable build on the Tab S6 Lite and iPhone.
 | **0. Prototype** ✅ | Streaming world, towns, zombies, survival needs, touch and gamepad, APK CI |
 | **1. Map and art** ✅ | New world generator (sizes, coast, rivers, biomes), road network, American towns, cities and suburbs, special-location framework (research center and airport first), procedural realistic houses, cars and animated zombies, enterable interiors with doors and loot containers, world-creation screen with multiple saves, unsigned iOS CI |
 | **2. Items and combat** ✅ | Tetris inventory, loot tables, guns, bows, throwables, melee shove and durability, stealth, gamepad menu navigation and prompts |
-| **3. Character and health** ← next | Character creation with traits, injuries, clothing protection, infection with symptoms, cure vials, the three death rules, curing zombified friends, memorial worlds, all zombie types and abilities |
-| **4. Multiplayer** | 2–4 player hosting, join codes, Wi-Fi discovery, pings, PvP setting, sync of zombies, loot and vehicles |
+| **3. Character and health** ✅ | Character creation with traits, injuries, clothing protection, infection with symptoms, cure vials, the three death rules, curing zombified friends, memorial worlds, all zombie types and abilities |
+| **4. Multiplayer** ← next | 2–4 player hosting, join codes, Wi-Fi discovery, pings, PvP setting, sync of zombies, loot and vehicles |
 | **5. Vehicles** | Cars, bikes, fuel, boats, then helicopters and planes at airports |
 | **6. Survival depth** | Crafting, base building, skills, farming, cooking, spoilage, sleep, temperature, weather and seasons, utilities and power plant, traders, hunting, fishing, foraging, water purification, dog companion |
 | **7. Polish** | Audio, hordes and migration, tutorial and hints, aim assist and remapping, HUD options, settings, performance pass |
@@ -553,7 +553,63 @@ Simplified or moved:
 - **Aim assist strength and remapping settings**: stage 7, with the other
   settings.
 
-## 21. Open questions
+## 21. Stage 3 notes
+
+Done:
+- Character creation: name, appearance with a 3D preview, ten
+  backgrounds (skills, starting items and clothes) and eighteen traits on
+  a points budget. Skills already used: aiming, melee, first aid, stealth,
+  fitness and strength.
+- Injuries on six body parts: scratch, laceration, deep wound, bite,
+  broken bone, sprain, burn. Bleeding, slowdowns, pain, wound infection
+  and fever. Treatments: bandage, rag, suture kit, splint, alcohol wipes,
+  antibiotics, painkillers, first aid kit. Fall damage.
+- Clothing in five slots (head, shirt, jacket, pants, shoes): bite and
+  scratch protection by body part, wear, pockets, warmth (stored for
+  temperature later), mending with a sewing kit, ripping into rags.
+  Backgrounds start dressed for the job.
+- Zombie infection: chance per bite (world setting), 24–48 in-game hours
+  to turn, symptoms from about 15% (screen blur, fading colour, heartbeat
+  vignette, coughing that zombies hear, weakness, slower healing).
+  Antibiotics slow it; the cure vial stops it.
+- Research centres: generator (loud while running), keycard security
+  doors (blue and red), offices, labs, containment and the vault with 1–2
+  cure vials. Zombies, scientists and soldiers wait inside.
+- The three death rules. Dying infected makes you rise as a zombie
+  carrying your gear (it stays in the world and is saved). A turned
+  friend can be beaten down without killing them and given the cure.
+- Lost worlds are memorials: survivor, background, days, kills, cause of
+  death, how much was explored and the explored map. The pause menu shows
+  the map with the parts you've seen.
+- Zombie types: walker, runner, brute, screamer, crawler, soldier (plus
+  lab-coated scientists). More runners at night; a "zombie speed" world
+  setting (shamblers / mixed / fast). Interior spawn points in labs and
+  some houses.
+- Zombie abilities: open unlocked doors, batter locked doors only while
+  they know you're there (brutes much faster), smash windows and crawl
+  through, climb low fences. Survivors lock doors from the inside (hold
+  interact), batter doors down, smash windows and climb through.
+- HUD: health warnings, nearby-zombie arcs (wider with keen hearing),
+  hold-to-use ring.
+
+Simplified or moved:
+- **Treatments are instant**: no timed actions yet.
+- **Heartbeat sound**: stage 7 (audio). The heartbeat shows as a pulse on
+  screen now.
+- **Friends can see you turn pale, and the cure revives them**: the
+  infection level and turned players are in the saved, synced data; the
+  revive itself needs stage 4. In single player the cure prompt doesn't
+  appear for your own turned body (you've already respawned); kill it to
+  get your gear back.
+- **Barricades**: stage 6 (base building). Locking doors works now.
+- **Crawlers in tall grass and soldiers at the military base**: stage 6.
+  For now crawlers lie in fields and houses, and soldiers guard research
+  centres.
+- **Sleep, temperature and skill growth** (heavy sleeper, warmth, fast
+  learner): stage 6. The traits and values are stored already.
+- **The lab's upper floor** isn't enterable.
+
+## 22. Open questions
 
 - Which free relay service to use for internet join codes.
 - Exact asset packs (checked for license and Tab S6 Lite performance).
