@@ -1,6 +1,7 @@
 extends Node3D
-## Builds and wires up the game: environment, world streaming, player,
-## zombies, UI, day/night cycle, autosave and quality settings.
+## Builds and wires up the game for the current world: generates it on a
+## background thread (with a loading screen), then sets up the environment,
+## world streaming, player, zombies, UI, day/night cycle and autosave.
 
 const AUTOSAVE_INTERVAL := 60.0
 const DAY_SKY := Color(0.58, 0.63, 0.66)
@@ -18,18 +19,40 @@ var touch: TouchControls
 var pause_menu: PauseMenu
 var perf: PerformanceMonitor
 var ocean: MeshInstance3D
+var world_ready := false
+var _saved_player := {}
+var _gen_task := -1
 var _autosave_t := AUTOSAVE_INTERVAL
 var _night_hint_shown := false
 
 
 func _ready() -> void:
 	Assets.build()
-	var saved := GameState.load_game()
+	if GameState.world.is_empty():
+		# Launched straight into the game (editor, tests): use a quick-play world.
+		GameState.start_world(GameState.create_world("Quick Play", GameState.world_size, GameState.world_seed, 1, 0, "quickplay"))
+	_saved_player = GameState.load_game()
 	gen = WorldGen.new(GameState.world_seed, GameState.world_size)
-	gen.generate()
-
 	_setup_environment()
+	hud = Hud.new()
+	hud.respawn_requested.connect(_respawn)
+	hud.menu_requested.connect(_quit_to_menu)
+	add_child(hud)
+	hud.set_loading(true)
+	_gen_task = WorkerThreadPool.add_task(_generate, true, "world generation")
 
+
+func _generate() -> void:
+	gen.generate(func(f: float, text: String) -> void:
+		hud.call_deferred("set_loading_progress", f, text))
+
+
+func _exit_tree() -> void:
+	if _gen_task >= 0 and not world_ready:
+		WorkerThreadPool.wait_for_task_completion(_gen_task)
+
+
+func _setup_world() -> void:
 	streamer = WorldStreamer.new()
 	streamer.gen = gen
 	add_child(streamer)
@@ -37,10 +60,10 @@ func _ready() -> void:
 	player = Player.new()
 	player.gen = gen
 	add_child(player)
-	if saved.is_empty():
-		player.global_position = gen.spawn_point()
+	if _saved_player.is_empty():
+		player.global_position = gen.spawn_point(GameState.world_seed)
 	else:
-		player.from_dict(saved)
+		player.from_dict(_saved_player)
 	player.damaged.connect(func() -> void: hud.flash_damage())
 	player.died.connect(_on_player_died)
 	streamer.player = player
@@ -50,8 +73,9 @@ func _ready() -> void:
 	zombies.gen = gen
 	zombies.player = player
 	add_child(zombies)
+	hud.player = player
+	hud.zombies = zombies
 
-	hud = _create_hud()
 	touch = TouchControls.new()
 	touch.visible = GameState.uses_touch()
 	var touch_layer := CanvasLayer.new()
@@ -63,7 +87,7 @@ func _ready() -> void:
 
 	pause_menu = PauseMenu.new()
 	pause_menu.save_requested.connect(save_game)
-	pause_menu.new_world_requested.connect(_new_world)
+	pause_menu.menu_requested.connect(_quit_to_menu)
 	add_child(pause_menu)
 
 	perf = PerformanceMonitor.new()
@@ -71,18 +95,8 @@ func _ready() -> void:
 
 	GameState.quality_changed.connect(apply_quality)
 	apply_quality()
-
 	streamer.spawn_area_ready.connect(_on_spawn_ready, CONNECT_ONE_SHOT)
-	hud.set_loading(true)
-
-
-func _create_hud() -> Hud:
-	var h := Hud.new()
-	h.player = player
-	h.zombies = zombies
-	h.respawn_requested.connect(_respawn)
-	add_child(h)
-	return h
+	world_ready = true
 
 
 func _setup_environment() -> void:
@@ -129,7 +143,7 @@ func apply_quality() -> void:
 	env.fog_depth_begin = far * 0.3
 	env.fog_depth_end = far * 0.95
 	sun.shadow_enabled = q.shadows
-	zombies.max_zombies = q.max_zombies
+	zombies.max_zombies = int(q.max_zombies * GameState.difficulty().zombies)
 	zombies.set_shadows(q.shadows)
 	Assets.set_per_vertex_lighting(q.per_vertex)
 	perf.configure(q.fps, q.min_scale)
@@ -148,6 +162,12 @@ func _on_spawn_ready() -> void:
 
 
 func _process(delta: float) -> void:
+	if not world_ready:
+		if _gen_task >= 0 and WorkerThreadPool.is_task_completed(_gen_task):
+			WorkerThreadPool.wait_for_task_completion(_gen_task)
+			_gen_task = -1
+			_setup_world()
+		return
 	_update_day_night()
 	var p := player.global_position
 	ocean.global_position = Vector3(snappedf(p.x, 64.0), -0.05, snappedf(p.z, 64.0))
@@ -168,7 +188,7 @@ func _process(delta: float) -> void:
 
 func _unhandled_input(event: InputEvent) -> void:
 	# Desktop: click to recapture the mouse after alt-tabbing.
-	if event is InputEventMouseButton and event.pressed and not GameState.uses_touch() \
+	if world_ready and event is InputEventMouseButton and event.pressed and not GameState.uses_touch() \
 			and player.active and not player.dead and Input.mouse_mode != Input.MOUSE_MODE_CAPTURED:
 		Input.mouse_mode = Input.MOUSE_MODE_CAPTURED
 
@@ -198,20 +218,24 @@ func _update_day_night() -> void:
 
 
 func save_game() -> void:
-	if player and player.active and not player.dead:
+	if world_ready and player.active and not player.dead and not GameState.world.get("lost", false):
 		GameState.save_game(player.to_dict())
 
 
 func _on_player_died() -> void:
-	hud.show_death(true)
 	Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
 	GameState.inventory = {"food": 0, "water": 0, "bandage": 0}
 	GameState.inventory_changed.emit()
+	var permadeath := GameState.death_rule() == GameState.DeathRule.PERMADEATH
+	if permadeath:
+		# Stage 3 adds the infection cure, the only way back.
+		GameState.mark_world_lost("Killed by zombies")
+	hud.show_death(true, permadeath)
 
 
 func _respawn() -> void:
 	zombies.clear_all()
-	var p := gen.spawn_point()
+	var p := gen.spawn_point(randi())
 	player.respawn(Vector3(p.x, gen.height(p.x, p.z) + 1.0, p.z))
 	GameState.inventory = {"food": 1, "water": 1, "bandage": 0}
 	GameState.inventory_changed.emit()
@@ -223,9 +247,12 @@ func _respawn() -> void:
 	streamer.spawn_area_ready.connect(_on_spawn_ready, CONNECT_ONE_SHOT)
 
 
-func _new_world() -> void:
-	GameState.new_world()
-	get_tree().reload_current_scene()
+func _quit_to_menu() -> void:
+	save_game()
+	get_tree().paused = false
+	Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
+	GameState.world = {}
+	get_tree().change_scene_to_file("res://scenes/menu.tscn")
 
 
 func _notification(what: int) -> void:

@@ -8,8 +8,7 @@ var _cam: Camera3D
 
 
 func _ready() -> void:
-	GameState.new_world()
-	GameState.world_seed = 12345
+	GameState.start_world(GameState.create_world("Screenshots", 8192.0, 12345, 1, 0, "screenshots"))
 	_main = load("res://scenes/main.tscn").instantiate()
 	add_child(_main)
 	_run.call_deferred()
@@ -60,9 +59,9 @@ func _yaw_to(from: Vector2, to: Vector2) -> float:
 
 
 func _run() -> void:
-	var player: Player = _main.player
-	while not player.active:
+	while not _main.world_ready or not _main.player.active:
 		await get_tree().process_frame
+	var player: Player = _main.player
 	_cam = Camera3D.new()
 	_cam.far = 1500.0
 	add_child(_cam)

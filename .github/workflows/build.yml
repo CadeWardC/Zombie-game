@@ -75,3 +75,51 @@ jobs:
         with:
           name: ZombieSurvival-debug-apk
           path: build/android/ZombieSurvival-debug.apk
+
+  ios:
+    needs: test
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Godot and export templates
+        run: |
+          curl -sSL -o godot.zip "https://github.com/godotengine/godot/releases/download/${GODOT_VERSION}-stable/Godot_v${GODOT_VERSION}-stable_macos.universal.zip"
+          unzip -q godot.zip
+          echo "GODOT=$PWD/Godot.app/Contents/MacOS/Godot" >> "$GITHUB_ENV"
+          curl -sSL -o templates.tpz "https://github.com/godotengine/godot/releases/download/${GODOT_VERSION}-stable/Godot_v${GODOT_VERSION}-stable_export_templates.tpz"
+          unzip -q templates.tpz 'templates/ios*' 'templates/version.txt'
+          TPL="$HOME/Library/Application Support/Godot/export_templates/${GODOT_VERSION}.stable"
+          mkdir -p "$TPL"
+          mv templates/* "$TPL/"
+          rm -f templates.tpz godot.zip
+
+      - name: Export Xcode project
+        run: |
+          "$GODOT" --headless --import || true
+          mkdir -p build/ios
+          "$GODOT" --headless --export-release "iOS" build/ios/ZombieSurvival.ipa
+          ls -la build/ios
+
+      - name: Build unsigned app
+        run: |
+          PROJ=$(find build/ios -maxdepth 1 -name "*.xcodeproj" | head -1)
+          SCHEME=$(basename "$PROJ" .xcodeproj)
+          echo "Project: $PROJ  Scheme: $SCHEME"
+          xcodebuild -project "$PROJ" -scheme "$SCHEME" -configuration Release -sdk iphoneos \
+            -derivedDataPath build/ios/dd CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY="" \
+            DEVELOPMENT_TEAM="" build | tail -40
+
+      - name: Package .ipa
+        run: |
+          APP=$(find build/ios/dd/Build/Products -name "*.app" -maxdepth 3 | head -1)
+          echo "App: $APP"
+          mkdir -p build/ios/Payload
+          cp -R "$APP" build/ios/Payload/
+          (cd build/ios && zip -qr ZombieSurvival-unsigned.ipa Payload)
+          ls -la build/ios/ZombieSurvival-unsigned.ipa
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ZombieSurvival-unsigned-ipa
+          path: build/ios/ZombieSurvival-unsigned.ipa

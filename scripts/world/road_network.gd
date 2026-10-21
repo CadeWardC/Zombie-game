@@ -347,20 +347,29 @@ func _place_gas_stations(st: Settlements, rng: RandomNumberGenerator) -> void:
 ## Flattens terrain under and beside roads. `segs` are road segments that
 ## touch the current chunk.
 func flatten(p: Vector2, h: float, segs: PackedInt32Array) -> float:
+	var ia := index.a
+	var ib := index.b
 	for s in segs:
+		var a := ia[s]
+		var b := ib[s]
+		var reach := 23.0 # Widest road edge + shoulder.
+		if p.x < minf(a.x, b.x) - reach or p.x > maxf(a.x, b.x) + reach or p.y < minf(a.y, b.y) - reach or p.y > maxf(a.y, b.y) + reach:
+			continue
+		var ab := b - a
+		var len2 := ab.length_squared()
+		var t := 0.0 if len2 < 0.0001 else clampf((p - a).dot(ab) / len2, 0.0, 1.0)
+		var dist := p.distance_to(a + ab * t)
 		var road: Dictionary = roads[index.owner[s]]
+		var half := edge_half(road.type) + 0.5
+		if dist > half + SHOULDER:
+			continue
 		var k := index.index[s]
 		var br: PackedByteArray = road.bridge
 		if br[k] and br[k + 1]:
 			continue
-		var c := index.closest(s, p)
-		var half := edge_half(road.type) + 0.5
-		if c.x > half + SHOULDER:
-			continue
 		var rh: PackedFloat32Array = road.h
-		var target := lerpf(rh[k], rh[k + 1], c.y) - 0.08
-		var w := 1.0 - smoothstep(half, half + SHOULDER, c.x)
-		h = lerpf(h, target, w)
+		var target := lerpf(rh[k], rh[k + 1], t) - 0.08
+		h = lerpf(h, target, 1.0 - smoothstep(half, half + SHOULDER, dist))
 	return h
 
 

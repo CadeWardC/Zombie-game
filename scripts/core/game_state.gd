@@ -25,10 +25,19 @@ const QUALITY_PRESETS := {
 }
 
 const DAY_LENGTH := 1200.0 # Real seconds per in-game day.
-const SAVE_PATH := "user://save.json"
+const WORLDS_DIR := "user://worlds"
 const SETTINGS_PATH := "user://settings.cfg"
 const SAVE_VERSION := 1
 const ITEM_NAMES := {"food": "Canned Food", "water": "Water Bottle", "bandage": "Bandage"}
+const SIZE_NAMES := {8192.0: "8 x 8 km", 16384.0: "16 x 16 km", 32768.0: "32 x 32 km"}
+
+enum DeathRule { RESPAWN, NEW_CHARACTER, PERMADEATH }
+const DEATH_RULE_NAMES := ["Respawn", "New character", "Permadeath"]
+const DIFFICULTIES := [
+	{"name": "Casual", "zombies": 0.7, "loot": 1.6, "infection": 0.05},
+	{"name": "Hardcore but fair", "zombies": 1.0, "loot": 1.0, "infection": 0.15},
+	{"name": "Brutal", "zombies": 1.5, "loot": 0.6, "infection": 0.3},
+]
 
 var quality: int = Quality.MEDIUM
 var world_seed := 20261021
@@ -39,6 +48,7 @@ var kills := 0
 var inventory := {"food": 1, "water": 1, "bandage": 0}
 var looted := {}
 var force_touch_ui := false
+var world := {} # Current world's settings and summary (see create_world).
 
 
 func _ready() -> void:
@@ -114,16 +124,82 @@ func item_count(type: String) -> int:
 	return int(inventory.get(type, 0))
 
 
-# --- Save / load -----------------------------------------------------------
+# --- Worlds and saves ----------------------------------------------------------
+# Each world lives in user://worlds/<id>/: world.json holds its settings and
+# summary (for the menu), save.json the game state.
+
+func difficulty() -> Dictionary:
+	return DIFFICULTIES[int(world.get("difficulty", 1))]
+
+
+func death_rule() -> int:
+	return int(world.get("death_rule", DeathRule.RESPAWN))
+
+
+func list_worlds() -> Array:
+	var out := []
+	var dir := DirAccess.open(WORLDS_DIR)
+	if dir == null:
+		return out
+	for id in dir.get_directories():
+		var meta := _read_json(WORLDS_DIR + "/" + id + "/world.json")
+		if not meta.is_empty():
+			out.append(meta)
+	out.sort_custom(func(a, b): return float(a.get("last_played", 0)) > float(b.get("last_played", 0)))
+	return out
+
+
+func create_world(world_name: String, size: float, seed_value: int, diff: int, rule: int, id := "") -> Dictionary:
+	if id == "":
+		id = "%d_%d" % [int(Time.get_unix_time_from_system()), randi() % 10000]
+	else:
+		var existing := _read_json(WORLDS_DIR + "/" + id + "/world.json")
+		if not existing.is_empty() and int(existing.seed) == seed_value and float(existing.size) == size:
+			return existing
+		# Same id, different world: the old save no longer applies.
+		DirAccess.remove_absolute(ProjectSettings.globalize_path(WORLDS_DIR + "/" + id + "/save.json"))
+	var meta := {
+		"id": id, "name": world_name, "seed": seed_value, "size": size, "difficulty": diff,
+		"death_rule": rule, "created": Time.get_unix_time_from_system(),
+		"last_played": Time.get_unix_time_from_system(), "day": 1, "kills": 0, "lost": false,
+	}
+	DirAccess.make_dir_recursive_absolute(WORLDS_DIR + "/" + id)
+	_write_json(WORLDS_DIR + "/" + id + "/world.json", meta)
+	return meta
+
+
+func delete_world(id: String) -> void:
+	var path := ProjectSettings.globalize_path(WORLDS_DIR + "/" + id)
+	for f in ["save.json", "world.json"]:
+		DirAccess.remove_absolute(path + "/" + f)
+	DirAccess.remove_absolute(path)
+
+
+## Makes `meta` the current world and resets the runtime state for it.
+func start_world(meta: Dictionary) -> void:
+	world = meta
+	world_seed = int(meta.seed)
+	world_size = float(meta.size)
+	time_of_day = 8.0
+	day = 1
+	kills = 0
+	inventory = {"food": 1, "water": 1, "bandage": 0}
+	looted.clear()
+
 
 func has_save() -> bool:
-	return FileAccess.file_exists(SAVE_PATH)
+	return not world.is_empty() and FileAccess.file_exists(_world_path("save.json"))
+
+
+func _world_path(file: String) -> String:
+	return WORLDS_DIR + "/" + str(world.id) + "/" + file
 
 
 func save_game(player_data: Dictionary) -> void:
+	if world.is_empty():
+		return
 	var data := {
 		"version": SAVE_VERSION,
-		"seed": world_seed,
 		"time": time_of_day,
 		"day": day,
 		"kills": kills,
@@ -131,25 +207,21 @@ func save_game(player_data: Dictionary) -> void:
 		"looted": looted.keys(),
 		"player": player_data,
 	}
-	var f := FileAccess.open(SAVE_PATH, FileAccess.WRITE)
-	if f == null:
-		push_warning("Could not write save: %s" % FileAccess.get_open_error())
-		return
-	f.store_string(JSON.stringify(data))
+	_write_json(_world_path("save.json"), data)
+	world.last_played = Time.get_unix_time_from_system()
+	world.day = day
+	world.kills = kills
+	_write_json(_world_path("world.json"), world)
 
 
-## Loads world state and returns the saved player data (empty if no save).
+## Loads the current world's save and returns the saved player data
+## (empty if this world has never been played).
 func load_game() -> Dictionary:
 	if not has_save():
 		return {}
-	var f := FileAccess.open(SAVE_PATH, FileAccess.READ)
-	if f == null:
+	var data := _read_json(_world_path("save.json"))
+	if data.is_empty() or int(data.get("version", 0)) != SAVE_VERSION:
 		return {}
-	var parsed: Variant = JSON.parse_string(f.get_as_text())
-	if typeof(parsed) != TYPE_DICTIONARY or int(parsed.get("version", 0)) != SAVE_VERSION:
-		return {}
-	var data: Dictionary = parsed
-	world_seed = int(data.get("seed", world_seed))
 	time_of_day = float(data.get("time", 8.0))
 	day = int(data.get("day", 1))
 	kills = int(data.get("kills", 0))
@@ -162,15 +234,31 @@ func load_game() -> Dictionary:
 	return data.get("player", {})
 
 
-func new_world() -> void:
-	if has_save():
-		DirAccess.remove_absolute(ProjectSettings.globalize_path(SAVE_PATH))
-	world_seed = randi()
-	time_of_day = 8.0
-	day = 1
-	kills = 0
-	inventory = {"food": 1, "water": 1, "bandage": 0}
-	looted.clear()
+## Marks a permadeath world as lost; it stays in the list as a memorial.
+func mark_world_lost(cause: String) -> void:
+	if world.is_empty():
+		return
+	world.lost = true
+	world.cause = cause
+	world.day = day
+	world.kills = kills
+	_write_json(_world_path("world.json"), world)
+
+
+func _read_json(path: String) -> Dictionary:
+	var f := FileAccess.open(path, FileAccess.READ)
+	if f == null:
+		return {}
+	var parsed: Variant = JSON.parse_string(f.get_as_text())
+	return parsed if typeof(parsed) == TYPE_DICTIONARY else {}
+
+
+func _write_json(path: String, data: Dictionary) -> void:
+	var f := FileAccess.open(path, FileAccess.WRITE)
+	if f == null:
+		push_warning("Could not write %s: %s" % [path, FileAccess.get_open_error()])
+		return
+	f.store_string(JSON.stringify(data))
 
 
 func _load_settings() -> void:

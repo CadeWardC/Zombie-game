@@ -20,14 +20,17 @@ var health := MAX_HEALTH
 var target := Vector3.ZERO
 var slot := 0
 var accum := 0.0
+var anim_accum := 0.0
 var dead_timer := 0.0
 var physics_active := false
 
-var _visual: MeshInstance3D
+var _model: Node3D
+var _body: MeshInstance3D
+var _anim: AnimationPlayer
+var _one_shot := 0.0 # Time left in an attack / hit animation.
 var _attack_cd := 0.0
 var _think_t := 0.0
 var _lost_t := 0.0
-var _anim_t := 0.0
 var _stuck_t := 0.0
 var _detour_t := 0.0
 var _detour_dir := Vector3.ZERO
@@ -42,17 +45,20 @@ func _init() -> void:
 	cs.shape = Assets.zombie_shape
 	cs.position.y = 0.9
 	add_child(cs)
-	_visual = MeshInstance3D.new()
-	add_child(_visual)
+	_model = ZombieModel.instantiate(0)
+	add_child(_model)
+	_body = _model.get_node("Skeleton3D/Body")
+	_anim = _model.get_node("AnimationPlayer")
 
 
 func reset(pos: Vector3, variant: int, speed_mul: float) -> void:
 	position = pos
 	rotation = Vector3(0, randf() * TAU, 0)
 	velocity = Vector3.ZERO
-	_visual.mesh = Assets.zombie_meshes[variant]
-	_visual.position = Vector3.ZERO
-	_visual.rotation = Vector3.ZERO
+	_body.mesh = ZombieModel.meshes[variant % ZombieModel.meshes.size()]
+	_one_shot = 0.0
+	_anim.play("idle")
+	_anim.seek(randf() * 2.0, true)
 	health = MAX_HEALTH
 	state = State.WANDER
 	target = pos
@@ -65,7 +71,7 @@ func reset(pos: Vector3, variant: int, speed_mul: float) -> void:
 
 
 func set_shadows(enabled: bool) -> void:
-	_visual.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_ON if enabled else GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	_body.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_ON if enabled else GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 
 
 func hear(pos: Vector3) -> void:
@@ -139,12 +145,18 @@ func update_ai(dt: float, player: Player, dist: float, use_physics: bool, night:
 		velocity.z = dir.z * speed
 		velocity.y = -1.0 if is_on_floor() else velocity.y - GRAVITY * dt
 		move_and_slide()
-		_check_stuck(dt, before, speed)
-		_animate(dt, speed)
+		_check_stuck(dt, before, speed if dir != Vector3.ZERO else 0.0)
 	else:
 		physics_active = false
 		position += dir * speed * dt
 		position.y = gen.height(position.x, position.z)
+	_choose_anim(dt, speed if dir != Vector3.ZERO else 0.0)
+
+
+## Advances the skeleton animation. Called by ZombieManager, less often for
+## distant zombies (animation level of detail).
+func advance_anim(dt: float) -> void:
+	_anim.advance(dt)
 
 
 func _flat_dist(p: Vector3) -> float:
@@ -169,10 +181,25 @@ func _check_stuck(dt: float, before: Vector3, speed: float) -> void:
 		_stuck_t = 0.0
 
 
-func _animate(dt: float, speed: float) -> void:
-	_anim_t += dt * maxf(speed, 0.4) * 2.4
-	_visual.position.y = absf(sin(_anim_t)) * 0.05
-	_visual.rotation.z = sin(_anim_t * 0.5) * 0.1
+func _choose_anim(dt: float, speed: float) -> void:
+	if _one_shot > 0.0:
+		_one_shot -= dt
+		return
+	var want := "idle"
+	if speed > 2.4:
+		want = "run"
+	elif speed > 0.2:
+		want = "walk"
+	if _anim.current_animation != want:
+		_anim.play(want, 0.25)
+	# Match the leg cycle to the ground speed so feet don't slide much.
+	_anim.speed_scale = clampf(speed / (1.0 if want == "walk" else 3.6), 0.5, 1.6) if want != "idle" else 1.0
+
+
+func _play_once(anim_name: String, length: float) -> void:
+	_anim.play(anim_name, 0.08)
+	_anim.speed_scale = 1.0
+	_one_shot = length
 
 
 func _try_attack(player: Player) -> void:
@@ -180,9 +207,7 @@ func _try_attack(player: Player) -> void:
 		return
 	_attack_cd = ATTACK_COOLDOWN
 	player.take_damage(ATTACK_DAMAGE, position)
-	var tw := create_tween()
-	tw.tween_property(_visual, "position:z", -0.35, 0.1)
-	tw.tween_property(_visual, "position:z", 0.0, 0.2)
+	_play_once("attack", 0.85)
 
 
 func take_damage(amount: float, push: Vector3) -> void:
@@ -195,9 +220,7 @@ func take_damage(amount: float, push: Vector3) -> void:
 	if health <= 0.0:
 		_die()
 		return
-	var tw := create_tween()
-	tw.tween_property(_visual, "rotation:x", 0.35, 0.06)
-	tw.tween_property(_visual, "rotation:x", 0.0, 0.2)
+	_play_once("hit", 0.38)
 
 
 func _die() -> void:
@@ -205,6 +228,5 @@ func _die() -> void:
 	dead_timer = CORPSE_TIME
 	collision_layer = 0
 	GameState.kills += 1
-	var tw := create_tween()
-	tw.tween_property(_visual, "rotation:x", PI * 0.5, 0.45).set_trans(Tween.TRANS_BOUNCE).set_ease(Tween.EASE_OUT)
-	tw.parallel().tween_property(_visual, "position:y", 0.15, 0.45)
+	_anim.play("death", 0.1)
+	_anim.speed_scale = 1.0

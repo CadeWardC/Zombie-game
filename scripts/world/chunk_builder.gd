@@ -21,6 +21,7 @@ var solid := MeshData.new() # Bridges, markings, fences, props merged in.
 var building := MeshData.new()
 var glass := MeshData.new()
 var boxes: Array = [] # [Transform3D, Vector3] collision, chunk-local
+var _box_batch_ends: Array[int] = [] # Where each building's boxes end.
 var doors: Array = []
 var containers: Array = []
 var signs: Array = []
@@ -29,6 +30,7 @@ var prop_counts := {}
 var tree_points := PackedVector3Array()
 var car_boxes: Array = []
 var heights := PackedFloat32Array()
+var _cols := PackedColorArray()
 var res := NEAR_RES
 var step := 2.0
 
@@ -66,10 +68,42 @@ func _result() -> Dictionary:
 		"building": building, "glass": glass, "boxes": boxes, "doors": doors,
 		"containers": containers, "signs": signs, "props": props, "prop_counts": prop_counts,
 		"tree_points": tree_points, "car_boxes": car_boxes,
+		"collision_batches": _collision_batches(),
 	}
 	if lod == 0:
 		r["heights"] = heights
 	return r
+
+
+## Static collision boxes baked into triangle soups, one per building (plus
+## one for bridges and fences), each becoming a single concave shape.
+## Adding hundreds of separate boxes to one physics body is slow, and
+## batching per building lets the chunk create them over several frames.
+func _collision_batches() -> Array[PackedVector3Array]:
+	var out: Array[PackedVector3Array] = []
+	if lod != 0:
+		return out
+	var start := 0
+	for end in _box_batch_ends + [boxes.size()]:
+		if end > start:
+			out.append(_faces(start, end))
+		start = end
+	return out
+
+
+func _faces(from: int, to: int) -> PackedVector3Array:
+	var faces := PackedVector3Array()
+	var quads := [[0, 1, 3, 2], [4, 6, 7, 5], [0, 4, 5, 1], [2, 3, 7, 6], [0, 2, 6, 4], [1, 5, 7, 3]]
+	for bi in range(from, to):
+		var bx: Array = boxes[bi]
+		var xf: Transform3D = bx[0]
+		var h: Vector3 = (bx[1] as Vector3) * 0.5
+		var p: Array[Vector3] = []
+		for k in 8:
+			p.append(xf * Vector3(h.x if k & 1 else -h.x, h.y if k & 2 else -h.y, h.z if k & 4 else -h.z))
+		for q in quads:
+			faces.append_array([p[q[0]], p[q[1]], p[q[2]], p[q[0]], p[q[2]], p[q[3]]])
+	return faces
 
 
 # --- Terrain -----------------------------------------------------------------
@@ -77,17 +111,19 @@ func _result() -> Dictionary:
 func _terrain() -> void:
 	var n := res + 1
 	heights.resize(n * n)
+	_cols.resize(n * n)
 	for j in n:
 		for i in n:
-			heights[j * n + i] = gen.height_ctx(origin.x + i * step, origin.y + j * step, ctx)
+			heights[j * n + i] = gen.height_color(origin.x + i * step, origin.y + j * step, ctx, _cols, j * n + i)
 	for j in res:
 		for i in res:
-			var a := Vector3(i * step, heights[j * n + i], j * step)
-			var b := Vector3((i + 1) * step, heights[j * n + i + 1], j * step)
-			var c := Vector3(i * step, heights[(j + 1) * n + i], (j + 1) * step)
-			var d := Vector3((i + 1) * step, heights[(j + 1) * n + i + 1], (j + 1) * step)
-			_ground_tri(a, b, c)
-			_ground_tri(b, d, c)
+			var k := j * n + i
+			var a := Vector3(i * step, heights[k], j * step)
+			var b := Vector3((i + 1) * step, heights[k + 1], j * step)
+			var c := Vector3(i * step, heights[k + n], (j + 1) * step)
+			var d := Vector3((i + 1) * step, heights[k + n + 1], (j + 1) * step)
+			_ground_tri(a, b, c, _cols[k], _cols[k + 1], _cols[k + n])
+			_ground_tri(b, d, c, _cols[k + 1], _cols[k + n + 1], _cols[k + n])
 	var size := WorldGen.CHUNK_SIZE
 	var dirt := WorldGen.COLOR_MUD
 	for k in res:
@@ -97,10 +133,10 @@ func _terrain() -> void:
 		_skirt(Vector3(size, heights[k * n + res], k * step), Vector3(size, heights[(k + 1) * n + res], (k + 1) * step), Vector3.RIGHT, dirt)
 
 
-func _ground_tri(p0: Vector3, p1: Vector3, p2: Vector3) -> void:
-	var mid := (p0 + p1 + p2) / 3.0
+func _ground_tri(p0: Vector3, p1: Vector3, p2: Vector3, c0: Color, c1: Color, c2: Color) -> void:
 	var ny := absf((p2 - p0).cross(p1 - p0).normalized().y)
-	terrain.tri(p0, p1, p2, gen.ground_color(origin.x + mid.x, origin.y + mid.z, mid.y, ny, ctx), Vector3.UP)
+	var col := gen.rock_color(origin.x + p0.x, origin.y + p0.z) if ny < 0.72 else Color((c0.r + c1.r + c2.r) / 3.0, (c0.g + c1.g + c2.g) / 3.0, (c0.b + c1.b + c2.b) / 3.0)
+	terrain.tri(p0, p1, p2, col, Vector3.UP)
 
 
 func _skirt(a: Vector3, b: Vector3, facing: Vector3, col: Color) -> void:
@@ -270,6 +306,7 @@ func _buildings() -> void:
 		building.append(bd.ext, xf)
 		glass.append(bd.glass, xf)
 		if lod == 0:
+			_box_batch_ends.append(boxes.size())
 			for bx in bd.boxes:
 				boxes.append([xf * (bx[0] as Transform3D), bx[1]])
 			for d in bd.doors:

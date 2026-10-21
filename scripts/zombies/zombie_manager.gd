@@ -78,6 +78,13 @@ func _physics_process(delta: float) -> void:
 		if interval == 1 or (_frame + z.slot) % interval == 0:
 			z.update_ai(z.accum, player, dist, dist < PHYSICS_DIST, night, gen)
 			z.accum = 0.0
+		# Animation level of detail: smooth up close, choppier (and much
+		# cheaper) farther away.
+		z.anim_accum += delta
+		var anim_interval := 1 if dist < 25.0 else (3 if dist < 60.0 else 8)
+		if anim_interval == 1 or (_frame + z.slot) % anim_interval == 0:
+			z.advance_anim(z.anim_accum)
+			z.anim_accum = 0.0
 		i -= 1
 
 	_separate(ppos)
@@ -86,7 +93,7 @@ func _physics_process(delta: float) -> void:
 
 func _try_spawn(ppos: Vector3, night: bool) -> void:
 	var in_town := gen.town_weight(ppos.x, ppos.z) > 0.5
-	var wanted := 8 + (10 if night else 0) + (12 if in_town else 0)
+	var wanted := int((8 + (10 if night else 0) + (12 if in_town else 0)) * GameState.difficulty().zombies)
 	wanted = mini(wanted, max_zombies)
 	if _active.size() >= wanted:
 		return
@@ -118,7 +125,7 @@ func _spawn(pos: Vector3) -> void:
 	else:
 		z = _pool.pop_back()
 	z.slot = _rng.randi() % 10
-	z.reset(pos, _rng.randi() % Assets.zombie_meshes.size(), _rng.randf_range(0.85, 1.15))
+	z.reset(pos, _rng.randi() % ZombieModel.meshes.size(), _rng.randf_range(0.85, 1.15))
 	z.set_shadows(shadows)
 	_active.append(z)
 

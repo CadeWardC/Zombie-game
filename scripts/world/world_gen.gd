@@ -123,14 +123,26 @@ func height(x: float, z: float) -> float:
 
 
 func height_ctx(x: float, z: float, ctx: ChunkContext) -> float:
+	return _height(x, z, ctx, terrain.macro_height(x, z), -1)
+
+
+## Height and base ground colour of a point in one pass (shares the biome
+## lookup). The colour is written to cols[idx].
+func height_color(x: float, z: float, ctx: ChunkContext, cols: PackedColorArray, idx: int) -> float:
+	var macro := terrain.macro_height(x, z)
+	var b := terrain.biome_at(x, z, macro)
+	var h := _height(x, z, ctx, macro, b)
+	cols[idx] = _color(x, z, h, macro, b, ctx)
+	return h
+
+
+func _height(x: float, z: float, ctx: ChunkContext, macro: float, biome: int) -> float:
 	var p := Vector2(x, z)
 	var calm := 0.0
-	var town_w := 0.0
 	for t in ctx.towns:
 		var w := 1.0 - smoothstep(t.radius, t.radius + TOWN_BLEND, p.distance_to(t.center))
-		town_w = maxf(town_w, w)
-	calm = town_w
-	var h := terrain.natural_height(x, z, calm)
+		calm = maxf(calm, w)
+	var h := terrain.natural_height_with(x, z, calm, macro, biome if biome >= 0 else terrain.biome_at(x, z, macro))
 	for s in ctx.sites:
 		var local: Vector2 = (p - s.center).rotated(-s.rot)
 		var out := Vector2(maxf(absf(local.x) - s.half.x, 0.0), maxf(absf(local.y) - s.half.y, 0.0)).length()
@@ -209,15 +221,17 @@ const COLOR_LAWN := Color(0.3, 0.4, 0.2)
 const FIELD_COLORS := [Color(0.62, 0.55, 0.3), Color(0.42, 0.5, 0.22), Color(0.36, 0.29, 0.2), Color(0.55, 0.52, 0.26)]
 
 
-func ground_color(x: float, z: float, h: float, normal_y: float, ctx: ChunkContext) -> Color:
+## Colour for a steep slope (overrides the base colour per triangle).
+func rock_color(x: float, z: float) -> Color:
+	return COLOR_ROCK.lightened(_surface_noise.get_noise_2d(x, z) * 0.04 + 0.02)
+
+
+func _color(x: float, z: float, h: float, macro: float, b: int, ctx: ChunkContext) -> Color:
 	var jitter := _surface_noise.get_noise_2d(x, z) * 0.035
-	var b := terrain.biome_at(x, z, h)
 	var c: Color
-	if h < 0.6 and terrain.macro_height(x, z) < 3.0:
+	if h < 0.6 and macro < 3.0:
 		c = COLOR_SAND
-	elif normal_y < 0.72:
-		c = COLOR_ROCK
-	elif h > 190.0 and normal_y > 0.8:
+	elif h > 190.0:
 		c = COLOR_SNOW
 	else:
 		match b:

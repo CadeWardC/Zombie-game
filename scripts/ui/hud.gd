@@ -4,6 +4,7 @@ extends CanvasLayer
 ## loading screen and death screen. Built in code to keep scenes minimal.
 
 signal respawn_requested
+signal menu_requested
 
 var player: Player
 var zombies: ZombieManager
@@ -18,6 +19,11 @@ var _flash: ColorRect
 var _loading: ColorRect
 var _death: ColorRect
 var _death_info: Label
+var _death_title: Label
+var _respawn_btn: Button
+var _menu_btn: Button
+var _loading_label: Label
+var _loading_bar: ProgressBar
 var _toast_t := 0.0
 var _show_debug := false
 
@@ -69,10 +75,15 @@ func _ready() -> void:
 	_place(cross, Vector2(0.5, 0.5), Rect2(-2, -2, 4, 4))
 
 	_loading = _fullscreen(root, Color(0.05, 0.06, 0.06, 1.0))
-	var lt := _label(_loading, 28)
-	lt.text = "Generating world..."
-	lt.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	_place(lt, Vector2(0.5, 0.5), Rect2(-200, -20, 400, 40))
+	_loading_label = _label(_loading, 28)
+	_loading_label.text = "Generating world..."
+	_loading_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	_place(_loading_label, Vector2(0.5, 0.5), Rect2(-300, -40, 600, 40))
+	_loading_bar = ProgressBar.new()
+	_loading_bar.max_value = 1.0
+	_loading_bar.show_percentage = false
+	_loading.add_child(_loading_bar)
+	_place(_loading_bar, Vector2(0.5, 0.5), Rect2(-220, 20, 440, 14))
 
 	_death = _fullscreen(root, Color(0.15, 0.0, 0.0, 0.75))
 	_death.visible = false
@@ -81,18 +92,25 @@ func _ready() -> void:
 	dv.add_theme_constant_override("separation", 20)
 	_death.add_child(dv)
 	_place(dv, Vector2(0.5, 0.5), Rect2(-250, -140, 500, 280))
-	var title := _label(dv, 56)
-	title.text = "YOU DIED"
-	title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	_death_title = _label(dv, 56)
+	_death_title.text = "YOU DIED"
+	_death_title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	_death_info = _label(dv, 20)
 	_death_info.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	var btn := Button.new()
-	btn.text = "Respawn"
-	btn.custom_minimum_size = Vector2(240, 70)
-	btn.add_theme_font_size_override("font_size", 26)
-	btn.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
-	btn.pressed.connect(func() -> void: respawn_requested.emit())
-	dv.add_child(btn)
+	_respawn_btn = Button.new()
+	_respawn_btn.text = "Respawn"
+	_respawn_btn.custom_minimum_size = Vector2(260, 70)
+	_respawn_btn.add_theme_font_size_override("font_size", 26)
+	_respawn_btn.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
+	_respawn_btn.pressed.connect(func() -> void: respawn_requested.emit())
+	dv.add_child(_respawn_btn)
+	_menu_btn = Button.new()
+	_menu_btn.text = "Main Menu"
+	_menu_btn.custom_minimum_size = Vector2(260, 60)
+	_menu_btn.add_theme_font_size_override("font_size", 22)
+	_menu_btn.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
+	_menu_btn.pressed.connect(func() -> void: menu_requested.emit())
+	dv.add_child(_menu_btn)
 
 	GameState.message.connect(show_message)
 	GameState.inventory_changed.connect(_update_inventory)
@@ -166,9 +184,19 @@ func set_loading(on: bool) -> void:
 	_loading.visible = on
 
 
-func show_death(on: bool) -> void:
+func set_loading_progress(f: float, text: String) -> void:
+	_loading_bar.value = f
+	_loading_label.text = text + "..."
+
+
+func show_death(on: bool, permadeath := false) -> void:
 	_death.visible = on
+	_death_title.text = "WORLD LOST" if permadeath else "YOU DIED"
+	_respawn_btn.visible = not permadeath
 	_death_info.text = "Survived %d days  -  %d zombies killed" % [GameState.day, GameState.kills]
+	if on:
+		# Focus a button so gamepads can pick it without touching the screen.
+		(_menu_btn if permadeath else _respawn_btn).grab_focus.call_deferred()
 
 
 func flash_damage() -> void:

@@ -148,7 +148,13 @@ func natural_height(x: float, z: float, calm := 0.0) -> float:
 	var h := macro_height(x, z)
 	if h < -1.0:
 		return h
-	var b := biome_at(x, z, h)
+	return natural_height_with(x, z, calm, h, biome_at(x, z, h))
+
+
+## natural_height() for when the macro height and biome are already known.
+func natural_height_with(x: float, z: float, calm: float, h: float, b: int) -> float:
+	if h < -1.0:
+		return h
 	var rough := 1.0
 	match b:
 		Biome.MOUNTAIN:

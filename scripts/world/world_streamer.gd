@@ -162,6 +162,13 @@ func _finalize() -> void:
 	# Nearest chunks first, so the area around the player fills in first.
 	_done.sort_custom(func(a: Dictionary, b: Dictionary) -> bool:
 		return a.lod < b.lod)
+	# Finish deferred work of recently built chunks first (nearest first).
+	for key in _order:
+		var c: Chunk = _chunks.get(key)
+		if c != null and c.has_pending():
+			c.run_pending(start + budget)
+			if Time.get_ticks_usec() - start >= budget:
+				return
 	while not _done.is_empty() and Time.get_ticks_usec() - start < budget:
 		var data: Dictionary = _done.pop_front()
 		var key: Vector2i = data.key

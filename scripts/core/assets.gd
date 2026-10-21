@@ -78,6 +78,7 @@ static func build() -> void:
 	tree_shape.radius = 0.3
 	tree_shape.height = 4.0
 	_build_zombies()
+	ZombieModel.build_assets()
 	_build_items()
 	_build_weapon()
 

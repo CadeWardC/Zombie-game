@@ -29,7 +29,7 @@ static func roll(type: String, id: String) -> Array[String]:
 	var table: Array = TABLES.get(type, [])
 	var h := id.hash()
 	for k in table.size():
-		var chance: float = table[k][1]
+		var chance: float = table[k][1] * GameState.difficulty().loot
 		var r := float(WorldGen.hash3(h, k, 31) % 10000) / 10000.0
 		if r < chance:
 			out.append(table[k][0])

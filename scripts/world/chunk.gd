@@ -9,6 +9,9 @@ var lod := 0
 ## Searchable containers: {pos: Vector3 (world), type, id}
 var containers: Array = []
 var _doors: Array[DoorBody] = []
+## Work deferred to later frames so a big town chunk never causes a hitch.
+var _pending: Array[Callable] = []
+
 var _door_mm: MultiMesh
 
 
@@ -24,8 +27,8 @@ func setup(data: Dictionary, shadows: bool) -> void:
 	_mesh(data.water, Assets.water_material, false)
 	_mesh(data.road, Assets.road_material, false)
 	_mesh(data.solid, Assets.material, cast)
-	_mesh(data.building, Assets.building_material, cast)
-	_mesh(data.glass, Assets.glass_material, false)
+	_pending.append(_mesh.bind(data.building, Assets.building_material, cast))
+	_pending.append(_mesh.bind(data.glass, Assets.glass_material, false))
 
 	for prop_name in data.props:
 		var mesh: Mesh = _prop_mesh(prop_name)
@@ -45,17 +48,34 @@ func setup(data: Dictionary, shadows: bool) -> void:
 		_add_shape(body, Assets.tree_shape, Transform3D(Basis.IDENTITY, p + Vector3(0, 2.0, 0)))
 	for xf in data.car_boxes:
 		_add_shape(body, Assets.car_shape, xf)
-	for bx in data.boxes:
-		var shape := BoxShape3D.new()
-		shape.size = bx[1]
-		_add_shape(body, shape, bx[0])
-	_build_doors(data.doors)
+	# Walls, floors, furniture: one concave shape per building, baked on the
+	# worker thread and created over the next few frames.
+	for faces: PackedVector3Array in data.collision_batches:
+		_pending.append(_add_concave.bind(body, faces))
+	_pending.append(_build_doors.bind(data.doors))
 	for c in data.containers:
 		var cc: Dictionary = c.duplicate()
 		cc.pos = position + (c.pos as Vector3)
 		containers.append(cc)
 	for s in data.signs:
-		_sign(s)
+		_pending.append(_sign.bind(s))
+
+
+func has_pending() -> bool:
+	return not _pending.is_empty()
+
+
+## Runs deferred setup work until `deadline_usec` (Time.get_ticks_usec()).
+func run_pending(deadline_usec: int) -> void:
+	while not _pending.is_empty() and Time.get_ticks_usec() < deadline_usec:
+		_pending.pop_front().call()
+
+
+func _add_concave(body: StaticBody3D, faces: PackedVector3Array) -> void:
+	var shape := ConcavePolygonShape3D.new()
+	shape.backface_collision = true
+	shape.set_faces(faces)
+	_add_shape(body, shape, Transform3D.IDENTITY)
 
 
 func _mesh(md: MeshData, mat: Material, cast: bool) -> void:

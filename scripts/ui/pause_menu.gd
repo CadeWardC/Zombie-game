@@ -3,9 +3,10 @@ extends CanvasLayer
 ## Pause menu: resume, graphics quality, save, new world, quit.
 
 signal save_requested
-signal new_world_requested
+signal menu_requested
 
 var _quality_btn: Button
+var _first_btn: Button
 var _opened_frame := -1
 
 
@@ -38,14 +39,14 @@ func _ready() -> void:
 	title.add_theme_font_size_override("font_size", 40)
 	box.add_child(title)
 
-	_button(box, "Resume", close)
+	_first_btn = _button(box, "Resume", close)
 	_quality_btn = _button(box, "", _cycle_quality)
 	_button(box, "Save Game", func() -> void:
 		save_requested.emit()
 		GameState.notify("Game saved"))
-	_button(box, "New World", func() -> void:
-		close()
-		new_world_requested.emit())
+	_button(box, "Quit to Menu", func() -> void:
+		visible = false
+		menu_requested.emit())
 	if not OS.has_feature("ios"): # iOS apps must not quit themselves.
 		_button(box, "Save & Quit", func() -> void:
 			save_requested.emit()
@@ -77,6 +78,7 @@ func open() -> void:
 	_opened_frame = Engine.get_process_frames()
 	get_tree().paused = true
 	Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
+	_first_btn.grab_focus()
 
 
 func close() -> void:
