@@ -12,12 +12,17 @@ var containers: Array = []
 var cover := PackedVector3Array()
 ## Interior zombie spawn points: {pos: Vector3 (world), id, kind}
 var spawns: Array = []
+## Parked vehicles drawn as props here: {id, t, m, xf (world), mm, i, box,
+## trunk}. See VehicleManager.
+var vehicle_spots: Array = []
 var doors: Array[DoorBody] = []
 var windows: Array[WindowBody] = []
 ## Work deferred to later frames so a big town chunk never causes a hitch.
 var _pending: Array[Callable] = []
 
 var _door_mm: MultiMesh
+var _mms := {} # Prop name -> MultiMesh (to hide parked vehicles that were taken).
+var _car_shapes: Array[CollisionShape3D] = []
 var _window_mm: MultiMesh
 
 
@@ -40,6 +45,7 @@ func setup(data: Dictionary, shadows: bool) -> void:
 		var mesh: Mesh = _prop_mesh(prop_name)
 		if mesh:
 			var mmi := _multimesh(mesh, data.props[prop_name], data.prop_counts[prop_name], cast and not prop_name.begins_with("car"))
+			_mms[prop_name] = mmi.multimesh
 			if prop_name.begins_with("car") or prop_name in ["hydrant", "mailbox", "fuel_pump"]:
 				mmi.visibility_range_end = 260.0
 
@@ -53,7 +59,11 @@ func setup(data: Dictionary, shadows: bool) -> void:
 	for p in data.tree_points:
 		_add_shape(body, Assets.tree_shape, Transform3D(Basis.IDENTITY, p + Vector3(0, 2.0, 0)))
 	for xf in data.car_boxes:
-		_add_shape(body, Assets.car_shape, xf)
+		_car_shapes.append(_add_shape(body, Assets.car_shape, xf))
+	for sp in data.vehicle_spots:
+		var vs: Dictionary = sp.duplicate()
+		vs.xf = Transform3D(Basis.IDENTITY, position) * (sp.xf as Transform3D)
+		vehicle_spots.append(vs)
 	# Walls, floors, furniture: one concave shape per building, baked on the
 	# worker thread and created over the next few frames.
 	for faces: PackedVector3Array in data.collision_batches:
@@ -140,11 +150,22 @@ func _add_heightmap(body: StaticBody3D, data: Dictionary) -> void:
 	body.add_child(cs)
 
 
-func _add_shape(body: StaticBody3D, shape: Shape3D, xf: Transform3D) -> void:
+func _add_shape(body: StaticBody3D, shape: Shape3D, xf: Transform3D) -> CollisionShape3D:
 	var cs := CollisionShape3D.new()
 	cs.shape = shape
 	cs.transform = xf
 	body.add_child(cs)
+	return cs
+
+
+## A parked vehicle was taken (or moved before): stop drawing it here.
+func hide_spot(sp: Dictionary) -> void:
+	var mm: MultiMesh = _mms.get(sp.mm)
+	if mm and int(sp.i) < mm.instance_count:
+		mm.set_instance_transform(int(sp.i), Transform3D(Basis.from_scale(Vector3.ONE * 0.001), Vector3(0, -500, 0)))
+	if int(sp.box) >= 0 and int(sp.box) < _car_shapes.size():
+		_car_shapes[int(sp.box)].disabled = true
+	sp.hidden = true
 
 
 ## All doors in the chunk are drawn by one MultiMesh (one draw call); each

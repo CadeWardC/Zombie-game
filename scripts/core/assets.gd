@@ -22,6 +22,10 @@ static var zombie_shape: CapsuleShape3D
 static var brute_shape: CapsuleShape3D
 static var crawler_shape: BoxShape3D
 static var item_meshes := {} # item id -> ArrayMesh (see ItemModels)
+## Drivable vehicles that aren't cars, plus spinning parts: bicycle,
+## motorbike, rowboat, motorboat, helicopter (no rotor), prop_plane, rotor,
+## propeller.
+static var vehicle_meshes := {}
 static var particle_material: StandardMaterial3D
 static var flash_material: StandardMaterial3D # Additive glow (muzzle flash, explosions).
 static var flame_mesh: ArrayMesh
@@ -63,6 +67,12 @@ static func build() -> void:
 		props[p] = PropModels.build(p).to_mesh(material)
 	for a in AIRCRAFT:
 		props[a] = CarModels.aircraft(a).to_mesh(material)
+	for v in ["bicycle", "motorbike", "rowboat", "motorboat", "rotor", "propeller"]:
+		vehicle_meshes[v] = VehicleModels.build(v).to_mesh(material)
+	vehicle_meshes.helicopter = CarModels.aircraft("helicopter", false).to_mesh(material)
+	vehicle_meshes.prop_plane = props.prop_plane
+	props.bicycle = vehicle_meshes.bicycle
+	props.motorbike = vehicle_meshes.motorbike
 	var rng := RandomNumberGenerator.new()
 	rng.seed = 7
 	for k in 14:

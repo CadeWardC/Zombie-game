@@ -193,8 +193,9 @@ static func _lightbar(m: MeshData, at: Vector3, width: float) -> void:
 	m.box(Transform3D(Basis.IDENTITY, at + Vector3(width * 0.25, 0.13, 0)), Vector3(width * 0.45, 0.1, 0.22), Color(0.1, 0.25, 0.85))
 
 
-## Static aircraft props.
-static func aircraft(type: String) -> MeshData:
+## Aircraft. `rotor`: include the helicopter's rotor (the flyable one spins
+## a separate rotor mesh).
+static func aircraft(type: String, rotor := true) -> MeshData:
 	var m := MeshData.new()
 	var white := Color(0.9, 0.9, 0.9)
 	var stripe := Color(0.15, 0.3, 0.6)
@@ -222,7 +223,7 @@ static func aircraft(type: String) -> MeshData:
 			m.box(Transform3D(Basis.IDENTITY, Vector3(0, 1.7, -3.2)), Vector3(0.35, 0.35, 4.6), Color(0.2, 0.25, 0.22))
 			m.box(Transform3D(Basis.IDENTITY, Vector3(0, 2.3, -5.3)), Vector3(0.1, 1.1, 0.7), Color(0.2, 0.25, 0.22))
 			m.box(Transform3D(Basis.IDENTITY, Vector3(0, 2.45, 0.3)), Vector3(0.3, 0.4, 0.3), Color(0.15, 0.15, 0.15))
-			for a in 4:
+			for a in (4 if rotor else 0):
 				var basis := Basis(Vector3.UP, a * PI * 0.5 + 0.3)
 				m.box(Transform3D(basis, Vector3(0, 2.7, 0.3) + basis.z * 3.4), Vector3(0.3, 0.05, 6.8), Color(0.12, 0.12, 0.12))
 			for x: float in [-0.9, 0.9]:

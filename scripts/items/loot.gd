@@ -43,7 +43,8 @@ const POOLS := {
 		["alcohol_wipes", 3.0], ["antibiotics", 1.2], ["suture_kit", 0.6], ["splint", 0.6], ["cigarettes", 1.0]],
 	"hardware": [["hammer", 2.0], ["crowbar", 1.5], ["fire_axe", 0.6], ["sledgehammer", 0.4], ["machete", 0.5],
 		["bear_trap", 0.7], ["weapon_light", 0.4], ["glass_bottle", 1.0], ["noise_maker", 0.8], ["work_pants", 0.6],
-		["work_boots", 0.5], ["splint", 0.3], ["sewing_kit", 0.4]],
+		["work_boots", 0.5], ["splint", 0.3], ["sewing_kit", 0.4], ["gas_can", 0.8], ["car_battery", 0.5],
+		["engine_parts", 0.6], ["screwdriver", 1.0]],
 	"gun_store": [["ammo_9mm", 3.0], ["ammo_357", 2.0], ["ammo_12g", 2.5], ["ammo_308", 2.0], ["arrow", 1.5],
 		["bolt", 1.0], ["red_dot", 0.5], ["scope", 0.5], ["weapon_light", 0.6], ["suppressor", 0.12], ["hunting_knife", 0.8]],
 	"gun_locker": [["pistol_9mm", 1.0], ["revolver", 0.7], ["pump_shotgun", 0.8], ["hunting_rifle", 0.7],
@@ -53,7 +54,11 @@ const POOLS := {
 		["leather_jacket", 0.5], ["hoodie", 1.0], ["jeans", 1.0], ["sneakers", 1.0], ["beanie", 0.6], ["hunting_jacket", 0.3]],
 	"warehouse": [["crowbar", 1.0], ["hammer", 1.0], ["glass_bottle", 1.0], ["school_backpack", 0.6],
 		["hiking_backpack", 0.4], ["water_bottle", 1.0], ["canned_beans", 1.0], ["bear_trap", 0.3], ["work_pants", 0.6],
-		["work_boots", 0.5], ["rag", 1.0]],
+		["work_boots", 0.5], ["rag", 1.0], ["gas_can", 0.8], ["car_tire", 0.6], ["car_battery", 0.4],
+		["engine_parts", 0.5], ["screwdriver", 0.6]],
+	"gas_store": [["gas_can", 2.0], ["energy_bar", 2.0], ["chips", 2.0], ["soda", 2.0], ["water_bottle", 1.5],
+		["cigarettes", 1.5], ["screwdriver", 0.4], ["car_battery", 0.3], ["painkillers", 0.5]],
+	"hangar": [["jet_fuel_can", 3.0], ["engine_parts", 1.0], ["screwdriver", 0.6], ["car_battery", 0.5], ["gas_can", 0.5]],
 	"police": [["pistol_9mm", 1.5], ["ammo_9mm", 4.0], ["pump_shotgun", 0.6], ["ammo_12g", 2.0], ["tactical_vest", 0.6],
 		["weapon_light", 0.6], ["red_dot", 0.3], ["first_aid_kit", 0.4], ["bandage", 1.5], ["energy_bar", 0.8],
 		["riot_helmet", 0.4], ["riot_armor", 0.25], ["uniform_shirt", 0.5], ["work_boots", 0.4]],
@@ -75,7 +80,8 @@ const POOLS := {
 	"car_trunk": [["water_bottle", 2.0], ["canned_beans", 1.5], ["crowbar", 0.7], ["bandage", 1.0], ["first_aid_kit", 0.3],
 		["school_backpack", 0.5], ["hiking_backpack", 0.25], ["glass_bottle", 1.5], ["molotov", 0.35], ["baseball_bat", 0.5],
 		["ammo_12g", 0.4], ["ammo_308", 0.3], ["pump_shotgun", 0.08], ["hunting_rifle", 0.06], ["bear_trap", 0.2],
-		["noise_maker", 0.5], ["rag", 1.0], ["motorcycle_helmet", 0.2], ["leather_jacket", 0.15]],
+		["noise_maker", 0.5], ["rag", 1.0], ["motorcycle_helmet", 0.2], ["leather_jacket", 0.15], ["gas_can", 0.5],
+		["car_tire", 0.4], ["screwdriver", 0.3]],
 }
 
 ## Stack sizes rolled for ammo and other stackables: id -> [min, max].
@@ -134,7 +140,11 @@ static func _plan(type: String, building: String) -> Array:
 					return ["gun_store", 0, 2]
 				"mall":
 					return ["mall", 0, 2]
-				"warehouse", "hangar", "generator_shed":
+				"hangar":
+					return ["hangar", 1, 2]
+				"gas_station_store":
+					return ["gas_store", 0, 2]
+				"warehouse", "generator_shed":
 					return ["warehouse", 0, 2]
 				"diner", "bar", "fast_food":
 					return ["diner", 0, 2]

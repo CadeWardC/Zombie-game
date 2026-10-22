@@ -29,7 +29,7 @@ const CAT_COLORS := {
 	"melee": Color(0.42, 0.36, 0.3), "gun": Color(0.3, 0.32, 0.34), "bow": Color(0.36, 0.4, 0.28),
 	"ammo": Color(0.5, 0.45, 0.25), "throw": Color(0.45, 0.3, 0.2), "attachment": Color(0.3, 0.3, 0.4),
 	"bag": Color(0.3, 0.38, 0.3), "clothing": Color(0.34, 0.3, 0.38), "key": Color(0.25, 0.42, 0.45),
-	"misc": Color(0.4, 0.38, 0.32),
+	"misc": Color(0.4, 0.38, 0.32), "part": Color(0.35, 0.37, 0.42),
 }
 
 const ITEMS := {
@@ -56,6 +56,12 @@ const ITEMS := {
 	# --- Misc --------------------------------------------------------------------
 	"cigarettes": {"name": "Cigarettes", "cat": "misc", "w": 1, "h": 1, "kg": 0.03, "stack": 1, "uses": 10},
 	"sewing_kit": {"name": "Sewing Kit", "cat": "misc", "w": 1, "h": 1, "kg": 0.15, "stack": 1, "uses": 5},
+	"gas_can": {"name": "Gas Can", "cat": "misc", "w": 2, "h": 2, "kg": 1.0, "stack": 1, "uses": 20, "fuel": "gas"},
+	"jet_fuel_can": {"name": "Jet Fuel Can", "cat": "misc", "w": 2, "h": 2, "kg": 1.0, "stack": 1, "uses": 20, "fuel": "jet"},
+	"screwdriver": {"name": "Screwdriver", "cat": "misc", "w": 1, "h": 1, "kg": 0.15, "stack": 1},
+	"car_battery": {"name": "Car Battery", "cat": "part", "w": 2, "h": 1, "kg": 12.0, "stack": 1},
+	"car_tire": {"name": "Spare Tire", "cat": "part", "w": 2, "h": 2, "kg": 9.0, "stack": 1},
+	"engine_parts": {"name": "Engine Parts", "cat": "part", "w": 2, "h": 1, "kg": 2.5, "stack": 1},
 	"keycard_blue": {"name": "Blue Keycard", "cat": "key", "w": 1, "h": 1, "kg": 0.01, "stack": 1},
 	"keycard_red": {"name": "Red Keycard", "cat": "key", "w": 1, "h": 1, "kg": 0.01, "stack": 1},
 	# --- Melee -----------------------------------------------------------------
@@ -310,7 +316,15 @@ static func describe(it: Dictionary) -> String:
 		"key":
 			parts.append("Opens security doors (needs power)")
 		"misc":
-			parts.append("%d uses left" % int(it.get("u", 1)))
+			if d.has("fuel"):
+				parts.append("%d / %d litres of %s" % [int(it.get("u", 0)), int(d.uses), "gasoline" if d.fuel == "gas" else "jet fuel"])
+			elif it.id == "screwdriver":
+				parts.append("For hotwiring cars")
+			else:
+				parts.append("%d uses left" % int(it.get("u", 1)))
+		"part":
+			parts.append({"car_battery": "Swap into a vehicle with a dead battery",
+				"car_tire": "Replaces a flat tire", "engine_parts": "Repairs a damaged engine"}.get(it.id, ""))
 		"throw":
 			parts.append({"bottle": "Shatters loudly: distracts zombies", "noise": "Rings for 15 s: lures zombies",
 				"fire": "Sets an area on fire", "explode": "Explodes after 3 s", "trap": "Place on the ground; holds and hurts"}[d.effect])

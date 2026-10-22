@@ -22,6 +22,9 @@ var settlements := Settlements.new()
 var roads := RoadNetwork.new()
 var towns: Array[TownLayout] = []
 var site_layouts := {} # site id -> SiteLayout
+## Boats moored at small docks by towns near water: {id, t, p: Vector3 (on
+## the water), yaw, shore: Vector2 (where the dock starts)}
+var boat_spots: Array = []
 
 var _lots_by_chunk := {} # Vector2i -> [lot]
 var _ctx_cache := {}
@@ -71,7 +74,48 @@ func generate(progress: Callable = Callable()) -> void:
 		site_layouts[site.id] = sl
 		for lot in sl.lots:
 			_bucket_lot(lot)
+	report.call(0.95, "Mooring boats")
+	_place_boats()
 	report.call(1.0, "Done")
+
+
+## A dock with a boat or two by each town that has water nearby.
+func _place_boats() -> void:
+	for s in settlements.list:
+		var found := 0
+		var base := float(hash3(seed_value, s.id, 41) % 628) / 100.0
+		for ring: float in [s.radius + 60.0, s.radius + 220.0, s.radius + 450.0]:
+			for k in 16:
+				var p: Vector2 = s.center + Vector2.from_angle(base + k * TAU / 16.0) * ring
+				if p.x < 200.0 or p.y < 200.0 or p.x > world_size - 200.0 or p.y > world_size - 200.0:
+					continue
+				var wl := water_level(p.x, p.y)
+				if wl == -INF or wl - height(p.x, p.y) < 1.2:
+					continue
+				# Walk back toward town to find the shore.
+				var q := p
+				var shore := Vector2.INF
+				for step in 30:
+					q = q.move_toward(s.center, 4.0)
+					var ql := water_level(q.x, q.y)
+					if ql == -INF or ql < height(q.x, q.y) + 0.1:
+						shore = q
+						break
+				if shore == Vector2.INF:
+					continue
+				var out := (p - shore).normalized()
+				var b := shore + out * 9.0
+				var bl := water_level(b.x, b.y)
+				if bl == -INF or bl - height(b.x, b.y) < 0.9:
+					continue
+				var t := "rowboat" if found == 0 and hash3(seed_value, s.id, 43) % 2 == 0 else "motorboat"
+				boat_spots.append({"id": "boat_%d_%d" % [int(b.x), int(b.y)], "t": t, "p": Vector3(b.x, bl, b.y),
+					"yaw": atan2(out.x, out.y), "shore": shore})
+				found += 1
+				if found >= 2:
+					break
+			if found >= 2 or found == 1:
+				break
 
 
 func _bucket_lot(lot: Dictionary) -> void:

@@ -292,6 +292,10 @@ func _yard(r: Rect2, zf: float, has_garage: bool) -> void:
 		var p := Vector2(rng.randf_range(-mx, mx), rng.randf_range(-lot.d * 0.5 + 2.0, r.position.y - 2.0))
 		if p.y < r.position.y - 1.5:
 			bd.props.append({"type": "yard_tree", "xf": Transform3D(Basis(Vector3.UP, rng.randf() * TAU), Vector3(p.x, ground(p) - 0.1, p.y))})
+	# A bicycle leaning by the front of some houses.
+	if absi(("%s_bike" % _id()).hash()) % 100 < 18:
+		var bp := Vector2(r.position.x - 0.8, zf - 1.2)
+		bd.props.append({"type": "bicycle", "xf": Transform3D(Basis.IDENTITY, Vector3(bp.x, ground(bp) + 0.02, bp.y))})
 	if rng.randf() < 0.45:
 		# Picket fence around the back yard.
 		var zb: float = -lot.d * 0.5 + 0.4

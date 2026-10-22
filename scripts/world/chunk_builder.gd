@@ -32,6 +32,10 @@ var prop_counts := {}
 var tree_points := PackedVector3Array()
 var cover_points := PackedVector3Array() # Bushes you can hide in (stealth).
 var car_boxes: Array = []
+## Parked vehicles you can take: {id, t (type), m (car model), xf (chunk
+## local), mm (MultiMesh name), i (its instance), box (car_boxes index or
+## -1), trunk (container id or "")}. Drawn as props until someone moves them.
+var vehicle_spots: Array = []
 var heights := PackedFloat32Array()
 var _cols := PackedColorArray()
 var res := NEAR_RES
@@ -59,6 +63,7 @@ func _build() -> void:
 	solid = rm.solid
 	boxes.append_array(rm.boxes)
 	_sites()
+	_docks()
 	_buildings()
 	_nature()
 	_street_props()
@@ -71,6 +76,7 @@ func _result() -> Dictionary:
 		"building": building, "glass": glass, "boxes": boxes, "doors": doors,
 		"windows": windows, "spawns": spawns, "containers": containers, "signs": signs, "props": props, "prop_counts": prop_counts,
 		"tree_points": tree_points, "car_boxes": car_boxes, "cover_points": cover_points,
+		"vehicle_spots": vehicle_spots,
 		"collision_batches": _collision_batches(),
 	}
 	if lod == 0:
@@ -217,6 +223,31 @@ func _sites() -> void:
 			_fence_line(sl.fence, site.base, rect)
 
 
+## Wooden docks where boats are moored.
+func _docks() -> void:
+	var rect := Rect2(origin, Vector2.ONE * WorldGen.CHUNK_SIZE)
+	for b in gen.boat_spots:
+		var shore: Vector2 = b.shore
+		var bp := Vector2(b.p.x, b.p.z)
+		var mid := shore.lerp(bp, 0.45)
+		if not rect.has_point(mid):
+			continue
+		var dir := (bp - shore).normalized()
+		var length := shore.distance_to(bp) - 1.0
+		var yaw := atan2(dir.x, dir.y)
+		var basis := Basis(Vector3.UP, yaw)
+		var y: float = b.p.y + 0.45
+		var c := _v3(shore + dir * length * 0.5 - origin, y)
+		var side := Vector3(dir.y, 0, -dir.x) * 1.4
+		solid.box(Transform3D(basis, c), Vector3(1.8, 0.12, length), Color(0.45, 0.33, 0.22))
+		for k in int(length / 2.0) + 1:
+			var pp := _v3(shore + dir * (k * 2.0) - origin, y - 1.2)
+			for sd: float in [-1.0, 1.0]:
+				solid.box(Transform3D(basis, pp + side * 0.6 * sd), Vector3(0.15, 2.4, 0.15), Color(0.32, 0.24, 0.16))
+		if lod == 0:
+			boxes.append([Transform3D(basis, c), Vector3(1.8, 0.12, length)])
+
+
 func _rect_poly(c: Vector2, rot: float, half: Vector2) -> PackedVector2Array:
 	var u := Vector2.from_angle(rot)
 	var v := Vector2(-u.y, u.x)
@@ -340,16 +371,26 @@ func _buildings() -> void:
 
 func _add_prop(type: String, xf: Transform3D) -> void:
 	var name := type
-	if type == "car":
-		name = "car_%d" % (absi(int(xf.origin.x * 13.0 + xf.origin.z * 7.0)) % Assets.CAR_COUNT)
+	var w := xf.origin + Vector3(origin.x, 0, origin.y)
+	var vid := "v_%d_%d" % [int(w.x * 4.0), int(w.z * 4.0)]
+	if type == "car" or type.begins_with("car_"):
+		var model := absi(int(xf.origin.x * 13.0 + xf.origin.z * 7.0)) % Assets.CAR_COUNT if type == "car" else int(type.substr(4))
+		name = "car_%d" % model
+		# Far chunks list the spot too, so a car that was driven away
+		# isn't still drawn where it was parked.
+		var trunk := "trunk_%d_%d" % [int(w.x * 4.0), int(w.z * 4.0)] if type == "car" else ""
+		var vtype := VehicleDB.car_type(model)
+		if vtype != "":
+			vehicle_spots.append({"id": vid, "t": vtype, "m": model, "xf": xf, "mm": name,
+				"i": prop_counts.get(name, 0), "box": car_boxes.size() if lod == 0 else -1, "trunk": trunk})
 		if lod == 0:
+			if trunk != "":
+				# Searchable trunk at the back of the car.
+				containers.append({"pos": xf * Vector3(0, 0.9, -2.5), "type": "car_trunk", "bld": "", "id": trunk, "veh": vid})
 			car_boxes.append(xf * Transform3D(Basis.IDENTITY, Vector3(0, 0.8, 0)))
-			# Searchable trunk at the back of the car.
-			var w := xf.origin + Vector3(origin.x, 0, origin.y)
-			containers.append({"pos": xf * Vector3(0, 0.9, -2.5), "type": "car_trunk", "bld": "",
-				"id": "trunk_%d_%d" % [int(w.x * 4.0), int(w.z * 4.0)]})
-	elif type.begins_with("car_") and lod == 0:
-		car_boxes.append(xf * Transform3D(Basis.IDENTITY, Vector3(0, 0.8, 0)))
+	elif type in ["bicycle", "motorbike", "prop_plane", "helicopter"]:
+		vehicle_spots.append({"id": vid, "t": type, "m": -1, "xf": xf, "mm": name, "i": prop_counts.get(name, 0),
+			"box": -1, "trunk": ""})
 	if lod == 1:
 		if type == "pine":
 			name = "pine_far"
@@ -462,6 +503,9 @@ func _street_props() -> void:
 				if hsh % 100 < 14:
 					var p := pts[k] + dir * 4.0 + side_v * side * (hw - 1.2) - origin
 					_add_prop("car", Transform3D(Basis(Vector3.UP, yaw + (0.0 if side > 0 else PI)), _v3(p, hs[k] + 0.06)))
+				elif hsh % 100 < 16:
+					var p := pts[k] + dir * 4.0 + side_v * side * (hw - 0.9) - origin
+					_add_prop("motorbike", Transform3D(Basis(Vector3.UP, yaw + (0.0 if side > 0 else PI) + 0.2), _v3(p, hs[k] + 0.06)))
 			RoadNetwork.Type.ROAD, RoadNetwork.Type.HIGHWAY:
 				if k % 5 == 0:
 					var p := pts[k] + side_v * (hw + 2.5) - origin

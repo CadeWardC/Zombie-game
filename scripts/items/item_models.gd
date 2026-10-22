@@ -11,6 +11,7 @@ const WOOD := Color(0.45, 0.3, 0.17)
 const SILVER := Color(0.66, 0.67, 0.68)
 const OLIVE := Color(0.3, 0.33, 0.22)
 const TAN := Color(0.62, 0.55, 0.4)
+const TIRE_COL := Color(0.08, 0.08, 0.08)
 
 
 static func build(id: String) -> MeshData:
@@ -207,6 +208,27 @@ static func build(id: String) -> MeshData:
 			m.cylinder(Vector3.ZERO, 0.05, 0.05, 0.03, 12, Color(0.3, 0.4, 0.6))
 			m.cylinder(Vector3(0.015, 0.03, 0.0), 0.012, 0.012, 0.02, 6, Color(0.8, 0.15, 0.15))
 			m.cylinder(Vector3(-0.02, 0.03, 0.01), 0.012, 0.012, 0.02, 6, Color(0.9, 0.85, 0.3))
+		"gas_can", "jet_fuel_can":
+			var col := Color(0.75, 0.12, 0.08) if id == "gas_can" else Color(0.85, 0.68, 0.12)
+			_b(m, Vector3(0, 0.17, 0), Vector3(0.14, 0.34, 0.26), col)
+			_b(m, Vector3(0, 0.36, -0.04), Vector3(0.05, 0.04, 0.14), col.darkened(0.2))
+			m.cylinder(Vector3(0, 0.34, 0.09), 0.018, 0.014, 0.06, 6, Color(0.15, 0.15, 0.15))
+			_b(m, Vector3(0.072, 0.17, 0), Vector3(0.004, 0.2, 0.16), col.lightened(0.15))
+		"screwdriver":
+			_b(m, Vector3(0, 0.012, 0.04), Vector3(0.025, 0.025, 0.09), Color(0.85, 0.65, 0.1))
+			_b(m, Vector3(0, 0.012, -0.05), Vector3(0.006, 0.006, 0.1), SILVER)
+		"car_battery":
+			_b(m, Vector3(0, 0.09, 0), Vector3(0.26, 0.18, 0.17), Color(0.12, 0.12, 0.13))
+			_b(m, Vector3(0, 0.185, 0), Vector3(0.24, 0.01, 0.15), Color(0.2, 0.3, 0.6))
+			for s: float in [-1.0, 1.0]:
+				m.cylinder(Vector3(0.08 * s, 0.19, 0.04), 0.015, 0.015, 0.025, 6, Color(0.8, 0.2, 0.15) if s > 0 else SILVER)
+		"car_tire":
+			m.append(_cyl(0.3, 0.3, 0.2, TIRE_COL, 12), Transform3D(Basis(Vector3.FORWARD, PI * 0.5), Vector3(0, 0.3, 0)))
+			m.append(_cyl(0.17, 0.17, 0.205, SILVER.darkened(0.2), 10), Transform3D(Basis(Vector3.FORWARD, PI * 0.5), Vector3(0, 0.3, 0)))
+		"engine_parts":
+			_b(m, Vector3(0, 0.05, 0), Vector3(0.24, 0.1, 0.14), Color(0.5, 0.4, 0.25))
+			for k in 4:
+				m.cylinder(Vector3(-0.08 + k * 0.055, 0.1, 0), 0.012, 0.012, 0.05, 6, SILVER)
 		"keycard_blue", "keycard_red":
 			var col := Color(0.2, 0.4, 0.85) if id == "keycard_blue" else Color(0.8, 0.15, 0.12)
 			_b(m, Vector3(0, 0.002, 0), Vector3(0.085, 0.004, 0.054), Color(0.92, 0.92, 0.92))
