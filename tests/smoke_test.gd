@@ -607,6 +607,216 @@ func _test_death_rules(player: Player, zombies: ZombieManager) -> void:
 
 
 ## Is an item with this id in the list (or inside bags and pockets in it)?
+func _test_vehicles(player: Player, zombies: ZombieManager, gen: WorldGen, arena: Vector3) -> void:
+	print("Vehicles")
+	var vm: VehicleManager = _main.vehicles
+	var menu: VehicleMenu = _main.vehicle_menu
+	var a := VehicleDB.roll("v_1_2", "sedan", 0)
+	var b := VehicleDB.roll("v_1_2", "sedan", 0)
+	_check(a == b, "a parked car's condition is the same for everyone")
+	var broken := 0
+	for k in 40:
+		if VehicleDB.cant_start(VehicleDB.roll("v_%d" % k, "sedan", 0)) != "":
+			broken += 1
+	_check(broken > 20, "most cars need work before they start (%d of 40)" % broken)
+	# A car parked in town.
+	var spots := []
+	for c: Chunk in _near_chunks():
+		for sp in c.vehicle_spots:
+			if not sp.get("hidden", false) and int(sp.m) >= 0 and sp.trunk != "":
+				spots.append([c, sp])
+	_check(not spots.is_empty(), "%d parked cars near town" % spots.size())
+	if spots.is_empty():
+		return
+	var chunk: Chunk = spots[0][0]
+	var sp: Dictionary = spots[0][1]
+	var v := vm.activate(sp)
+	_check(v != null and GameState.ws.vehicles.has(sp.id), "using a parked %s makes it a real vehicle" % v.def.name)
+	_check(sp.get("hidden", false) and (chunk._car_shapes[int(sp.box)] as CollisionShape3D).disabled, "its parked prop is hidden")
+	v.rec.merge({"fuel": 30.0, "keys": true, "bat": 1.0, "eng": 1.0, "parts": true, "locked": false, "flat": 0, "hp": float(v.def.hp)}, true)
+	await _wait(0.3)
+	var trunk := (_main.streamer as WorldStreamer).containers_near(v.global_transform * Vector3(0, 0.9, -v.size.z * 0.5), 1.5)
+	_check(trunk.any(func(ct: Dictionary) -> bool: return ct.id == v.rec.trunk), "its trunk goes with it")
+	# Out to open ground for a drive (far away, so the node goes until we're back).
+	var rec := v.rec
+	zombies.clear_all()
+	player.global_position = arena
+	(_main.streamer as WorldStreamer).refresh()
+	await _wait_for(func() -> bool: return _main.streamer.is_ready_at(arena), 15000)
+	await _wait(0.5)
+	var ground := Vector3(arena.x + 4.0, gen.height(arena.x + 4.0, arena.z) + 0.3, arena.z)
+	_check(not is_instance_valid(v), "far from everyone, its node is freed")
+	rec.p = [ground.x, ground.y, ground.z]
+	await _wait_for(func() -> bool: return vm.nodes.has(rec.id), 3000)
+	v = vm.nodes.get(rec.id)
+	_check(v != null and v.rec == rec, "back in range, it's there again")
+	if v == null:
+		return
+	v.global_position = ground
+	v.rotation = Vector3(0, PI, 0) # Facing -Z.
+	v.speed = 0.0
+	player.global_position = ground + Vector3(2.5, 0, 0)
+	await _wait(0.5)
+	menu.open(v)
+	var labels := menu.actions().map(func(x: Array) -> String: return x[0])
+	_check("Drive" in labels and "Open the trunk" in labels, "vehicle menu offers %s" % ", ".join(labels))
+	menu.close()
+	player.enter_vehicle(v, 0)
+	_check(player.vehicle == v and v.running and player.camera.top_level, "got in, the engine starts, chase camera on")
+	var start := v.global_position
+	var fuel := float(v.rec.fuel)
+	Input.action_press("move_forward")
+	await _wait(2.5)
+	Input.action_release("move_forward")
+	var driven := Vector2(v.global_position.x - start.x, v.global_position.z - start.z).length()
+	_check(driven > 10.0, "drove %.0f m (top %.0f km/h)" % [driven, absf(v.speed) * 3.6])
+	_check(float(v.rec.fuel) < fuel, "driving burns fuel")
+	Input.action_press("jump")
+	await _wait(2.0)
+	Input.action_release("jump")
+	_check(absf(v.speed) < 1.0, "the brake stops it")
+	# Run a zombie over.
+	var zp := v.global_transform * Vector3(0, 0, 14.0)
+	zp.y = gen.height(zp.x, zp.z)
+	zombies._spawn(zp)
+	var z: Zombie = zombies._active[-1]
+	var hp := float(v.rec.hp)
+	Input.action_press("move_forward")
+	await _wait_for(func() -> bool: return z.health < z.max_health or z.state == Zombie.State.DEAD, 5000)
+	Input.action_release("move_forward")
+	_check(z.health < z.max_health or z.state == Zombie.State.DEAD, "running a zombie over hurts it")
+	_check(float(v.rec.hp) < hp, "hitting zombies damages the vehicle")
+	Input.action_press("jump")
+	await _wait(2.0)
+	Input.action_release("jump")
+	# Closed cars keep the zombies out.
+	player.health = 100.0
+	hp = float(v.rec.hp)
+	player.zombie_hit(15.0, v.global_position + Vector3(2, 0, 0))
+	_check(player.health == 100.0 and float(v.rec.hp) < hp, "zombies pound on a closed car instead of you")
+	player.exit_vehicle()
+	_check(player.vehicle == null and player.collision_layer == 2 and not player.camera.top_level, "got out")
+	_check(player.global_position.distance_to(v.global_position) < 5.0, "standing beside it")
+	# Fuel and repairs (with room in the bag; it's put back afterwards).
+	var bag := GameState.inventory.to_dict()
+	GameState.inventory.clear()
+	var can := ItemDB.make("gas_can")
+	can.u = 0
+	GameState.add_item(can)
+	var pump := {"id": "pump_test", "type": "fuel_pump", "bld": "", "pos": player.global_position}
+	var left := VehicleMenu.pump_left(pump)
+	player._fill_can(pump)
+	can = GameState.inventory.find("gas_can")
+	_check(int(can.get("u", 0)) == 20 and VehicleMenu.pump_left(pump) == left - 20.0, "filled a gas can at a pump")
+	menu.vehicle = v
+	v.rec.fuel = 5.0
+	menu._refuel_can()
+	_check(float(v.rec.fuel) == 25.0 and int(GameState.inventory.find("gas_can").get("u", -1)) == 0, "poured the can into the tank")
+	v.rec.bat = 0.1
+	_check(VehicleDB.cant_start(v.rec) == "The battery is dead", "a dead battery stops it starting")
+	GameState.add_item(ItemDB.make("car_battery"))
+	menu._swap("car_battery")
+	_check(float(v.rec.bat) == 1.0 and GameState.item_count("car_battery") == 0, "swapped in a new battery")
+	v.rec.flat = 1
+	GameState.add_item(ItemDB.make("car_tire"))
+	menu._swap("car_tire")
+	_check(int(v.rec.flat) == 0, "changed a flat tire")
+	v.rec.keys = false
+	v.rec.hot = false
+	GameState.add_item(ItemDB.make("screwdriver"))
+	for k in 30:
+		if v.rec.hot:
+			break
+		menu._hotwire()
+	_check(v.rec.hot and VehicleDB.cant_start(v.rec) == "", "hotwired it with a screwdriver")
+	menu.close()
+	# Helicopter: lift off and land again.
+	var hr := VehicleDB.roll("test_heli", "helicopter")
+	hr.merge({"fuel": 200.0, "keys": true, "parts": true, "p": [arena.x - 20.0, gen.height(arena.x - 20.0, arena.z) + 0.2, arena.z]}, true)
+	GameState.ws.vehicles[hr.id] = hr
+	var heli := vm._spawn(hr)
+	await _wait(0.5)
+	player.enter_vehicle(heli, 0)
+	var y0 := heli.global_position.y
+	Input.action_press("jump")
+	await _wait(2.5)
+	Input.action_release("jump")
+	_check(heli.airborne and heli.global_position.y > y0 + 6.0, "helicopter climbs (%.0f m)" % (heli.global_position.y - y0))
+	player.exit_vehicle()
+	_check(player.vehicle == heli, "can't step out in the air")
+	Input.action_press("crouch")
+	await _wait_for(func() -> bool: return not heli.airborne, 10000)
+	Input.action_release("crouch")
+	_check(not heli.airborne and float(heli.rec.hp) > 0.0, "and lands gently")
+	player.exit_vehicle()
+	# Plane: needs speed to lift off; diving into the ground wrecks it.
+	var pr := VehicleDB.roll("test_plane", "prop_plane")
+	pr.merge({"fuel": 150.0, "keys": true, "parts": true, "p": [arena.x, gen.height(arena.x, arena.z + 30.0) + 0.2, arena.z + 30.0]}, true)
+	GameState.ws.vehicles[pr.id] = pr
+	var plane := vm._spawn(pr)
+	await _wait(0.5)
+	player.enter_vehicle(plane, 0)
+	Input.action_press("move_back")
+	await _wait(0.3)
+	_check(not plane.airborne, "a plane can't lift off standing still")
+	plane.speed = float(plane.def.takeoff) + 6.0
+	plane.throttle = 1.0
+	await _wait_for(func() -> bool: return plane.airborne, 2000)
+	Input.action_release("move_back")
+	_check(plane.airborne, "at take-off speed, pulling back lifts it off")
+	player.vehicle = null # Leave it to fly on alone (the test isn't for crash damage).
+	plane.seats.clear()
+	player.camera.top_level = false
+	player.camera.transform = Transform3D.IDENTITY
+	player.collision_layer = 2
+	player.collision_mask = 1 | 4
+	player.weapons.visible = true
+	player.global_position = arena
+	plane.global_position.y += 20.0
+	plane.pitch = -0.7
+	plane.speed = 50.0
+	await _wait_for(func() -> bool: return float(plane.rec.hp) <= 0.0, 8000)
+	_check(float(plane.rec.hp) <= 0.0, "diving into the ground wrecks the plane")
+	# Boats float and stop at the shore.
+	if gen.boat_spots.is_empty():
+		print("  (no boats in this world)")
+	else:
+		var bs: Dictionary = gen.boat_spots[0]
+		var bp: Vector3 = bs.p
+		player.global_position = Vector3(bs.shore.x, gen.height(bs.shore.x, bs.shore.y) + 0.5, bs.shore.y)
+		(_main.streamer as WorldStreamer).refresh()
+		await _wait_for(func() -> bool: return vm.nodes.has(bs.id), 20000)
+		var boat: Vehicle = vm.nodes.get(bs.id)
+		_check(boat != null, "a %s is moored at the dock" % (boat.def.name if boat else "boat"))
+		if boat:
+			await _wait(0.5)
+			var wl := gen.water_level(boat.global_position.x, boat.global_position.z)
+			_check(absf(boat.global_position.y - wl) < 0.3, "it floats on the water")
+			boat.rec.merge({"fuel": 20.0, "keys": true}, true)
+			player.enter_vehicle(boat, 0)
+			var bstart := boat.global_position
+			Input.action_press("move_forward")
+			await _wait(2.5)
+			Input.action_release("move_forward")
+			var wl2 := gen.water_level(boat.global_position.x, boat.global_position.z)
+			_check(boat.global_position.distance_to(bstart) > 2.0 and wl2 > -INF, "boated %.0f m and stayed on the water" % boat.global_position.distance_to(bstart))
+			boat.speed = 0.0
+			player.exit_vehicle()
+	# Saved with the world.
+	_main.save_game()
+	var fuel_saved := float(rec.fuel)
+	GameState.ws.vehicles.clear()
+	GameState.load_game()
+	var back: Dictionary = GameState.ws.vehicles.get(sp.id, {})
+	_check(not back.is_empty() and absf(float(back.fuel) - fuel_saved) < 0.01 and back.hot, "vehicles are saved with the world")
+	GameState.inventory.from_dict(bag)
+	for id in vm.nodes:
+		var node: Vehicle = vm.nodes[id]
+		if GameState.ws.vehicles.has(id):
+			node.rec = GameState.ws.vehicles[id]
+	player.health = 100.0
+
+
 func _has_item(items: Array, id: String) -> bool:
 	for it in items:
 		if it.id == id or _has_item(it.get("items", []), id):
@@ -772,6 +982,7 @@ func _run() -> void:
 	await _wait(2.0)
 	await _test_world_changes(player, zombies, doors)
 	_test_lab(gen)
+	await _test_vehicles(player, zombies, gen, spot)
 
 	print("Survival")
 	GameState.add_item(ItemDB.make("canned_beans"))
