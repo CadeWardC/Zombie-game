@@ -5,7 +5,7 @@ built with **Godot 4.7** and designed to run well on phones and tablets
 (minimum target: Samsung Galaxy Tab S6 Lite). The full plan is in
 [docs/DESIGN.md](docs/DESIGN.md).
 
-**What's in the game now (stages 1 to 3):**
+**What's in the game now (stages 1 to 4):**
 
 - **Random worlds of 8, 16 or 32 km**: coastlines, mountains, forests,
   farmland, deserts, beaches, and river networks with lakes from a drainage
@@ -84,8 +84,20 @@ built with **Godot 4.7** and designed to run well on phones and tablets
   memorials with the survivor's story and the map they explored. The pause
   menu has a map of everywhere you've been.
 - **Main menu with multiple saved worlds**: choose map size, seed,
-  difficulty, death rule, zombie speed and infection chance, then your
+  difficulty, death rule, zombie speed, infection chance and PvP, then your
   survivor.
+- **Multiplayer on the same Wi-Fi, 2–4 players**: pause and tap **Invite
+  Friends**; on the other phones, **Join Game** lists the games nearby by
+  themselves. The host's device runs the world (zombies around everyone,
+  loot, doors, windows, the generator, the clock) and saves it, including
+  each guest's survivor for next time. You see each other's survivors in
+  their clothes (paler when infected), share containers and dropped items,
+  and can **ping** a spot, a zombie, loot, or call for help. A friend who
+  dies infected rises as a zombie: beat them down and give them a cure vial
+  to bring them back. In permadeath worlds the dead watch the living, and
+  the world is lost only when everyone is out. PvP is a world setting.
+  (Playing over the internet with join codes needs a relay server and is
+  left for later.)
 
 All art (terrain, buildings, furniture, cars, aircraft, zombies, items and
 their inventory icons) is generated in code as realistic low-poly geometry,
@@ -111,7 +123,8 @@ so the app stays small and needs no art files.
 | Eat or drink / heal | EAT / HEAL         | Z / H            | D-pad up / down |
 | Inventory    | BAG                       | Tab / I          | View / Select |
 | Flashlight   | LIGHT                     | F                | Y             |
-| Pause (and the map) | II                 | Esc / P          | Start         |
+| Pause (map, invite friends) | II         | Esc / P          | Start         |
+| Ping (tap: mark what you look at; hold: call for help) | PING (multiplayer) | Q | Share / Capture |
 | Debug stats  | –                         | F3               | –             |
 
 On screen, button prompts match the controller you're using: Xbox
@@ -154,8 +167,9 @@ slower.
 scenes/menu.tscn, main.tscn   Main menu (start scene) and the game
 scripts/
   main.gd                     Game setup, day/night, autosave, death
-  core/                       GameState (settings, saves, input), assets,
-                              mesh helpers, procedural cars/props, textures
+  core/                       GameState (settings, saves, input), Net
+                              (multiplayer), assets, mesh helpers,
+                              procedural cars/props, textures
   world/                      World generation and streaming:
     terrain.gd                  coast, mountains, biomes
     hydrology.gd                rivers and lakes (drainage simulation)
@@ -175,12 +189,15 @@ scripts/
                               dropped items
   combat/effects.gd           Arrows, thrown items, fire, explosions, blood
   player/                     Player (movement, stealth, items), weapons,
-                              character (traits, backgrounds) and health
-                              (injuries, infection)
+                              character (traits, backgrounds), health
+                              (injuries, infection) and other players'
+                              avatars
   ui/                         HUD, inventory screen, item icons, button
                               glyphs, touch controls, menus, character
                               creator, map
 tests/smoke_test.tscn         Automated gameplay test (runs in CI)
+tests/net_test.tscn           Two-device multiplayer test: a host and a
+                              guest on one machine (run_net_test.sh, in CI)
 tests/screenshots.tscn        Renders gameplay screenshots
 tools/map_preview.gd          Renders a world map PNG
 ```
@@ -197,6 +214,12 @@ tools/map_preview.gd          Renders a world map PNG
 ```
 godot --headless --import
 godot --headless res://tests/smoke_test.tscn
+```
+
+**Multiplayer test** (starts a host and a guest and plays them together):
+
+```
+tests/run_net_test.sh path/to/godot
 ```
 
 **Preview a world map:**

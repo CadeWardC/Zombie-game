@@ -46,6 +46,7 @@ var players := {}
 ## Games found on the network: ip -> {ip, port, name, world, players, max, t}
 var games := {}
 var host_name := ""
+var _session := "" # Random id of this hosting session (one entry per host in Join lists).
 
 var _peer: ENetMultiplayerPeer
 var _disc: PacketPeerUDP # Host: answers probes. Guest: sends them.
@@ -122,6 +123,7 @@ func host() -> bool:
 	multiplayer.multiplayer_peer = _peer
 	mode = Mode.HOST
 	host_name = GameState.character.name
+	_session = "%08x" % randi()
 	_disc = PacketPeerUDP.new()
 	_disc.set_broadcast_enabled(true)
 	if _disc.bind(DISCOVERY_PORT) != OK:
@@ -231,7 +233,7 @@ func _poll_discovery(delta: float) -> void:
 			var ip := _disc.get_packet_ip()
 			var port := _disc.get_packet_port()
 			if pkt.begins_with("ZS_PROBE"):
-				var reply := {"name": host_name, "world": str(GameState.world.get("name", "")), "players": player_count(),
+				var reply := {"sid": _session, "name": host_name, "world": str(GameState.world.get("name", "")), "players": player_count(),
 					"max": MAX_PLAYERS, "port": PORT, "protocol": PROTOCOL, "pvp": bool(GameState.world.get("pvp", false)),
 					"rule": GameState.death_rule()}
 				_disc.set_dest_address(ip, port)
@@ -252,8 +254,11 @@ func _poll_discovery(delta: float) -> void:
 		var info: Variant = JSON.parse_string(pkt.substr(8))
 		if typeof(info) != TYPE_DICTIONARY or int(info.get("protocol", 0)) != PROTOCOL:
 			continue
-		# The same host answers on several addresses (loopback, LAN): keep one.
-		var key := ip if ip != "127.0.0.1" else "localhost"
+		# The same host answers on several addresses (loopback, LAN): keep one,
+		# preferring its network address.
+		var key := str(info.get("sid", ip))
+		if games.has(key) and ip == "127.0.0.1" and str(games[key].ip) != "127.0.0.1":
+			ip = str(games[key].ip)
 		info.ip = ip
 		info.t = Time.get_ticks_msec()
 		games[key] = info

@@ -489,8 +489,8 @@ Each stage ends with a playable build on the Tab S6 Lite and iPhone.
 | **1. Map and art** ✅ | New world generator (sizes, coast, rivers, biomes), road network, American towns, cities and suburbs, special-location framework (research center and airport first), procedural realistic houses, cars and animated zombies, enterable interiors with doors and loot containers, world-creation screen with multiple saves, unsigned iOS CI |
 | **2. Items and combat** ✅ | Tetris inventory, loot tables, guns, bows, throwables, melee shove and durability, stealth, gamepad menu navigation and prompts |
 | **3. Character and health** ✅ | Character creation with traits, injuries, clothing protection, infection with symptoms, cure vials, the three death rules, curing zombified friends, memorial worlds, all zombie types and abilities |
-| **4. Multiplayer** ← next | 2–4 player hosting, join codes, Wi-Fi discovery, pings, PvP setting, sync of zombies, loot and vehicles |
-| **5. Vehicles** | Cars, bikes, fuel, boats, then helicopters and planes at airports |
+| **4. Multiplayer** ✅ (Wi-Fi) | 2–4 player hosting, join codes, Wi-Fi discovery, pings, PvP setting, sync of zombies, loot and vehicles |
+| **5. Vehicles** ← next | Cars, bikes, fuel, boats, then helicopters and planes at airports |
 | **6. Survival depth** | Crafting, base building, skills, farming, cooking, spoilage, sleep, temperature, weather and seasons, utilities and power plant, traders, hunting, fishing, foraging, water purification, dog companion |
 | **7. Polish** | Audio, hordes and migration, tutorial and hints, aim assist and remapping, HUD options, settings, performance pass |
 
@@ -609,7 +609,51 @@ Simplified or moved:
   learner): stage 6. The traits and values are stored already.
 - **The lab's upper floor** isn't enterable.
 
-## 22. Open questions
+## 22. Stage 4 notes
+
+Done:
+- Hosting from the pause menu ("Invite Friends"); joining from the main
+  menu. Guests find games on the local network by themselves (a broadcast
+  plus a probe of every address in the subnet, which also works on iOS
+  without Apple's multicast entitlement).
+- The host's device is the server: it simulates zombies around every
+  player (each goes after the nearest), loads the ground with collision
+  around guests, keeps containers, dropped items, doors, windows, power,
+  turned players and the clock, and saves the world with every guest's
+  survivor (character, inventory, health, position, explored map).
+- Each player's own device runs their survivor (movement, health,
+  inventory) and reports it 15 times a second; zombies near each guest are
+  sent 10 times a second and shown as puppets. Hits on zombies, noise,
+  loot, door and window changes go to the host, which passes them on.
+- Avatars for the other players: their clothes and looks, human walk /
+  run / crouch animations, a name tag, a flashlight beam, muzzle flashes,
+  and a grey-green tint as the infection spreads (friends can tell).
+- Pings: mark a spot, a zombie or loot, or hold to call for help; shown in
+  the world, at the screen edge and on the map. Friends appear on the map.
+- PvP world setting (off: bullets pass through friends).
+- Death with friends: a turned survivor's body is in the world with their
+  gear; subdue it and give it a cure vial to bring them back where it
+  stood. If it's killed, the cure can't help (permadeath: they're out).
+  Out players watch a living friend; a permadeath world is lost when
+  everyone is out. Respawn and new-character rules work as before.
+- Zombie caps grow by 60% of the solo cap per extra player.
+- Disconnects: guests go back to the menu with a message when the host
+  leaves; the host keeps a guest's last saved state when they leave.
+- A two-device test (a host and a guest on one machine) runs in CI.
+
+Simplified or moved:
+- **Internet join codes** need a relay server; the owner chose Wi-Fi only
+  for now. The relay can be added later without changing the game code.
+- **Guests' movement isn't checked by the host** (it trusts each device):
+  fine for friends playing together.
+- **Picking up dropped items** is checked by the host (no duplicates);
+  taking items from containers is shared but not locked, so two players
+  grabbing the same item at the same instant could both get it.
+- **Sleeping speeds up time only if everyone sleeps**: stage 6, with sleep.
+- **Spawning near a friend's base bed**: stage 6, with base building. New
+  guests start in a random small town.
+
+## 23. Open questions
 
 - Which free relay service to use for internet join codes.
 - Exact asset packs (checked for license and Tab S6 Lite performance).

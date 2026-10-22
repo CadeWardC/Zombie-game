@@ -6,6 +6,8 @@ extends Control
 
 var player_pos := Vector3.INF
 var player_yaw := 0.0
+## Friends and pings: [{pos: Vector3, color: Color, label: String}]
+var markers: Array = []
 var world_size := 8192.0
 var _tex: Texture2D
 
@@ -50,6 +52,13 @@ func _draw() -> void:
 		draw_rect(r, Color(0.1, 0.1, 0.1))
 		return
 	draw_texture_rect(_tex, r, false)
+	var font := get_theme_default_font()
+	for m in markers:
+		var mp := r.position + Vector2((m.pos as Vector3).x, (m.pos as Vector3).z) / world_size * side
+		draw_circle(mp, 6.0, Color.BLACK)
+		draw_circle(mp, 4.5, m.color)
+		draw_string_outline(font, mp + Vector2(8, 5), m.label, HORIZONTAL_ALIGNMENT_LEFT, -1, 14, 4, Color.BLACK)
+		draw_string(font, mp + Vector2(8, 5), m.label, HORIZONTAL_ALIGNMENT_LEFT, -1, 14, m.color)
 	if player_pos != Vector3.INF:
 		var p := r.position + Vector2(player_pos.x, player_pos.z) / world_size * side
 		var f := Vector2(-sin(player_yaw), -cos(player_yaw))

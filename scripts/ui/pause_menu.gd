@@ -106,6 +106,15 @@ func _open_map() -> void:
 	if player:
 		_map.player_pos = player.global_position
 		_map.player_yaw = player.rotation.y
+	_map.markers.clear()
+	for id in Net.players:
+		var st: Dictionary = Net.players[id].state
+		if not st.is_empty():
+			_map.markers.append({"pos": st.p, "color": Color(0.4, 0.85, 1.0), "label": str(Net.players[id].name)})
+	var game := get_parent()
+	if game and "pings" in game:
+		for pg in game.pings:
+			_map.markers.append({"pos": pg.pos, "color": Color(1.0, 0.55, 0.2), "label": "%s's ping" % pg.name})
 	_map_info.text = "MAP\nDay %d\nExplored %.1f%%\n\nYou: yellow arrow\nResearch centres: purple\nAirports: blue" % [
 		GameState.day, GameState.explored_fraction() * 100.0]
 	_map_layer.visible = true

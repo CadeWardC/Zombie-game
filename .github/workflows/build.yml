@@ -26,6 +26,9 @@ jobs:
       - name: Smoke test
         run: timeout 300 "$HOME/godot" --headless res://tests/smoke_test.tscn
 
+      - name: Multiplayer test (host and guest on one machine)
+        run: timeout 400 tests/run_net_test.sh "$HOME/godot"
+
   android:
     needs: test
     runs-on: ubuntu-latest
@@ -106,6 +109,11 @@ jobs:
           PROJ=$(find build/ios -maxdepth 1 -name "*.xcodeproj" | head -1)
           SCHEME=$(basename "$PROJ" .xcodeproj)
           echo "Project: $PROJ  Scheme: $SCHEME"
+          # Wi-Fi multiplayer: iOS asks the player for local network access.
+          for PLIST in $(find build/ios -maxdepth 2 -name "*-Info.plist"); do
+            /usr/libexec/PlistBuddy -c "Add :NSLocalNetworkUsageDescription string 'Find and join friends playing on the same Wi-Fi.'" "$PLIST" || true
+            echo "Updated $PLIST"
+          done
           xcodebuild -project "$PROJ" -scheme "$SCHEME" -configuration Release -sdk iphoneos \
             -derivedDataPath build/ios/dd CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY="" \
             DEVELOPMENT_TEAM="" build | tail -40
