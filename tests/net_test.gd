@@ -169,6 +169,28 @@ func _host() -> void:
 	await _wait_flag("guest_revived", 30000)
 	_check(_has_flag("guest_revived"), "the cured guest came back to life")
 
+	# A car for the guest: they drive it, everyone sees it move.
+	var gav: Node3D = _main.avatars.avatar(gid)
+	var cp := gav.global_position + Vector3(4, 0, 0)
+	var car := VehicleDB.roll("net_car", "sedan", 0)
+	car.merge({"fuel": 40.0, "keys": true, "bat": 1.0, "eng": 1.0, "parts": true, "locked": false, "flat": 0,
+		"p": [cp.x, _main.gen.height(cp.x, cp.z) + 0.3, cp.z]}, true)
+	GameState.ws.vehicles[car.id] = car
+	Net.vehicle_record(car)
+	var cstart := Vector3(car.p[0], car.p[1], car.p[2])
+	_flag("host_car")
+	await _wait_flag("guest_driving", 30000)
+	await get_tree().create_timer(3.0).timeout
+	var hv: Vehicle = _main.vehicles.nodes.get("net_car")
+	_check(hv != null and hv.remote and hv.seats.get(0) == gid, "the host sees the guest at the wheel")
+	if hv:
+		_check(hv.global_position.distance_to(cstart) > 3.0, "and the car moving (%.0f m)" % hv.global_position.distance_to(cstart))
+		_check(float(hv.rec.fuel) < 40.0, "its fuel is shared")
+	_flag("host_saw_car")
+	await _wait_flag("guest_out", 20000)
+	await get_tree().create_timer(1.0).timeout
+	_check(hv != null and hv.seats.is_empty() and not hv.remote, "the guest got out")
+
 	# Saving keeps the guest's survivor for next time.
 	await get_tree().create_timer(1.0).timeout
 	_main.save_game()
@@ -271,6 +293,26 @@ func _client() -> void:
 	_check(GameState.inventory.count("hammer") == 1, "with the gear they carried")
 	_check(not _main.player.body.infected, "and no infection")
 	_flag("guest_revived")
+
+	# Drive the host's car.
+	await _wait_flag("host_car", 30000)
+	var has_car := await _wait_for(func() -> bool: return _main.vehicles.nodes.has("net_car"), 15000)
+	_check(has_car, "the host's car shows up")
+	if has_car:
+		var gv: Vehicle = _main.vehicles.nodes["net_car"]
+		await get_tree().create_timer(0.5).timeout
+		_main.player.enter_vehicle(gv, 0)
+		_check(gv.running, "the guest starts it")
+		_flag("guest_driving")
+		Input.action_press("move_forward")
+		await get_tree().create_timer(2.5).timeout
+		Input.action_release("move_forward")
+		Input.action_press("jump")
+		await _wait_flag("host_saw_car", 20000)
+		Input.action_release("jump")
+		gv.speed = 0.0
+		_main.player.exit_vehicle(true)
+	_flag("guest_out")
 
 	# The host closes the game: back to the menu.
 	var gone := []
