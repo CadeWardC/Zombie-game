@@ -50,6 +50,11 @@ var gen: WorldGen
 var streamer: WorldStreamer
 var zombies: ZombieManager
 var drops: DropManager
+var vehicles: VehicleManager
+var vehicle_menu: VehicleMenu
+## The vehicle you're sitting in (null on foot) and which seat (0 drives).
+var vehicle: Vehicle
+var seat := -1
 var swimming := false
 ## Text for the HUD's interaction prompt ("" when nothing is in reach), the
 ## action it's bound to, and what holding interact does ("" for nothing).
@@ -83,6 +88,10 @@ var _climb_from := Vector3.ZERO
 var _climb_to := Vector3.ZERO
 var _crave_told := false
 var _ping_t := -1.0
+var _cam_yaw := 0.0 # Chase camera orbit, relative to the vehicle.
+var _cam_pitch := -0.25
+var _cam_idle := 0.0
+var _bang_t := 0.0
 
 
 func _ready() -> void:
@@ -130,6 +139,11 @@ func _unhandled_input(event: InputEvent) -> void:
 
 
 func _look(delta: Vector2) -> void:
+	if vehicle:
+		_cam_yaw -= delta.x
+		_cam_pitch = clampf(_cam_pitch - delta.y, -1.2, 0.5)
+		_cam_idle = 0.0
+		return
 	rotate_y(-delta.x)
 	head.rotation.x = clampf(head.rotation.x - delta.y, deg_to_rad(-85), deg_to_rad(85))
 
@@ -139,6 +153,9 @@ func _physics_process(delta: float) -> void:
 		return
 	if dead:
 		velocity = Vector3.ZERO
+		return
+	if vehicle:
+		_in_vehicle(delta)
 		return
 	var can_act := not GameState.ui_open
 
@@ -489,6 +506,17 @@ func _update_focus() -> void:
 			if block.is_empty():
 				best_score = score
 				_focus = c
+	if _focus == null and vehicles:
+		var near := vehicles.near(global_position, 1.3)
+		if not near.is_empty():
+			var e: Dictionary = near[0]
+			var to: Vector3 = (e.pos as Vector3) - global_position
+			to.y = 0.0
+			if e.d < 0.2 or fwd.dot(to.normalized()) > 0.2:
+				_focus = e.v if e.v else e.sp
+				var t: String = e.v.rec.t if e.v else e.sp.t
+				prompt = "%s" % VehicleDB.get_def(t).name
+				return
 	if _focus == null:
 		if weapons.current == "melee" and crouching and _takedown_ready():
 			prompt = "Silent takedown"
@@ -498,6 +526,13 @@ func _update_focus() -> void:
 		if _focus.type == "generator":
 			prompt = "Generator running" if GameState.has_power(_focus.site) else "Start generator"
 			hold_prompt = "" if GameState.has_power(_focus.site) else "start"
+			return
+		if _focus.type == "fuel_pump" or _focus.type == "jet_pump":
+			var left := VehicleMenu.pump_left(_focus)
+			var can := _fuel_can(_focus.type)
+			prompt = "%s (%d L left)" % [Loot.label(_focus.type), int(left)]
+			if left > 0.0 and not can.is_empty():
+				prompt = "Fill %s (%d L left in the pump)" % [ItemDB.item_name(can.id).to_lower(), int(left)]
 			return
 		var opened := GameState.containers.has(_focus.id)
 		var empty := opened and (GameState.containers[_focus.id] as Array).is_empty()
@@ -582,7 +617,11 @@ func hold_progress() -> float:
 func _interact() -> void:
 	if _focus == null:
 		return
-	if _focus is DoorBody:
+	if _focus is Vehicle:
+		vehicle_menu.open(_focus)
+	elif _focus is Dictionary and _focus.has("xf"):
+		vehicle_menu.open(vehicles.activate(_focus))
+	elif _focus is DoorBody:
 		_focus.interact(global_position)
 	elif _focus is WindowBody:
 		if _focus.smashed:
@@ -596,6 +635,9 @@ func _interact() -> void:
 		if _focus.type == "generator":
 			if not GameState.has_power(_focus.site):
 				GameState.notify("Hold to start the generator (it's loud)")
+			return
+		if _focus.type == "fuel_pump" or _focus.type == "jet_pump":
+			_fill_can(_focus)
 			return
 		GameState.container_items(_focus)
 		GameState.make_noise(global_position, 2.0)
@@ -742,6 +784,14 @@ func _find_treatment(need: String) -> Dictionary:
 func zombie_hit(dmg: float, from: Vector3, kind := "claw") -> void:
 	if dead:
 		return
+	# Inside a closed vehicle the zombies pound on it instead of you.
+	if vehicle and vehicle.def.closed and float(vehicle.rec.hp) > 0.0:
+		vehicle.zombie_bang(dmg)
+		_bang_t -= 1.0
+		if _bang_t <= 0.0:
+			_bang_t = 6.0
+			GameState.notify("Zombies are pounding on the %s!" % str(vehicle.def.name).to_lower())
+		return
 	var ch := GameState.character
 	var parts := ["arm_l", "arm_r", "torso", "torso", "arm_l", "arm_r", "head", "leg_l", "leg_r"]
 	var part: String = ("leg_l" if randf() < 0.5 else "leg_r") if kind == "ankle" else parts[randi() % parts.size()]
@@ -792,6 +842,8 @@ func hurt(amount: float, from: Vector3, kind: String) -> void:
 
 ## A crawler has you by the ankle: you can barely move.
 func grab(time: float, msg := "Something grabs your ankle!") -> void:
+	if vehicle:
+		return
 	_grab_t = maxf(_grab_t, time)
 	if msg != "":
 		GameState.notify(msg)
@@ -806,6 +858,8 @@ func take_damage(amount: float, _from: Vector3, feedback := true) -> void:
 		damaged.emit()
 	if health <= 0.0:
 		health = 0.0
+		if vehicle:
+			exit_vehicle(true)
 		dead = true
 		crouching = false
 		flashlight.visible = false
@@ -843,8 +897,10 @@ func respawn(pos: Vector3) -> void:
 
 
 func to_dict() -> Dictionary:
+	# Saved inside a vehicle: you'll be standing next to it.
+	var at := vehicle.exit_point(seat) if vehicle else global_position
 	return {
-		"pos": [global_position.x, global_position.y, global_position.z],
+		"pos": [at.x, at.y, at.z],
 		"yaw": rotation.y,
 		"health": health, "hunger": hunger, "thirst": thirst, "stamina": stamina,
 		"weapon": weapons.current, "body": body.to_dict(),
@@ -862,3 +918,180 @@ func from_dict(d: Dictionary) -> void:
 	stamina = float(d.get("stamina", 100.0))
 	body.from_dict(d.get("body", {}))
 	weapons.select(str(d.get("weapon", "melee")))
+
+
+# --- Vehicles ---------------------------------------------------------------------------
+
+## Gets in (seat 0 drives; -1 takes any free passenger seat).
+func enter_vehicle(v: Vehicle, want: int) -> void:
+	var s := want
+	if s < 0:
+		for i in range(1, int(v.def.seats)):
+			if not v.seats.has(i):
+				s = i
+				break
+	if s < 0 or v.seats.has(s):
+		GameState.notify("No free seat")
+		return
+	vehicle = v
+	seat = s
+	v.seats[s] = self
+	collision_layer = 0
+	collision_mask = 0
+	velocity = Vector3.ZERO
+	crouching = false
+	sprinting = false
+	flashlight.visible = false
+	weapons.visible = false
+	_cam_yaw = 0.0
+	_cam_pitch = -0.25
+	camera.top_level = true
+	_update_chase_camera(1.0)
+	if s == 0:
+		v.remote = false
+		var why := v.start_engine()
+		if why != "":
+			GameState.notify(why)
+		elif v.def.fuel != "":
+			GameState.notify("The engine starts" if v.kind != "heli" and v.kind != "plane" else "The engine whines up to speed")
+	Net.vehicle_seat(v.rec.id, s, true)
+
+
+## Gets out beside the vehicle. `forced` (dying, the vehicle going away)
+## skips the checks.
+func exit_vehicle(forced := false) -> void:
+	if vehicle == null:
+		return
+	var v := vehicle
+	if not forced and v.airborne:
+		GameState.notify("Not up here!")
+		return
+	if not forced and absf(v.speed) > 6.0:
+		GameState.notify("Slow down first")
+		return
+	var at := v.exit_point(seat) if is_instance_valid(v) else global_position
+	v.seats.erase(seat)
+	if seat == 0:
+		v.ctl_move = Vector2.ZERO
+		v.ctl_up = 0.0
+		if v.kind != "plane" or not v.airborne:
+			v.stop_engine()
+	Net.vehicle_seat(v.rec.id, seat, false)
+	Net.vehicle_record(v.rec)
+	vehicle = null
+	seat = -1
+	camera.top_level = false
+	camera.transform = Transform3D.IDENTITY
+	collision_layer = 2
+	collision_mask = 1 | 4
+	global_position = at
+	rotation.y = v.rotation.y + PI + _cam_yaw
+	head.rotation.x = 0.0
+	weapons.visible = true
+
+
+func _in_vehicle(delta: float) -> void:
+	var v := vehicle
+	if not is_instance_valid(v):
+		vehicle = null
+		camera.top_level = false
+		camera.transform = Transform3D.IDENTITY
+		collision_layer = 2
+		collision_mask = 1 | 4
+		weapons.visible = true
+		return
+	var can_act := not GameState.ui_open
+	if touch and can_act:
+		_look(touch.consume_look() * TOUCH_SENS)
+	var pad_look := Input.get_vector("look_left", "look_right", "look_up", "look_down") if can_act else Vector2.ZERO
+	if pad_look != Vector2.ZERO:
+		_look(pad_look * PAD_SENS * delta)
+	velocity = Vector3.ZERO
+	global_position = v.seat_pos(seat) - Vector3(0, 0.6, 0)
+	if seat == 0:
+		var input := Input.get_vector("move_left", "move_right", "move_forward", "move_back") if can_act else Vector2.ZERO
+		if touch and can_act:
+			input += touch.move_vector
+		input = input.limit_length(1.0)
+		v.ctl_move = Vector2(input.x, -input.y)
+		var up := 0.0
+		if can_act and Input.is_action_pressed("jump"):
+			up += 1.0
+		if can_act and Input.is_action_pressed("crouch"):
+			up -= 1.0
+		v.ctl_up = up
+		if can_act and Input.is_action_just_pressed("reload") and not v.running:
+			var why := v.start_engine()
+			GameState.notify(why if why != "" else "The engine starts")
+	_cam_idle += delta
+	_update_chase_camera(delta)
+	_update_stats(delta, false)
+	if not can_act:
+		return
+	prompt = "Get out"
+	prompt_action = "interact"
+	hold_prompt = ""
+	_focus = null
+	if Input.is_action_just_pressed("interact"):
+		exit_vehicle()
+		return
+	if Input.is_action_just_pressed("flashlight") and seat == 0:
+		v.set_lights(not v.lights_on)
+	if Input.is_action_just_pressed("attack") and seat == 0:
+		v.honk()
+	if Input.is_action_just_pressed("inventory"):
+		open_inventory.emit({})
+	if Input.is_action_just_pressed("quick_eat"):
+		quick_use(["drink"] if thirst < hunger else ["food"], ["food", "drink"])
+	if Input.is_action_just_pressed("quick_heal"):
+		quick_use(["medical"], [])
+	_update_ping(delta)
+
+
+## Third-person camera behind the vehicle; look input orbits it, and it
+## swings back behind after a moment of driving.
+func _update_chase_camera(delta: float) -> void:
+	var v := vehicle
+	if _cam_idle > 1.5 and absf(v.speed) > 3.0:
+		_cam_yaw = lerp_angle(_cam_yaw, 0.0, minf(1.0, delta * 2.0))
+	var dist: float = v.def.cam
+	var pivot := v.global_position + Vector3(0, float(v.def.size.y) * 0.9 + 0.6, 0)
+	var yaw := v.rotation.y + _cam_yaw
+	var dir := Vector3(sin(yaw) * cos(_cam_pitch), sin(_cam_pitch), cos(yaw) * cos(_cam_pitch))
+	var want := pivot - dir * dist
+	var hit := get_world_3d().direct_space_state.intersect_ray(PhysicsRayQueryParameters3D.create(pivot, want, 1, [v.get_rid()]))
+	if not hit.is_empty():
+		want = (hit.position as Vector3) + dir * 0.3
+	if gen:
+		want.y = maxf(want.y, gen.height(want.x, want.z) + 0.5)
+	camera.global_position = want if delta >= 1.0 else camera.global_position.lerp(want, minf(1.0, delta * 10.0))
+	if camera.global_position.distance_squared_to(pivot) > 0.01:
+		camera.look_at(pivot + dir * 2.0)
+
+
+func _fuel_can(pump_type: String) -> Dictionary:
+	var fuel := "jet" if pump_type == "jet_pump" else "gas"
+	var best := {}
+	for g in GameState.inventory.grids():
+		for it in g.items:
+			var d := ItemDB.get_def(it.id)
+			if d.get("fuel", "") == fuel and int(it.get("u", 0)) < int(d.uses):
+				if best.is_empty() or int(it.get("u", 0)) < int(best.get("u", 0)):
+					best = it
+	return best
+
+
+func _fill_can(ct: Dictionary) -> void:
+	var can := _fuel_can(ct.type)
+	if can.is_empty():
+		GameState.notify("You need an empty %s" % ("jet fuel can" if ct.type == "jet_pump" else "gas can"))
+		return
+	var room := float(ItemDB.get_def(can.id).uses) - float(can.get("u", 0))
+	var got := VehicleMenu.take_from_pump(ct, room)
+	if got <= 0.0:
+		GameState.notify("The pump is dry")
+		return
+	can.u = int(can.get("u", 0)) + int(got)
+	GameState.inventory.notify()
+	GameState.make_noise(global_position, 5.0)
+	GameState.notify("Filled the can (%d L)" % int(got))

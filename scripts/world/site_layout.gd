@@ -74,6 +74,7 @@ func _airport(rng: RandomNumberGenerator) -> void:
 		var x := 200.0 + k * 85.0
 		_surface("apron", Vector2(x, 60), Vector2(38.0, 60.0))
 		_lot("hangar", Vector2(x, 145), 64.0, 52.0, Vector2(0, -1))
+		_prop("jet_pump", Vector2(x + 24.0, 104), 0.0)
 	# Aircraft: most can fly with fuel; some sit broken (decided in stage 5).
 	for k in 3:
 		_prop("airliner" if k == 0 else "prop_plane", Vector2(-300 + k * 110, 60), PI * 0.5)

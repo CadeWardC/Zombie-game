@@ -29,6 +29,8 @@ var effects: Effects
 var drops: DropManager
 var perf: PerformanceMonitor
 var avatars: Avatars
+var vehicles: VehicleManager
+var vehicle_menu: VehicleMenu
 var pings: Array = [] # {pos, kind, name, t}
 var _look_json := ""
 var _spec_cam: Camera3D
@@ -135,6 +137,21 @@ func _setup_world() -> void:
 	add_child(effects)
 	player.weapons.effects = effects
 	player.weapons.drops = drops
+
+	vehicles = VehicleManager.new()
+	vehicles.gen = gen
+	vehicles.streamer = streamer
+	vehicles.player = player
+	vehicles.zombies = zombies
+	vehicles.avatars = avatars
+	add_child(vehicles)
+	streamer.vehicles = vehicles
+	player.vehicles = vehicles
+	vehicle_menu = VehicleMenu.new()
+	vehicle_menu.player = player
+	vehicle_menu.streamer = streamer
+	add_child(vehicle_menu)
+	player.vehicle_menu = vehicle_menu
 
 	inventory_ui = InventoryScreen.new()
 	inventory_ui.player = player
@@ -258,7 +275,7 @@ func _process(delta: float) -> void:
 	ocean.global_position = Vector3(snappedf(p.x, 64.0), -0.05, snappedf(p.z, 64.0))
 	if not player.active:
 		return
-	if Input.is_action_just_pressed("pause") and not player.dead and not inventory_ui.is_open():
+	if Input.is_action_just_pressed("pause") and not player.dead and not inventory_ui.is_open() and not vehicle_menu.is_open():
 		pause_menu.open()
 	if Input.is_action_just_pressed("toggle_fps"):
 		hud.toggle_debug()

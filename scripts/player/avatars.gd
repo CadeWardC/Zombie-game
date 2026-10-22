@@ -180,7 +180,7 @@ class RemoteAvatar:
 		_label.modulate = Color(1.0, 0.45, 0.4) if dead or st.sym > 0.4 else Color(0.95, 0.95, 0.9)
 		_label.outline_modulate = Color(0, 0, 0, 0.8)
 		# A turned body walks as a zombie (the host's zombie); hide this one.
-		visible = not turned
+		visible = not turned and not st.get("veh", false)
 		collision_layer = 0 if dead else 2
 		_dress(info, float(st.sym))
 		_animate(delta)

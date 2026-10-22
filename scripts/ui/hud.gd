@@ -426,6 +426,11 @@ func _draw_overlay() -> void:
 	if player.dead:
 		_draw_pings(ci, size, font) # Watching friends.
 		return
+	if player.vehicle:
+		_draw_pings(ci, size, font)
+		_draw_prompt(ci, Vector2(c.x, size.y - 150.0), font)
+		_draw_vehicle_panel(ci, size, font, player.vehicle)
+		return
 	if w.scoped():
 		_draw_scope(ci, size)
 	else:
@@ -597,6 +602,45 @@ func _draw_prompt(ci: Control, c: Vector2, font: Font) -> void:
 	var hold := player.hold_progress()
 	if hold > 0.0:
 		ci.draw_arc(Vector2(c.x, y + 14), 26.0, -PI * 0.5, -PI * 0.5 + TAU * hold, 32, Color(0.95, 0.85, 0.3), 4.0)
+
+
+## Driving: speed, fuel, condition and warnings (bottom-right, or top-left
+## on touch like the weapon panel).
+func _draw_vehicle_panel(ci: Control, size: Vector2, font: Font, v: Vehicle) -> void:
+	var touch := GameState.uses_touch() and not GameState.using_gamepad()
+	var pos := Vector2(20, 156) if touch else Vector2(size.x - 300, size.y - 132)
+	ci.draw_rect(Rect2(pos, Vector2(280, 112)), Color(0, 0, 0, 0.45))
+	var white := Color.WHITE
+	var lines: Array = []
+	var kmh := int(absf(v.speed) * 3.6)
+	lines.append(["%s   %d km/h" % [v.def.name, kmh], 20, white])
+	var info: PackedStringArray = []
+	if v.def.fuel != "":
+		info.append("Fuel %d / %d L" % [int(v.rec.fuel), int(v.def.tank)])
+	info.append("Condition %d%%" % int(100.0 * float(v.rec.hp) / float(v.def.hp)))
+	lines.append(["   ".join(info), 16, Color(0.85, 0.9, 0.85)])
+	var warn := ""
+	if float(v.rec.hp) <= 0.0:
+		warn = "Wrecked"
+	elif v.def.fuel != "" and not v.running and player.seat == 0:
+		warn = "Engine off - %s" % ("press reload to start" if not GameState.uses_touch() else "tap RELOAD to start")
+	elif v.def.fuel != "" and float(v.rec.fuel) < float(v.def.tank) * 0.1:
+		warn = "Low fuel"
+	elif v.kind == "plane":
+		warn = ("Throttle %d%%" % int(v.throttle * 100.0)) + ("" if v.airborne else ("   take off at %d km/h" % int(float(v.def.takeoff) * 3.6)))
+	elif v.kind == "heli":
+		warn = "Altitude %d m" % int(v.global_position.y - gen_height(v.global_position))
+	if warn != "":
+		lines.append([warn, 16, Color(1, 0.75, 0.35)])
+	var y := pos.y + 28
+	for l in lines:
+		ci.draw_string_outline(font, Vector2(pos.x + 12, y), l[0], HORIZONTAL_ALIGNMENT_LEFT, 260, l[1], 4, Color.BLACK)
+		ci.draw_string(font, Vector2(pos.x + 12, y), l[0], HORIZONTAL_ALIGNMENT_LEFT, 260, l[1], l[2])
+		y += 30
+
+
+func gen_height(p: Vector3) -> float:
+	return player.gen.height(p.x, p.z) if player.gen else 0.0
 
 
 ## Current weapon, rounds and condition. Bottom-right on desktop and gamepad;

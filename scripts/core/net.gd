@@ -59,6 +59,8 @@ var _drop_seq := 0
 var _container_dirty := {} # Guest: container ids changed locally, to send.
 var _container_t := 0.0
 var _game: Node # The running game (main.gd), when there is one.
+## Who sits where: vehicle id -> {seat: peer id}.
+var vehicle_seats := {}
 
 
 func _ready() -> void:
@@ -152,6 +154,7 @@ func _close() -> void:
 	_disc = null
 	mode = Mode.OFFLINE
 	players.clear()
+	vehicle_seats.clear()
 	state_changed.emit()
 
 
@@ -167,6 +170,7 @@ func _on_peer_disconnected(id: int) -> void:
 		return
 	var info: Dictionary = players[id]
 	players.erase(id)
+	_clear_seats(id)
 	if is_host():
 		rpc("_player_gone", id)
 		chat_notice.emit("%s left" % info.name)
@@ -383,6 +387,7 @@ func _player_gone(id: int) -> void:
 	if players.has(id):
 		var info: Dictionary = players[id]
 		players.erase(id)
+		_clear_seats(id)
 		chat_notice.emit("%s left" % info.name)
 		player_left.emit(info)
 
@@ -436,6 +441,7 @@ func _send_state() -> void:
 	flags |= 16 if p.weapons.aim_blend > 0.5 else 0
 	flags |= 32 if p.turned else 0
 	flags |= 64 if p.swimming else 0
+	flags |= 128 if p.vehicle else 0
 	var st := [p.global_position, p.rotation.y, p.head.rotation.x, flags, p.visibility(), p.head.position.y,
 		snappedf(p.body.symptoms(), 0.25), Vector2(p.velocity.x, p.velocity.z).length(), int(p.health)]
 	if is_host():
@@ -467,7 +473,7 @@ func _apply_state(id: int, st: Array) -> void:
 	var flags := int(st[3])
 	p.state = {"raw": st, "p": st[0], "yaw": st[1], "pitch": st[2], "crouch": flags & 1 != 0, "sprint": flags & 2 != 0,
 		"dead": flags & 4 != 0, "light": flags & 8 != 0, "aim": flags & 16 != 0, "turned": flags & 32 != 0,
-		"swim": flags & 64 != 0, "vis": st[4], "eye": st[5], "sym": st[6], "speed": st[7], "hp": st[8],
+		"swim": flags & 64 != 0, "veh": flags & 128 != 0, "vis": st[4], "eye": st[5], "sym": st[6], "speed": st[7], "hp": st[8],
 		"t": Time.get_ticks_msec()}
 	p.dead = p.state.dead
 	p.turned = p.state.turned
@@ -798,6 +804,109 @@ func _clock(t: float, d: int) -> void:
 
 ## Sends a world change to everyone: the host tells every guest; a guest
 ## tells the host, which passes it on.
+# --- Vehicles --------------------------------------------------------------------------------
+# A vehicle's record (fuel, parts, keys...) is shared whenever it changes.
+# Whoever drives it simulates it and sends its motion; everyone else follows.
+
+func vehicle_record(r: Dictionary) -> void:
+	if active():
+		_broadcast("_vrec", [r])
+
+
+@rpc("any_peer", "reliable")
+func _vrec(r: Dictionary) -> void:
+	if is_host():
+		_relay("_vrec", [r])
+	if _game and _game.vehicles:
+		_game.vehicles.apply_record(r)
+	else:
+		GameState.ws.vehicles[r.id] = r
+
+
+func vehicle_seat(id: String, seat: int, on: bool) -> void:
+	_set_seat(my_id(), id, seat, on)
+	if active():
+		_broadcast("_vseat", [my_id(), id, seat, on])
+
+
+@rpc("any_peer", "reliable")
+func _vseat(peer: int, id: String, seat: int, on: bool) -> void:
+	if is_host():
+		_relay("_vseat", [peer, id, seat, on])
+	_set_seat(peer, id, seat, on)
+
+
+func _set_seat(peer: int, id: String, seat: int, on: bool) -> void:
+	var seats: Dictionary = vehicle_seats.get(id, {})
+	if on:
+		seats[seat] = peer
+	else:
+		seats.erase(seat)
+	vehicle_seats[id] = seats
+	if peer == my_id() or _game == null or _game.vehicles == null:
+		return
+	var v: Vehicle = _game.vehicles.nodes.get(id)
+	if v:
+		v.sync_seats(seats)
+
+
+func _clear_seats(peer: int) -> void:
+	for id in vehicle_seats:
+		var seats: Dictionary = vehicle_seats[id]
+		for s in seats.keys():
+			if seats[s] == peer:
+				_set_seat(peer, id, s, false)
+
+
+func _send_vehicle() -> void:
+	var p: Player = _game.player if _game else null
+	if p == null or p.vehicle == null or p.seat != 0:
+		return
+	_broadcast("_vstate", [p.vehicle.rec.id, p.vehicle.net_state()])
+
+
+@rpc("any_peer", "unreliable_ordered")
+func _vstate(id: String, st: Array) -> void:
+	if is_host():
+		_relay("_vstate", [id, st])
+	if _game and _game.vehicles:
+		var v: Vehicle = _game.vehicles.nodes.get(id)
+		if v:
+			v.net_apply(st)
+		elif GameState.ws.vehicles.has(id):
+			var r: Dictionary = GameState.ws.vehicles[id]
+			var pos: Vector3 = st[0]
+			r.p = [pos.x, pos.y, pos.z]
+			r.yaw = st[1]
+
+
+func vehicle_alarm(id: String) -> void:
+	if active():
+		_broadcast("_valarm", [id])
+
+
+@rpc("any_peer", "reliable")
+func _valarm(id: String) -> void:
+	if is_host():
+		_relay("_valarm", [id])
+	if _game and _game.vehicles:
+		var v: Vehicle = _game.vehicles.nodes.get(id)
+		if v:
+			v.sound_alarm()
+
+
+func pump_state(id: String, left: float) -> void:
+	if active():
+		_broadcast("_pump", [id, left])
+
+
+@rpc("any_peer", "reliable")
+func _pump(id: String, left: float) -> void:
+	if is_host():
+		_relay("_pump", [id, left])
+	GameState.ws.pumps[id] = left
+
+
 func _broadcast(method: String, args: Array) -> void:
 	if is_host():
 		callv("rpc", [method] + args)
@@ -886,6 +995,7 @@ func _process(delta: float) -> void:
 	if _state_t <= 0.0:
 		_state_t = STATE_RATE
 		_send_state()
+		_send_vehicle()
 	_container_t -= delta
 	if _container_t <= 0.0:
 		_container_t = 0.3

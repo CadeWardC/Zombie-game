@@ -391,6 +391,11 @@ func _add_prop(type: String, xf: Transform3D) -> void:
 	elif type in ["bicycle", "motorbike", "prop_plane", "helicopter"]:
 		vehicle_spots.append({"id": vid, "t": type, "m": -1, "xf": xf, "mm": name, "i": prop_counts.get(name, 0),
 			"box": -1, "trunk": ""})
+	elif type == "fuel_pump" or type == "jet_pump":
+		# Pumps still hold fuel (see GameState.ws.pumps).
+		name = "fuel_pump"
+		if lod == 0:
+			containers.append({"pos": xf * Vector3(0, 1.0, 0), "type": type, "bld": "", "id": "pump_%d_%d" % [int(w.x * 4.0), int(w.z * 4.0)]})
 	if lod == 1:
 		if type == "pine":
 			name = "pine_far"

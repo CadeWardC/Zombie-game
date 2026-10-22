@@ -65,7 +65,7 @@ var pending_character: Character
 ##   spawns: interior spawn id -> in-game hour its zombie was killed
 ##   turned: players who died infected and rose as zombies:
 ##           [{id, name, p: [x, y, z], items, look, owner}]
-var ws := {"doors": {}, "windows": {}, "power": {}, "spawns": {}, "turned": []}
+var ws := {"doors": {}, "windows": {}, "power": {}, "spawns": {}, "turned": [], "vehicles": {}, "pumps": {}}
 ## Which parts of the map have been seen (one byte per EXPLORE_CELL square).
 var explored: Image
 ## Opened containers: id -> Array of items (each with grid x, y, r).
@@ -344,7 +344,7 @@ func remove_turned(id: String) -> void:
 
 
 func _reset_ws() -> void:
-	ws = {"doors": {}, "windows": {}, "power": {}, "spawns": {}, "turned": []}
+	ws = {"doors": {}, "windows": {}, "power": {}, "spawns": {}, "turned": [], "vehicles": {}, "pumps": {}}
 
 
 # --- Explored map ------------------------------------------------------------------
@@ -500,7 +500,7 @@ func load_game() -> Dictionary:
 	if version >= 3:
 		character = Character.from_dict(data.get("character", {}))
 		var w: Dictionary = data.get("world", {})
-		for k in ["doors", "windows", "power", "spawns"]:
+		for k in ["doors", "windows", "power", "spawns", "vehicles", "pumps"]:
 			ws[k] = w.get(k, {})
 		ws.turned = w.get("turned", [])
 		for t in ws.turned:
@@ -616,7 +616,7 @@ func start_net_world(meta: Dictionary, state: Dictionary, record: Dictionary) ->
 	for d in state.get("drops", []):
 		apply_drop_add(d)
 	var w: Dictionary = state.get("ws", {})
-	for k in ["doors", "windows", "power", "spawns"]:
+	for k in ["doors", "windows", "power", "spawns", "vehicles", "pumps"]:
 		ws[k] = w.get(k, {})
 	ws.turned = w.get("turned", [])
 	net_records = {}

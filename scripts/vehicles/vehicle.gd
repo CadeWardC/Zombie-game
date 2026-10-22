@@ -20,6 +20,7 @@ const GRAVITY := 14.0
 var rec: Dictionary
 var def: Dictionary
 var kind := "ground"
+var size := Vector3.ONE
 ## Seated players: seat index -> Player (local) or peer id (others).
 var seats := {}
 var running := false
@@ -59,7 +60,7 @@ func setup(r: Dictionary) -> void:
 	floor_max_angle = deg_to_rad(40.0)
 	floor_snap_length = 0.6
 	safe_margin = 0.04
-	var size: Vector3 = def.size
+	size = def.size
 	var cs := CollisionShape3D.new()
 	var box := BoxShape3D.new()
 	# Planes collide by the fuselage; the wings would snag on everything.
@@ -119,7 +120,7 @@ func seat_pos(i: int) -> Vector3:
 	var off := Vector3.ZERO
 	match kind:
 		"ground":
-			if def.size.x < 1.0:
+			if size.x < 1.0:
 				off = Vector3(0, 0.85, -0.2 - i * 0.5)
 			else:
 				off = Vector3(0.45 if i % 2 == 0 else -0.45, 0.45, 0.3 - int(i / 2) * 1.1)
@@ -142,16 +143,16 @@ func free_seat() -> int:
 ## Where to step out: beside the driver's door, or wherever there's room.
 func exit_point(i: int) -> Vector3:
 	var space := get_world_3d().direct_space_state
-	var w: float = def.size.x * 0.5 + 0.9
+	var w: float = size.x * 0.5 + 0.9
 	for off: Vector3 in [Vector3(w if i % 2 == 0 else -w, 0, 0), Vector3(-w if i % 2 == 0 else w, 0, 0),
-			Vector3(0, 0, -def.size.z * 0.5 - 1.0), Vector3(0, 0, def.size.z * 0.5 + 1.0)]:
+			Vector3(0, 0, -size.z * 0.5 - 1.0), Vector3(0, 0, size.z * 0.5 + 1.0)]:
 		var p := global_transform * off + Vector3(0, 1.2, 0)
 		var hit := space.intersect_ray(PhysicsRayQueryParameters3D.create(p + Vector3(0, 2.0, 0), p - Vector3(0, 6.0, 0), 1, [get_rid()]))
 		if not hit.is_empty():
 			var free := space.intersect_ray(PhysicsRayQueryParameters3D.create(global_position + Vector3(0, 1.0, 0), hit.position + Vector3(0, 1.0, 0), 1, [get_rid()]))
 			if free.is_empty():
 				return hit.position + Vector3(0, 0.1, 0)
-	return global_position + Vector3(0, def.size.y + 0.3, 0)
+	return global_position + Vector3(0, size.y + 0.3, 0)
 
 
 func set_lights(on: bool) -> void:
@@ -182,6 +183,13 @@ func stop_engine() -> void:
 func sound_alarm(time := 20.0) -> void:
 	_alarm_t = time
 	GameState.notify("The car alarm goes off!")
+
+
+## A zombie beating on it with someone inside.
+func zombie_bang(dmg: float) -> void:
+	_damage(dmg * 0.4)
+	if float(rec.hp) <= 0.0:
+		GameState.notify("They're breaking in!")
 
 
 func honk() -> void:
@@ -279,15 +287,15 @@ func _ground(dt: float) -> void:
 	var target_pitch := 0.0
 	var target_roll := 0.0
 	if gen:
-		var half: float = def.size.z * 0.4
+		var half: float = size.z * 0.4
 		var f := global_position + forward() * half
 		var b := global_position - forward() * half
 		target_pitch = atan2(gen.height(f.x, f.z) - gen.height(b.x, b.z), half * 2.0)
-		var side := global_basis.x * def.size.x * 0.4
+		var side := global_basis.x * size.x * 0.4
 		var l := global_position + side
 		var r := global_position - side
-		target_roll = atan2(gen.height(l.x, l.z) - gen.height(r.x, r.z), def.size.x * 0.8) * 0.5
-	if def.size.x < 1.0:
+		target_roll = atan2(gen.height(l.x, l.z) - gen.height(r.x, r.z), size.x * 0.8) * 0.5
+	if size.x < 1.0:
 		target_roll = ctl_move.x * clampf(absf(speed) / 8.0, 0.0, 1.0) * 0.35
 	pitch = lerpf(pitch, clampf(target_pitch, -0.5, 0.5), minf(1.0, dt * 8.0))
 	bank = lerpf(bank, target_roll, minf(1.0, dt * 8.0))
@@ -479,8 +487,8 @@ func _hit_zombies(dt: float) -> void:
 			_hit_cd.erase(z)
 	if zombies == null or absf(speed) < 3.0 or kind in ["water", "heli"] or airborne:
 		return
-	var front := global_position + forward() * signf(speed) * def.size.z * 0.4
-	for z in zombies.in_radius(front, def.size.x * 0.6 + 0.8):
+	var front := global_position + forward() * signf(speed) * size.z * 0.4
+	for z in zombies.in_radius(front, size.x * 0.6 + 0.8):
 		if _hit_cd.has(z):
 			continue
 		_hit_cd[z] = 0.8
@@ -490,9 +498,9 @@ func _hit_zombies(dt: float) -> void:
 		if Effects.current:
 			Effects.current.blood(z.global_position + Vector3(0, 1.0, 0), forward())
 		_damage(2.0 + absf(speed) * 0.15)
-		speed *= 0.9 if def.size.x > 1.0 else 0.5
+		speed *= 0.9 if size.x > 1.0 else 0.5
 		# Bikes: the rider takes a knock too.
-		if def.size.x < 1.0 and absf(speed) > 6.0:
+		if size.x < 1.0 and absf(speed) > 6.0:
 			for s in seats.values():
 				if s is Player:
 					(s as Player).take_damage(4.0, global_position)
@@ -523,13 +531,31 @@ func _animate(dt: float) -> void:
 			l.visible = lights_on and (running or def.fuel == "")
 
 
-# --- Multiplayer ---------------------------------------------------------------------------
+# --- Multiplayer ---
+
+## Other players' seats changed (ours stay as they are).
+func sync_seats(shared: Dictionary) -> void:
+	for k in seats.keys():
+		if not seats[k] is Player:
+			seats.erase(k)
+	for k in shared:
+		if not seats.has(int(k)) and int(shared[k]) != Net.my_id():
+			seats[int(k)] = int(shared[k])
+	remote = seats.has(0) and not seats[0] is Player
+	if remote:
+		_net_pos = global_position
+		_net_yaw = rotation.y
+
+
+# ---------------------------------------------------------------------------
 
 func net_state() -> Array:
 	return [global_position, rotation.y, pitch, bank, running, speed, airborne, float(rec.fuel), float(rec.hp)]
 
 
 func net_apply(st: Array) -> void:
+	if not remote:
+		return
 	_net_pos = st[0]
 	_net_yaw = st[1]
 	pitch = st[2]

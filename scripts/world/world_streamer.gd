@@ -5,6 +5,8 @@ extends Node3D
 ## a small per-frame time budget so streaming never causes a hitch.
 
 signal spawn_area_ready
+## A chunk was added (VehicleManager hides parked cars that were moved).
+signal chunk_added(chunk: Chunk)
 
 const NEAR_RADIUS := 1 # Chunks within this ring get full detail + collision.
 const FRAME_BUDGET_USEC := 3000
@@ -17,6 +19,7 @@ var shadows := false
 ## Host: other players' positions. The chunks right around them are loaded
 ## with collision too, so zombies chasing them have walls and floors.
 var extra_centers: Array = []
+var vehicles: VehicleManager
 
 var _chunks := {} # Vector2i -> Chunk
 var _jobs := {} # Vector2i -> Job
@@ -70,8 +73,11 @@ func containers_near(pos: Vector3, radius: float) -> Array:
 			if c == null or c.lod != 0:
 				continue
 			for ct in c.containers:
-				if ct.pos.distance_to(pos) < radius:
+				# A car's trunk goes with the car once it's been moved.
+				if ct.pos.distance_to(pos) < radius and not GameState.ws.vehicles.has(ct.get("veh", "")):
 					out.append(ct)
+	if vehicles:
+		out.append_array(vehicles.trunks_near(pos, radius))
 	return out
 
 
@@ -121,6 +127,10 @@ func cover_distance(pos: Vector3, radius: float) -> float:
 		if d < best:
 			best = d
 	return best if best < radius else INF
+
+
+func chunks() -> Array:
+	return _chunks.values()
 
 
 ## Emits spawn_area_ready again once the chunk under the player is ready.
@@ -244,3 +254,4 @@ func _finalize() -> void:
 		if old != null:
 			old.queue_free()
 		_chunks[key] = chunk
+		chunk_added.emit(chunk)

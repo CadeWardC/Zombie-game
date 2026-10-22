@@ -49,6 +49,10 @@ func setup(data: Dictionary, shadows: bool) -> void:
 			if prop_name.begins_with("car") or prop_name in ["hydrant", "mailbox", "fuel_pump"]:
 				mmi.visibility_range_end = 260.0
 
+	for sp in data.vehicle_spots:
+		var vs: Dictionary = sp.duplicate()
+		vs.xf = Transform3D(Basis.IDENTITY, position) * (sp.xf as Transform3D)
+		vehicle_spots.append(vs)
 	if not near:
 		return
 	var body := StaticBody3D.new()
@@ -60,10 +64,6 @@ func setup(data: Dictionary, shadows: bool) -> void:
 		_add_shape(body, Assets.tree_shape, Transform3D(Basis.IDENTITY, p + Vector3(0, 2.0, 0)))
 	for xf in data.car_boxes:
 		_car_shapes.append(_add_shape(body, Assets.car_shape, xf))
-	for sp in data.vehicle_spots:
-		var vs: Dictionary = sp.duplicate()
-		vs.xf = Transform3D(Basis.IDENTITY, position) * (sp.xf as Transform3D)
-		vehicle_spots.append(vs)
 	# Walls, floors, furniture: one concave shape per building, baked on the
 	# worker thread and created over the next few frames.
 	for faces: PackedVector3Array in data.collision_batches:

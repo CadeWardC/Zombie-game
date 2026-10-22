@@ -85,6 +85,12 @@ func _holding_anything() -> bool:
 
 
 func _shown(b: Dictionary) -> bool:
+	if player != null and player.vehicle:
+		# Driving: no aiming, shoving or switching weapons.
+		if b.action in ["aim", "shove", "weapon_next"]:
+			return false
+		if b.action == "reload":
+			return player.seat == 0
 	match b.get("show", ""):
 		"ranged":
 			return player != null and player.weapons.is_ranged()
@@ -170,6 +176,20 @@ func _on_release(index: int) -> void:
 func _label(b: Dictionary) -> String:
 	if player == null:
 		return b.label
+	if player.vehicle:
+		match b.action:
+			"attack":
+				return "HORN"
+			"jump":
+				return {"plane": "THROTTLE+", "heli": "UP"}.get(player.vehicle.kind, "BRAKE")
+			"crouch":
+				return {"plane": "THROTTLE-", "heli": "DOWN"}.get(player.vehicle.kind, "-")
+			"interact":
+				return "EXIT"
+			"flashlight":
+				return "LIGHTS"
+			"reload":
+				return "START"
 	match b.action:
 		"attack":
 			var cat: String = player.weapons.def().get("cat", "")

@@ -7,6 +7,7 @@ extends RefCounted
 ## finds the same thing. Scarce by design; guns are uncommon.
 
 const NAMES := {
+	"fuel_pump": "Gas Pump", "jet_pump": "Jet Fuel Pump",
 	"fridge": "Fridge", "kitchen_cabinet": "Cabinet", "medicine_cabinet": "Medicine Cabinet",
 	"nightstand": "Nightstand", "dresser": "Dresser", "wardrobe": "Wardrobe", "desk": "Desk",
 	"store_shelf": "Shelf", "register": "Register", "locker": "Locker", "medical": "Medical Cabinet",
