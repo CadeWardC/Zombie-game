@@ -490,8 +490,8 @@ Each stage ends with a playable build on the Tab S6 Lite and iPhone.
 | **2. Items and combat** ✅ | Tetris inventory, loot tables, guns, bows, throwables, melee shove and durability, stealth, gamepad menu navigation and prompts |
 | **3. Character and health** ✅ | Character creation with traits, injuries, clothing protection, infection with symptoms, cure vials, the three death rules, curing zombified friends, memorial worlds, all zombie types and abilities |
 | **4. Multiplayer** ✅ (Wi-Fi) | 2–4 player hosting, join codes, Wi-Fi discovery, pings, PvP setting, sync of zombies, loot and vehicles |
-| **5. Vehicles** ← next | Cars, bikes, fuel, boats, then helicopters and planes at airports |
-| **6. Survival depth** | Crafting, base building, skills, farming, cooking, spoilage, sleep, temperature, weather and seasons, utilities and power plant, traders, hunting, fishing, foraging, water purification, dog companion |
+| **5. Vehicles** ✅ | Cars, bikes, fuel, boats, then helicopters and planes at airports |
+| **6. Survival depth** ← next | Crafting, base building, skills, farming, cooking, spoilage, sleep, temperature, weather and seasons, utilities and power plant, traders, hunting, fishing, foraging, water purification, dog companion |
 | **7. Polish** | Audio, hordes and migration, tutorial and hints, aim assist and remapping, HUD options, settings, performance pass |
 
 Multiplayer comes at stage 4 by request, after the map. To avoid rework,
@@ -653,7 +653,62 @@ Simplified or moved:
 - **Spawning near a friend's base bed**: stage 6, with base building. New
   guests start in a random small town.
 
-## 23. Open questions
+## 23. Stage 5 notes
+
+Done:
+- Every parked car, bike and aircraft can be used. They stay cheap props
+  until someone walks up to one; then it gets a saved record (fuel, engine,
+  battery, flat tires, keys, hotwired, locked, damage) and a vehicle takes
+  over from the prop. Its condition is rolled from its id, so everyone in a
+  world finds it the same way, and most cars need work: no fuel, a dead
+  battery, a shot engine, flats, no keys, locked doors.
+- Vehicles: bicycle (pedal power uses stamina, silent), motorbike, sedan,
+  hatchback, SUV, pickup, van, police car, ambulance, school bus,
+  rowboat and motorboat (moored at docks on lakes and the coast; zombies
+  can't follow), helicopters (airports, helipads, research centres) and
+  light aircraft (airports).
+- Driving is arcade and forgiving: cars follow the ground and tilt with
+  it, bikes lean into turns, flats pull to one side and slow you down,
+  deep water floods the engine. Boats glide and run aground at the shore.
+  Helicopters climb, descend and fly anywhere, and land gently or crash.
+  Planes need take-off speed and a pull on the stick, stall when slow,
+  and are wrecked by a hard or banked landing.
+- A vehicle menu at each vehicle: drive or ride as a passenger, break into
+  a locked car (it may set off the alarm), open the trunk (it travels with
+  the car), refuel from a gas or jet fuel can or a nearby pump, swap in a
+  battery, change a flat, fix the engine with engine parts, hotwire with a
+  screwdriver or mechanics skill.
+- Fuel: gas station pumps and airport jet fuel pumps each hold a limited,
+  saved amount; fill cans there or refuel at them. New items: gas can, jet
+  fuel can, screwdriver, car battery, spare tire, engine parts (hardware
+  stores, warehouses, gas stations, hangars, trunks).
+- Noise: engines are heard for 30–40 m (helicopters and planes much
+  further), horns and car alarms draw zombies from far away.
+- Running zombies over hurts them and the vehicle; crashes into walls hurt
+  the vehicle and, when hard, the people inside. In a closed vehicle
+  zombies pound on it instead of biting you until it's wrecked.
+- Chase camera (look input orbits it, it swings back behind while
+  driving), a driving panel (speed, fuel, condition, warnings, plane
+  throttle and take-off speed, helicopter altitude), headlights, touch
+  buttons relabelled while driving (HORN, BRAKE / UP / THROTTLE, EXIT,
+  LIGHTS, START).
+- Multiplayer: the driver's device simulates the vehicle and sends its
+  motion 15 times a second; records, seats, alarms and pump levels are
+  shared through the host and saved with the world. Passengers ride along.
+
+Simplified or moved:
+- **Vehicle physics** are kinematic (not a full wheel simulation), which is
+  steadier on low-end tablets and easier to sync.
+- **Parked vehicles far from every player** are kept only as records; a
+  moved vehicle is drawn again once someone comes within ~260 m.
+- **Riders aren't drawn on bikes or in seats**; other players' survivors
+  are hidden while they're in a vehicle.
+- **Planes on long roads** work (any flat straight stretch long enough),
+  but there's no taxiing guidance or runway lights.
+- **Car parts from wrecks** (stripping a broken car for its battery or
+  tires) are left for stage 6, with crafting.
+
+## 24. Open questions
 
 - Which free relay service to use for internet join codes.
 - Exact asset packs (checked for license and Tab S6 Lite performance).

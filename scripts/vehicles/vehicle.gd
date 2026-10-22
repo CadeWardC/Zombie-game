@@ -66,9 +66,13 @@ func setup(r: Dictionary) -> void:
 	# Planes collide by the fuselage; the wings would snag on everything.
 	box.size = Vector3(1.6, 1.6, size.z) if kind == "plane" else Vector3(size.x, size.y * 0.7, size.z)
 	cs.shape = box
-	cs.position.y = box.size.y * 0.5 + (0.6 if kind == "plane" else 0.25)
+	# The box rides a little above the ground (clearance for kerbs and
+	# bumps); the model is lifted by the same amount so its wheels touch.
+	var clear := 0.6 if kind == "plane" else (0.0 if kind == "water" else 0.25)
+	cs.position.y = box.size.y * 0.5 + clear
 	add_child(cs)
 	_model = Node3D.new()
+	_model.position.y = clear
 	add_child(_model)
 	_mesh = MeshInstance3D.new()
 	_mesh.mesh = Assets.cars[int(r.m) % Assets.cars.size()] if int(r.m) >= 0 else Assets.vehicle_meshes.get(r.t)
@@ -130,7 +134,7 @@ func seat_pos(i: int) -> Vector3:
 			off = Vector3(0.45 if i % 2 == 0 else -0.45, 1.0, 1.4 - int(i / 2) * 1.2)
 		"plane":
 			off = Vector3(0.3 if i % 2 == 0 else -0.3, 1.25, 1.2)
-	return global_transform * off
+	return global_transform * (off + _model.position)
 
 
 func free_seat() -> int:

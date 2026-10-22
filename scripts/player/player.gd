@@ -507,7 +507,7 @@ func _update_focus() -> void:
 				best_score = score
 				_focus = c
 	if _focus == null and vehicles:
-		var near := vehicles.near(global_position, 1.3)
+		var near := vehicles.near(global_position, 1.8)
 		if not near.is_empty():
 			var e: Dictionary = near[0]
 			var to: Vector3 = (e.pos as Vector3) - global_position

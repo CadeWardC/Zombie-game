@@ -3,7 +3,8 @@ extends Node
 ## checks. Needs a real renderer (not --headless), e.g.:
 ##   xvfb-run godot res://tests/screenshots.tscn -- --touch
 ## Add --items for just the stage 2 shots (inventory, weapons, stealth), or
-## --stage3 for the stage 3 ones (character, health, zombie types, the lab).
+## --stage3 for the stage 3 ones (character, health, zombie types, the lab),
+## or --stage5 for vehicles.
 
 var _main: Node3D
 var _cam: Camera3D
@@ -71,6 +72,11 @@ func _run() -> void:
 	var gen: WorldGen = _main.gen
 	if "--items" in OS.get_cmdline_user_args():
 		await _items_shots()
+		GameState.delete_world("screenshots")
+		get_tree().quit()
+		return
+	if "--stage5" in OS.get_cmdline_user_args():
+		await _stage5_shots()
 		GameState.delete_world("screenshots")
 		get_tree().quit()
 		return
@@ -433,3 +439,135 @@ func _stage3_shots() -> void:
 	menu._show_memorial(meta)
 	await get_tree().create_timer(0.4).timeout
 	await _shot("30_memorial")
+
+
+## A vehicle record placed at `pos` (fuelled, keys in it) with its node.
+func _vehicle(id: String, type: String, pos: Vector3, yaw: float, model := -1) -> Vehicle:
+	var r := VehicleDB.roll(id, type, model)
+	r.merge({"fuel": float(VehicleDB.get_def(type).tank) * 0.6, "keys": true, "bat": 1.0, "eng": 1.0, "parts": true,
+		"locked": false, "flat": 0, "p": [pos.x, pos.y, pos.z], "yaw": yaw}, true)
+	GameState.ws.vehicles[id] = r
+	return _main.vehicles._spawn(r)
+
+
+func _drive(v: Vehicle, seconds: float) -> void:
+	_cam.current = false
+	_main.player.enter_vehicle(v, 0)
+	_main.player.camera.current = true
+	Input.action_press("move_forward")
+	await get_tree().create_timer(seconds).timeout
+	Input.action_release("move_forward")
+
+
+func _stage5_shots() -> void:
+	var gen: WorldGen = _main.gen
+	var player: Player = _main.player
+	var spawn: Vector3 = gen.spawn_point()
+	# Parked cars in town become drivable.
+	await _go(Vector2(spawn.x, spawn.z), player.rotation.y, -4.0)
+	var spots := []
+	for c in _main.streamer.chunks():
+		if c.lod == 0:
+			for sp in c.vehicle_spots:
+				if int(sp.m) >= 0:
+					spots.append(sp)
+	spots.sort_custom(func(a: Dictionary, b: Dictionary) -> bool:
+		return (a.xf as Transform3D).origin.distance_to(spawn) < (b.xf as Transform3D).origin.distance_to(spawn))
+	if not spots.is_empty():
+		var sp: Dictionary = spots[0]
+		var xf: Transform3D = sp.xf
+		var v: Vehicle = _main.vehicles.activate(sp)
+		v.rec.merge({"fuel": 30.0, "keys": true, "bat": 1.0, "eng": 1.0, "parts": true, "locked": false, "flat": 1}, true)
+		var side := xf * Vector3(2.6, 0, 0.5)
+		player.global_position = side + Vector3(0, 0.2, 0)
+		player.look_at(Vector3(xf.origin.x, player.global_position.y, xf.origin.z))
+		player.rotation.x = 0.0
+		player.head.rotation.x = deg_to_rad(-20.0)
+		await get_tree().create_timer(0.4).timeout
+		player._update_focus()
+		await _shot("45_vehicle_prompt")
+		_main.vehicle_menu.open(v)
+		await get_tree().create_timer(0.3).timeout
+		await _shot("46_vehicle_menu")
+		_main.vehicle_menu.close()
+		await _drive(v, 1.6)
+		await _shot("47_driving")
+		GameState.time_of_day = 22.5
+		v.set_lights(true)
+		Input.action_press("jump")
+		await get_tree().create_timer(1.5).timeout
+		Input.action_release("jump")
+		await _shot("48_headlights_night")
+		GameState.time_of_day = 10.0
+		player.exit_vehicle(true)
+	# Bikes.
+	var bp := Vector3(spawn.x + 3.0, 0, spawn.z + 3.0)
+	bp.y = gen.height(bp.x, bp.z)
+	_vehicle("shot_bike", "bicycle", bp, 0.4)
+	var mp := bp + Vector3(1.6, 0, 0.4)
+	mp.y = gen.height(mp.x, mp.z)
+	_vehicle("shot_moto", "motorbike", mp, 0.9)
+	await get_tree().create_timer(0.5).timeout
+	_cam.global_position = bp + Vector3(-2.5, 1.5, 3.2)
+	_cam.look_at(bp + Vector3(0.8, 0.5, 0))
+	_cam.current = true
+	await get_tree().create_timer(0.3).timeout
+	await _shot("49_bicycle_motorbike")
+	# A helicopter over town.
+	var hp := Vector3(spawn.x - 20.0, 0, spawn.z)
+	for k in 30:
+		var c := Vector2(spawn.x, spawn.z) + Vector2.from_angle(k * 0.9) * (25.0 + k * 3.0)
+		if not gen.is_inside_building(c.x, c.y) and not gen.is_inside_building(c.x + 6.0, c.y) and not gen.is_inside_building(c.x - 6.0, c.y):
+			hp = Vector3(c.x, 0, c.y)
+			break
+	hp.y = gen.height(hp.x, hp.z) + 0.2
+	var heli := _vehicle("shot_heli", "helicopter", hp, 0.0)
+	await get_tree().create_timer(0.3).timeout
+	_main.player.enter_vehicle(heli, 0)
+	_cam.current = false
+	player.camera.current = true
+	Input.action_press("jump")
+	await get_tree().create_timer(3.0).timeout
+	Input.action_release("jump")
+	Input.action_press("move_forward")
+	await get_tree().create_timer(1.5).timeout
+	Input.action_release("move_forward")
+	await _wait_streaming()
+	await _shot("50_helicopter")
+	heli.global_position.y = gen.height(heli.global_position.x, heli.global_position.z) + 0.3
+	heli.airborne = false
+	player.exit_vehicle(true)
+	# A light aircraft taking off from the airport.
+	for site in gen.settlements.sites:
+		if site.type == "airport":
+			var sc: Vector2 = site.center
+			var pp := Vector3(sc.x - 200.0, site.base + 0.3, sc.y)
+			await _go(Vector2(pp.x, pp.z + 8.0), 0.0)
+			var plane := _vehicle("shot_plane", "prop_plane", pp, PI * 0.5)
+			await get_tree().create_timer(0.3).timeout
+			_main.player.enter_vehicle(plane, 0)
+			player.camera.current = true
+			plane.throttle = 1.0
+			plane.speed = 32.0
+			Input.action_press("move_back")
+			await get_tree().create_timer(1.6).timeout
+			Input.action_release("move_back")
+			await _shot("51_plane_takeoff")
+			plane.speed = 0.0
+			plane.airborne = false
+			plane.global_position = pp
+			player.exit_vehicle(true)
+			break
+	# A boat at its dock.
+	if not gen.boat_spots.is_empty():
+		var b: Dictionary = gen.boat_spots[0]
+		var shore: Vector2 = b.shore
+		await _go(shore, _yaw_to(shore, Vector2(b.p.x, b.p.z)), -8.0, 0.5)
+		await get_tree().create_timer(1.2).timeout
+		await _shot("52_boat_dock")
+		var boat: Vehicle = _main.vehicles.nodes.get(b.id)
+		if boat:
+			boat.rec.merge({"fuel": 20.0, "keys": true}, true)
+			await _drive(boat, 2.5)
+			await _shot("53_boating")
+			player.exit_vehicle(true)

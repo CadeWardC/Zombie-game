@@ -5,7 +5,7 @@ built with **Godot 4.7** and designed to run well on phones and tablets
 (minimum target: Samsung Galaxy Tab S6 Lite). The full plan is in
 [docs/DESIGN.md](docs/DESIGN.md).
 
-**What's in the game now (stages 1 to 4):**
+**What's in the game now (stages 1 to 5):**
 
 - **Random worlds of 8, 16 or 32 km**: coastlines, mountains, forests,
   farmland, deserts, beaches, and river networks with lakes from a drainage
@@ -99,6 +99,17 @@ built with **Godot 4.7** and designed to run well on phones and tablets
   (Playing over the internet with join codes needs a relay server and is
   left for later.)
 
+- **Vehicles**: every parked car, bike and aircraft can be used, though
+  most cars need work first: fuel, a battery, a spare tire, engine parts,
+  keys or hotwiring (a screwdriver, or a mechanic's skill), and breaking in
+  can set off the alarm. Bicycles (silent), motorbikes, cars, vans,
+  pickups, ambulances and school buses; rowboats and motorboats at docks
+  (zombies can't swim after you); helicopters and light aircraft at
+  airports. Fill gas cans at gas station pumps and jet fuel at airports.
+  Engines, horns and alarms are loud; run zombies over (it dents the car);
+  closed cars keep them out until they batter their way in. Trunks travel
+  with their car. Friends ride along in multiplayer.
+
 All art (terrain, buildings, furniture, cars, aircraft, zombies, items and
 their inventory icons) is generated in code as realistic low-poly geometry,
 so the app stays small and needs no art files.
@@ -126,6 +137,19 @@ so the app stays small and needs no art files.
 | Pause (map, invite friends) | II         | Esc / P          | Start         |
 | Ping (tap: mark what you look at; hold: call for help) | PING (multiplayer) | Q | Share / Capture |
 | Debug stats  | –                         | F3               | –             |
+
+**Driving** (walk up to a vehicle and press Use for its menu):
+
+| Action | Touch | Keyboard / mouse | Gamepad |
+|---|---|---|---|
+| Steer, throttle, reverse (planes: pull back to climb) | Stick | WASD | Left stick |
+| Brake / handbrake; helicopter up; plane throttle up | BRAKE / UP / THROTTLE+ | Space | A |
+| Helicopter down; plane throttle down | DOWN / THROTTLE- | C / Ctrl | R3 |
+| Look around (chase camera) | Drag | Mouse | Right stick |
+| Start the engine again | START | R | X |
+| Horn | HORN | Left click | RT |
+| Headlights | LIGHTS | F | Y |
+| Get out | EXIT | E | B |
 
 On screen, button prompts match the controller you're using: Xbox
 letters, PlayStation shapes, Nintendo letters, or keyboard keys. Menus work
@@ -192,9 +216,13 @@ scripts/
                               character (traits, backgrounds), health
                               (injuries, infection) and other players'
                               avatars
+  vehicles/                   Vehicle types and condition (vehicle_db),
+                              bike and boat models, the vehicle node
+                              (driving, flying, boating), manager
+                              (parked props to vehicles, boats, trunks)
   ui/                         HUD, inventory screen, item icons, button
                               glyphs, touch controls, menus, character
-                              creator, map
+                              creator, map, vehicle menu
 tests/smoke_test.tscn         Automated gameplay test (runs in CI)
 tests/net_test.tscn           Two-device multiplayer test: a host and a
                               guest on one machine (run_net_test.sh, in CI)

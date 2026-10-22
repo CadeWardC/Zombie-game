@@ -165,6 +165,7 @@ func _test_combat(player: Player, zombies: ZombieManager) -> void:
 	z = _spawn_zombie(Vector3(0, 0, -6))
 	z.state = Zombie.State.WANDER
 	await _wait(0.3)
+	z.set_physics_process(false) # Hold still while the bolt flies (a wandering one can step aside).
 	var to := z.global_position + Vector3(0, 1.2, 0) - player.camera.global_position
 	player.rotation.y = atan2(-to.x, -to.z)
 	player.head.rotation.x = atan2(to.y, Vector2(to.x, to.z).length())
@@ -172,6 +173,7 @@ func _test_combat(player: Player, zombies: ZombieManager) -> void:
 	w._release_arrow(w.def(), 1.0)
 	await _wait(0.6)
 	_check(z.health < z.max_health, "crossbow bolt hits (health %.0f)" % z.health)
+	z.set_physics_process(true)
 	_check(GameState.drops.size() >= drops_before, "bolts can be recovered")
 
 	print("Throwables and traps")

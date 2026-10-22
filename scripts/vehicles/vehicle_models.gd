@@ -68,8 +68,21 @@ static func _wheel(m: MeshData, c: Vector3, r: float, w: float) -> void:
 		var p1 := c + Vector3(0, sin(a1) * r, cos(a1) * r)
 		var out := Vector3(0, sin((a0 + a1) * 0.5), cos((a0 + a1) * 0.5))
 		m.quad(p0 + Vector3(-w, 0, 0), p1 + Vector3(-w, 0, 0), p1 + Vector3(w, 0, 0), p0 + Vector3(w, 0, 0), TIRE, out)
-		m.tri(c + Vector3(w, 0, 0), p0 + Vector3(w, 0, 0), p1 + Vector3(w, 0, 0), STEEL.darkened(0.3), Vector3.RIGHT)
-		m.tri(c - Vector3(w, 0, 0), p0 - Vector3(w, 0, 0), p1 - Vector3(w, 0, 0), STEEL.darkened(0.3), Vector3.LEFT)
+		if w >= 0.06:
+			m.tri(c + Vector3(w, 0, 0), p0 + Vector3(w, 0, 0), p1 + Vector3(w, 0, 0), STEEL.darkened(0.3), Vector3.RIGHT)
+			m.tri(c - Vector3(w, 0, 0), p0 - Vector3(w, 0, 0), p1 - Vector3(w, 0, 0), STEEL.darkened(0.3), Vector3.LEFT)
+		else:
+			# Thin bicycle wheel: an open rim with spokes and a hub.
+			var ri := r * 0.88
+			var q0 := c + Vector3(0, sin(a0) * ri, cos(a0) * ri)
+			var q1 := c + Vector3(0, sin(a1) * ri, cos(a1) * ri)
+			for sd: float in [-1.0, 1.0]:
+				m.quad(p0 + Vector3(w * sd, 0, 0), p1 + Vector3(w * sd, 0, 0), q1 + Vector3(w * sd, 0, 0), q0 + Vector3(w * sd, 0, 0), TIRE, Vector3(sd, 0, 0))
+	if w < 0.06:
+		for k in 4:
+			var a := PI * 0.25 * k
+			m.box(Transform3D(Basis(Vector3.RIGHT, a), c), Vector3(0.012, 0.012, r * 1.8), STEEL, false)
+		m.box(Transform3D(Basis.IDENTITY, c), Vector3(w * 2.5, 0.05, 0.05), STEEL.darkened(0.2), false)
 
 
 static func _bar(m: MeshData, a: Vector3, b: Vector3, t: float, col: Color) -> void:
