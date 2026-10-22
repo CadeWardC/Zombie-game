@@ -50,6 +50,13 @@ var _sick: ColorRect
 var _sick_mat: ShaderMaterial
 var _beat_t := 0.0
 var _new_char_btn: Button
+var _watch_btn: Button
+var _players: Label
+var _death_panel: VBoxContainer
+var _death_full := true
+## The running game (pings, spectating), and who you're watching.
+var game: Node
+var spectating := ""
 var _toast_t := 0.0
 var _hit_t := 0.0
 var _hit_kill := false
@@ -100,6 +107,11 @@ func _ready() -> void:
 	var clock_y := 80.0 if GameState.uses_touch() else 16.0
 	_place(_clock, Vector2(0.5, 0), Rect2(-150, clock_y, 300, 30))
 
+	# Who else is playing (multiplayer), under the clock.
+	_players = _label(root, 15)
+	_players.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	_place(_players, Vector2(0.5, 0), Rect2(-300, clock_y + 30, 600, 24))
+
 	_toast = _label(root, 22)
 	_toast.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	_place(_toast, Vector2(0.5, 1), Rect2(-300, -130, 600, 40))
@@ -126,6 +138,7 @@ func _ready() -> void:
 	dv.add_theme_constant_override("separation", 20)
 	_death.add_child(dv)
 	_place(dv, Vector2(0.5, 0.5), Rect2(-300, -170, 600, 340))
+	_death_panel = dv
 	_death_title = _label(dv, 56)
 	_death_title.text = "YOU DIED"
 	_death_title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
@@ -145,6 +158,15 @@ func _ready() -> void:
 	_new_char_btn.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
 	_new_char_btn.pressed.connect(func() -> void: new_character_requested.emit())
 	dv.add_child(_new_char_btn)
+	_watch_btn = Button.new()
+	_watch_btn.text = "Watch Next Player"
+	_watch_btn.custom_minimum_size = Vector2(260, 60)
+	_watch_btn.add_theme_font_size_override("font_size", 22)
+	_watch_btn.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
+	_watch_btn.pressed.connect(func() -> void:
+		if game:
+			game.next_spectated())
+	dv.add_child(_watch_btn)
 	_menu_btn = Button.new()
 	_menu_btn.text = "Main Menu"
 	_menu_btn.custom_minimum_size = Vector2(260, 60)
@@ -237,19 +259,30 @@ func set_loading_progress(f: float, text: String) -> void:
 
 
 ## The death screen. `rule` is the world's death rule; `turned` when the
-## infection got you (your body walks on with your gear).
-func show_death(on: bool, rule := 0, cause := "", turned := false) -> void:
+## infection got you (your body walks on with your gear). In a multiplayer
+## game (`multi`) the screen is see-through, so you can watch your friends,
+## and a turned survivor can still be cured.
+func show_death(on: bool, rule := 0, cause := "", turned := false, multi := false) -> void:
 	_death.visible = on
-	var lost := rule == GameState.DeathRule.PERMADEATH
-	_death_title.text = "WORLD LOST" if lost else ("YOU TURNED" if turned else "YOU DIED")
+	_death_full = not multi
+	_death.color.a = 0.25 if multi else 0.75
+	_place(_death_panel, Vector2(0.5, 1.0 if multi else 0.5), Rect2(-300, -360, 600, 340) if multi else Rect2(-300, -170, 600, 340))
+	var lost := rule == GameState.DeathRule.PERMADEATH and not multi
+	var out := multi and rule == GameState.DeathRule.PERMADEATH and not turned
+	_death_title.text = "WORLD LOST" if lost else ("YOU'RE OUT" if out else ("YOU TURNED" if turned else "YOU DIED"))
 	_respawn_btn.visible = rule == GameState.DeathRule.RESPAWN
 	_new_char_btn.visible = rule == GameState.DeathRule.NEW_CHARACTER
+	_watch_btn.visible = multi and (out or turned or rule == GameState.DeathRule.PERMADEATH)
 	var ch := GameState.character
 	var lines: PackedStringArray = ["%s, %s" % [ch.name, Character.BACKGROUNDS[ch.background].name]]
 	if cause != "":
 		lines.append(cause)
 	lines.append("Survived %d day%s  -  %d zombies killed" % [GameState.day, "" if GameState.day == 1 else "s", GameState.kills])
-	if turned and not lost:
+	if turned and multi:
+		lines.append("Your friends can still save you: beat your body down and give it a cure vial.")
+	elif out:
+		lines.append("You can watch your friends. The world ends when everyone is out.")
+	elif turned and not lost:
 		lines.append("Your body walks on, carrying your gear.")
 	elif not lost:
 		lines.append("Your gear lies where you fell.")
@@ -259,12 +292,19 @@ func show_death(on: bool, rule := 0, cause := "", turned := false) -> void:
 		GameState.DeathRule.NEW_CHARACTER:
 			lines.append("Someone new takes up the fight.")
 		_:
-			lines.append("This world is kept as a memorial.")
+			if not multi:
+				lines.append("This world is kept as a memorial.")
 	_death_info.text = "\n".join(lines)
 	if on:
 		# Focus a button so gamepads can pick it without touching the screen.
-		var b: Button = _menu_btn if lost else (_respawn_btn if rule == GameState.DeathRule.RESPAWN else _new_char_btn)
+		var b: Button = _menu_btn if lost or (rule == GameState.DeathRule.PERMADEATH and not _watch_btn.visible) else \
+				(_watch_btn if rule == GameState.DeathRule.PERMADEATH else (_respawn_btn if rule == GameState.DeathRule.RESPAWN else _new_char_btn))
 		b.grab_focus.call_deferred()
+
+
+## True when the death screen covers everything (no watching friends).
+func death_full() -> bool:
+	return _death.visible and _death_full
 
 
 func flash_damage() -> void:
@@ -300,8 +340,32 @@ func _process(delta: float) -> void:
 			zombies.active_count() if zombies else 0,
 			RenderingServer.get_rendering_info(RenderingServer.RENDERING_INFO_TOTAL_DRAW_CALLS_IN_FRAME),
 			str(Vector3i(player.global_position)) if player else ""]
-	_overlay.visible = player != null and player.active and not player.dead and not GameState.ui_open
+	_overlay.visible = player != null and player.active and not GameState.ui_open and (not player.dead or spectating != "")
 	_overlay.queue_redraw()
+	_players.text = _players_text()
+	if spectating != "" and _death.visible:
+		_death_info.text = _death_info.text.get_slice("\n\nWatching", 0) + "\n\nWatching %s" % spectating
+
+
+## "Sam 80  -  Alex (down)": the other players and how they're doing.
+func _players_text() -> String:
+	if not Net.active():
+		return ""
+	var parts: PackedStringArray = []
+	for id in Net.players:
+		var p: Dictionary = Net.players[id]
+		var st: Dictionary = p.state
+		if st.is_empty():
+			parts.append("%s (joining)" % p.name)
+		elif p.get("out", false):
+			parts.append("%s (out)" % p.name)
+		elif st.turned:
+			parts.append("%s (turned!)" % p.name)
+		elif st.dead:
+			parts.append("%s (down)" % p.name)
+		else:
+			parts.append("%s %d" % [p.name, int(st.get("hp", 100))])
+	return "  -  ".join(parts)
 
 
 ## Short warnings under the bars ("BLEEDING  BROKEN LEG  FEVER").
@@ -359,6 +423,9 @@ func _draw_overlay() -> void:
 	var c := size * 0.5
 	var font := ci.get_theme_default_font()
 	var w := player.weapons
+	if player.dead:
+		_draw_pings(ci, size, font) # Watching friends.
+		return
 	if w.scoped():
 		_draw_scope(ci, size)
 	else:
@@ -368,6 +435,7 @@ func _draw_overlay() -> void:
 		var col := Color(1.0, 0.25, 0.2, _hit_t * 4.0) if _hit_kill else Color(1, 1, 1, _hit_t * 4.0)
 		for d: Vector2 in [Vector2(1, 1), Vector2(-1, 1), Vector2(1, -1), Vector2(-1, -1)]:
 			ci.draw_line(c + d * 7.0, c + d * 14.0, col, 2.5)
+	_draw_pings(ci, size, font)
 	_draw_stealth(ci, c, font)
 	_draw_senses(ci, c)
 	_draw_prompt(ci, c, font)
@@ -447,6 +515,41 @@ func _draw_stealth(ci: Control, c: Vector2, font: Font) -> void:
 		var tw := font.get_string_size(t, HORIZONTAL_ALIGNMENT_LEFT, -1, 14).x
 		ci.draw_string_outline(font, p + Vector2(-tw * 0.5, 30), t, HORIZONTAL_ALIGNMENT_LEFT, -1, 14, 4, Color.BLACK)
 		ci.draw_string(font, p + Vector2(-tw * 0.5, 30), t, HORIZONTAL_ALIGNMENT_LEFT, -1, 14, Color(0.7, 0.9, 0.7))
+
+
+## Pings from you and your friends: a marker in the world with who sent it
+## and how far it is, or an arrow at the screen edge when it's behind you.
+func _draw_pings(ci: Control, size: Vector2, font: Font) -> void:
+	if game == null or game.pings.is_empty():
+		return
+	var cam := get_viewport().get_camera_3d()
+	if cam == null:
+		return
+	var cols := {"go": Color(0.35, 0.8, 1.0), "zombie": Color(1.0, 0.3, 0.25), "loot": Color(1.0, 0.85, 0.3),
+		"help": Color(1.0, 0.5, 0.1)}
+	var labels := {"go": "Here", "zombie": "Zombie", "loot": "Loot", "help": "HELP"}
+	for pg in game.pings:
+		var pos: Vector3 = pg.pos + Vector3(0, 0.6, 0)
+		var col: Color = cols.get(pg.kind, Color.WHITE)
+		var age := (Time.get_ticks_msec() - int(pg.t)) / 1000.0
+		col.a = clampf(2.0 - age / 10.0, 0.3, 1.0)
+		var d := cam.global_position.distance_to(pos)
+		var text := "%s: %s  %dm" % [pg.name, labels.get(pg.kind, ""), int(d)]
+		if cam.is_position_behind(pos):
+			var dir := (pos - cam.global_position)
+			var side := signf(dir.dot(cam.global_basis.x))
+			var e := Vector2(size.x * 0.5 + side * (size.x * 0.5 - 30.0), size.y * 0.5)
+			ci.draw_colored_polygon(PackedVector2Array([e + Vector2(14 * side, 0), e + Vector2(-6 * side, -12), e + Vector2(-6 * side, 12)]), col)
+			continue
+		var sp := cam.unproject_position(pos)
+		sp = sp.clamp(Vector2(30, 30), size - Vector2(30, 30))
+		var r := 9.0 + (sin(age * 8.0) * 2.0 if pg.kind == "help" else 0.0)
+		ci.draw_circle(sp, r, Color(col, col.a * 0.35))
+		ci.draw_arc(sp, r, 0, TAU, 20, col, 2.5)
+		ci.draw_line(sp + Vector2(0, r), sp + Vector2(0, r + 10), col, 2.0)
+		var tw := font.get_string_size(text, HORIZONTAL_ALIGNMENT_LEFT, -1, 14).x
+		ci.draw_string_outline(font, sp + Vector2(-tw * 0.5, -r - 6), text, HORIZONTAL_ALIGNMENT_LEFT, -1, 14, 4, Color.BLACK)
+		ci.draw_string(font, sp + Vector2(-tw * 0.5, -r - 6), text, HORIZONTAL_ALIGNMENT_LEFT, -1, 14, col)
 
 
 ## Zombies you sense but haven't seen (close by, off to the side or

@@ -110,6 +110,15 @@ func _ready() -> void:
 	_weight.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
 	row.add_child(_weight)
 	GameState.inventory_changed.connect(_refresh)
+	# Another player looted the same container, or something hit the ground.
+	GameState.containers_changed.connect(func(id: String) -> void:
+		if visible and not _container.is_empty() and _container.id == id and _held.is_empty():
+			_layout()
+			_board.queue_redraw())
+	GameState.drops_changed.connect(func() -> void:
+		if visible and _held.is_empty():
+			_layout()
+			_board.queue_redraw())
 	GameState.device_changed.connect(func() -> void: _board.queue_redraw())
 
 
@@ -242,6 +251,9 @@ func _area(key: String) -> Dictionary:
 func _refresh() -> void:
 	if not visible:
 		return
+	# Looting changes the container for everyone in a multiplayer game.
+	if not _container.is_empty():
+		GameState.container_changed(_container.id)
 	_layout()
 	_cursor.area = clampi(_cursor.area, 0, _areas.size() - 1)
 	_update_info()

@@ -82,6 +82,7 @@ var _climb_t := 0.0 # Climbing through a window.
 var _climb_from := Vector3.ZERO
 var _climb_to := Vector3.ZERO
 var _crave_told := false
+var _ping_t := -1.0
 
 
 func _ready() -> void:
@@ -231,6 +232,7 @@ func _physics_process(delta: float) -> void:
 		_prompt_t = 0.12
 		_update_focus()
 	_update_interact(delta)
+	_update_ping(delta)
 
 
 func _keep_in_world() -> void:
@@ -519,6 +521,33 @@ func _takedown_ready() -> bool:
 	return false
 
 
+## Pings: tap to mark what you're looking at (a zombie, loot, or just a
+## spot); hold to call for help where you stand.
+func _update_ping(delta: float) -> void:
+	if Input.is_action_just_pressed("ping"):
+		_ping_t = 0.0
+	elif _ping_t >= 0.0 and Input.is_action_pressed("ping"):
+		_ping_t += delta
+		if _ping_t > 0.45:
+			_ping_t = -1.0
+			Net.ping(global_position + Vector3(0, 1.8, 0), "help")
+	elif _ping_t >= 0.0:
+		_ping_t = -1.0
+		var from := camera.global_position
+		var hit := get_world_3d().direct_space_state.intersect_ray(
+				PhysicsRayQueryParameters3D.create(from, from - camera.global_basis.z * 150.0, 1 | 4, [get_rid()]))
+		if hit.is_empty():
+			return
+		var pos: Vector3 = hit.position
+		var kind := "go"
+		if hit.collider is Zombie:
+			kind = "zombie"
+			pos = (hit.collider as Zombie).global_position + Vector3(0, 1.8, 0)
+		elif (drops and not drops.near(pos, 2.0).is_empty()) or (streamer and not streamer.containers_near(pos, 2.0).is_empty()):
+			kind = "loot"
+		Net.ping(pos, kind)
+
+
 ## Tap interact to use things; hold it to lock or unlock a door or to start
 ## a generator.
 func _update_interact(delta: float) -> void:
@@ -616,6 +645,10 @@ func _update_climb(delta: float) -> void:
 
 
 func pick_up(drop: Dictionary) -> void:
+	# A guest asks the host, in case someone else just grabbed it.
+	if Net.is_client():
+		Net.request_pickup(str(drop.get("id", "")))
+		return
 	var it: Dictionary = (drop.it as Dictionary).duplicate(true)
 	GameState.remove_drop(drop)
 	GameState.add_item(it, DropManager._pos(drop))

@@ -14,6 +14,9 @@ extends StaticBody3D
 const OPEN_ANGLE := deg_to_rad(100.0)
 const MAX_HP := 100.0
 
+## Loaded doors by id (for changes arriving from other players).
+static var by_id := {}
+
 var id := ""
 var is_open := false
 var locked := false
@@ -37,6 +40,10 @@ func setup(d: Dictionary, mm: MultiMesh, index: int) -> void:
 	_mm = mm
 	_index = index
 	id = str(d.get("id", ""))
+	by_id[id] = self
+	tree_exiting.connect(func() -> void:
+		if by_id.get(id) == self:
+			by_id.erase(id))
 	key = str(d.get("key", ""))
 	power = str(d.get("power", ""))
 	out = int(d.get("out", 0))
@@ -194,6 +201,23 @@ func _break_apart() -> void:
 
 func _save() -> void:
 	GameState.set_door_state(id, {"o": is_open, "l": locked, "hp": hp})
+
+
+## Another player changed this door.
+func apply_state(st: Dictionary) -> void:
+	if broken():
+		return
+	locked = bool(st.get("l", locked))
+	hp = float(st.get("hp", hp))
+	var open := bool(st.get("o", is_open))
+	if hp <= 0.0:
+		is_open = true
+		_break_apart()
+		return
+	if open != is_open:
+		is_open = open
+		_target = OPEN_ANGLE * _swing if open else 0.0
+		set_process(true)
 
 
 func _process(delta: float) -> void:

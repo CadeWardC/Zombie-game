@@ -7,6 +7,9 @@ extends StaticBody3D
 
 const SMASHED_LAYER := 8 # Not in anyone's movement mask; interaction rays see it.
 
+## Loaded windows by id (for changes arriving from other players).
+static var by_id := {}
+
 var id := ""
 var smashed := false
 var size := Vector2.ONE
@@ -18,6 +21,10 @@ func setup(d: Dictionary, mm: MultiMesh, index: int) -> void:
 	transform = d.xf
 	size = Vector2(d.w, d.h)
 	id = str(d.id)
+	by_id[id] = self
+	tree_exiting.connect(func() -> void:
+		if by_id.get(id) == self:
+			by_id.erase(id))
 	_mm = mm
 	_index = index
 	collision_layer = 1
@@ -40,6 +47,15 @@ func smash() -> void:
 	if Effects.current:
 		Effects.current.burst(global_position, global_basis.z, Color(0.7, 0.8, 0.85), 22, 3.0)
 		Effects.current.burst(global_position, -global_basis.z, Color(0.7, 0.8, 0.85), 14, 2.0)
+	_set_smashed()
+
+
+## Another player smashed it.
+func smash_quiet() -> void:
+	if smashed:
+		return
+	if Effects.current:
+		Effects.current.burst(global_position, global_basis.z, Color(0.7, 0.8, 0.85), 16, 3.0)
 	_set_smashed()
 
 

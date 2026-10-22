@@ -1,6 +1,7 @@
 extends Control
 ## Main menu: continue, create a world (then its survivor), load / delete
-## worlds, memorials of lost worlds, settings. Built in code; fully usable
+## worlds, join a friend's game on the same Wi-Fi, memorials of lost worlds,
+## settings. Built in code; fully usable
 ## with touch, mouse or gamepad (focus follows the D-pad / stick).
 
 const BG := MenuTheme.BG
@@ -18,6 +19,10 @@ var _memorial_title: Label
 var _memorial_info: Label
 var _memorial_map: MapView
 var _pending_world := {}
+var _pvp_opt: OptionButton
+var _games_list: VBoxContainer
+var _join_status: Label
+var _home_note: Label
 var _world_list: VBoxContainer
 var _quality_btn: Button
 
@@ -39,6 +44,7 @@ func _ready() -> void:
 	_build_new_world()
 	_build_load()
 	_build_memorial()
+	_build_join()
 	_build_settings()
 	Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
 	_show("home")
@@ -88,6 +94,8 @@ func _show(screen_name: String) -> void:
 		_screens[k].visible = k == screen_name
 	if screen_name == "load":
 		_refresh_worlds()
+	if screen_name == "join":
+		_refresh_games.call_deferred()
 	# Give focus to the first button so gamepads work immediately.
 	var first := _first_focusable(_screens[screen_name])
 	if first:
@@ -113,11 +121,21 @@ func _build_home() -> void:
 	sub.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	sub.add_theme_color_override("font_color", Color(0.6, 0.58, 0.55))
 	box.add_child(sub)
+	_home_note = Label.new()
+	_home_note.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	_home_note.add_theme_color_override("font_color", Color(0.95, 0.55, 0.45))
+	_home_note.text = GameState.menu_message
+	_home_note.visible = GameState.menu_message != ""
+	GameState.menu_message = ""
+	box.add_child(_home_note)
 	var latest := _latest_playable()
 	if not latest.is_empty():
 		_button(box, "Continue  -  %s (day %d)" % [latest.name, int(latest.get("day", 1))], func() -> void: _play(latest))
 	_button(box, "New World", func() -> void: _show("new"))
 	_button(box, "Load World", func() -> void: _show("load"))
+	_button(box, "Join Game (Wi-Fi)", func() -> void:
+		Net.start_discovery()
+		_show("join"))
 	_button(box, "Settings", func() -> void: _show("settings"))
 	if not OS.has_feature("ios"):
 		_button(box, "Quit", func() -> void: get_tree().quit())
@@ -133,7 +151,13 @@ func _latest_playable() -> Dictionary:
 # --- New world -----------------------------------------------------------------
 
 func _build_new_world() -> void:
-	var box := _screen("new", "NEW WORLD")
+	var outer := _screen("new", "NEW WORLD")
+	outer.custom_minimum_size = Vector2(980, 0)
+	var box := GridContainer.new()
+	box.columns = 2
+	box.add_theme_constant_override("h_separation", 24)
+	box.add_theme_constant_override("v_separation", 10)
+	outer.add_child(box)
 	_name_edit = LineEdit.new()
 	_name_edit.text = "World %d" % (GameState.list_worlds().size() + 1)
 	_row(box, "Name", _name_edit)
@@ -164,6 +188,10 @@ func _build_new_world() -> void:
 		_infect_opt.add_item("%d%% per bite" % int(c * 100.0))
 	_infect_opt.select(2)
 	_row(box, "Infection", _infect_opt)
+	_pvp_opt = OptionButton.new()
+	_pvp_opt.add_item("Off")
+	_pvp_opt.add_item("On")
+	_row(box, "Player vs player", _pvp_opt)
 	_diff_opt.item_selected.connect(func(i: int) -> void:
 		_infect_opt.select(GameState.INFECTION_CHANCES.find(GameState.DIFFICULTIES[i].infection)))
 	var hint := Label.new()
@@ -171,9 +199,9 @@ func _build_new_world() -> void:
 	hint.autowrap_mode = TextServer.AUTOWRAP_WORD
 	hint.add_theme_font_size_override("font_size", 16)
 	hint.add_theme_color_override("font_color", Color(0.6, 0.58, 0.55))
-	box.add_child(hint)
-	_button(box, "Create World", _create)
-	_button(box, "Back", func() -> void: _show("home"))
+	outer.add_child(hint)
+	_button(outer, "Create World", _create)
+	_button(outer, "Back", func() -> void: _show("home"))
 
 
 func _create() -> void:
@@ -182,7 +210,8 @@ func _create() -> void:
 	var seed_value := int(seed_text) if seed_text.is_valid_int() else (seed_text.hash() if seed_text != "" else randi())
 	var meta := GameState.create_world(_name_edit.text.strip_edges() if _name_edit.text.strip_edges() != "" else "World",
 			sizes[_size_opt.selected], seed_value, _diff_opt.selected, _rule_opt.selected, "",
-			{"zspeed": _speed_opt.selected, "infection": GameState.INFECTION_CHANCES[_infect_opt.selected]})
+			{"zspeed": _speed_opt.selected, "infection": GameState.INFECTION_CHANCES[_infect_opt.selected],
+			"pvp": _pvp_opt.selected == 1})
 	# Next: who survives in it.
 	_pending_world = meta
 	for k in _screens:
@@ -296,6 +325,82 @@ func _show_memorial(w: Dictionary) -> void:
 	_memorial_info.text = "\n".join(lines)
 	_memorial_map.load_world(w)
 	_show("memorial")
+
+
+# --- Join ----------------------------------------------------------------------
+# Games hosted by friends on the same Wi-Fi show up here by themselves.
+
+func _build_join() -> void:
+	var box := _screen("join", "JOIN A GAME")
+	box.custom_minimum_size = Vector2(640, 0)
+	_join_status = Label.new()
+	_join_status.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	_join_status.autowrap_mode = TextServer.AUTOWRAP_WORD
+	_join_status.add_theme_color_override("font_color", MenuTheme.DIM)
+	box.add_child(_join_status)
+	var scroll := ScrollContainer.new()
+	scroll.custom_minimum_size = Vector2(620, 300)
+	scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
+	box.add_child(scroll)
+	_games_list = VBoxContainer.new()
+	_games_list.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	_games_list.add_theme_constant_override("separation", 10)
+	scroll.add_child(_games_list)
+	_button(box, "Back", func() -> void:
+		Net.stop_discovery()
+		if Net.is_client():
+			Net.stop()
+		_show("home"))
+	Net.games_changed.connect(_refresh_games)
+	Net.join_failed.connect(func(reason: String) -> void:
+		_join_status.text = reason
+		Net.start_discovery())
+	Net.welcomed.connect(_on_welcomed)
+
+
+func _refresh_games() -> void:
+	if not _screens.join.visible:
+		return
+	for c in _games_list.get_children():
+		c.queue_free()
+	if Net.games.is_empty():
+		_join_status.text = "Looking for games on your Wi-Fi...\nOn the host's device: pause, then Invite Friends."
+		return
+	_join_status.text = "Pick a game to join."
+	for key in Net.games:
+		var g: Dictionary = Net.games[key]
+		var b := Button.new()
+		b.text = "%s's game  -  %s\n%d / %d players  -  %s  -  PvP %s" % [g.name, g.world, int(g.players), int(g.max),
+			GameState.DEATH_RULE_NAMES[int(g.get("rule", 0))], "on" if g.get("pvp", false) else "off"]
+		b.custom_minimum_size = Vector2(0, 76)
+		b.disabled = int(g.players) >= int(g.max)
+		b.pressed.connect(func() -> void:
+			_join_status.text = "Joining %s's game..." % g.name
+			Net.join(str(g.ip), int(g.get("port", Net.PORT))))
+		_games_list.add_child(b)
+
+
+## The host sent its world. New to this world: make a survivor first.
+func _on_welcomed(needs_character: bool) -> void:
+	Net.stop_discovery()
+	if not needs_character:
+		get_tree().change_scene_to_file("res://scenes/main.tscn")
+		return
+	for k in _screens:
+		_screens[k].visible = false
+	var cc := CharacterCreator.new()
+	cc.title = "JOINING %s" % str(GameState.world.get("name", "")).to_upper()
+	cc.show_back = true
+	add_child(cc)
+	cc.done.connect(func(c: Character) -> void:
+		GameState.character = c
+		GameState.give_starting_kit()
+		get_tree().change_scene_to_file("res://scenes/main.tscn"))
+	cc.back.connect(func() -> void:
+		Net.stop()
+		cc.queue_free()
+		Net.start_discovery()
+		_show("join"))
 
 
 # --- Settings ------------------------------------------------------------------

@@ -4,6 +4,10 @@ extends Node3D
 ## land (shatter, ring, burn, explode), and small hit effects (blood, dust,
 ## sparks). One node for the whole game; projectiles are stepped with
 ## raycasts, which is cheaper than rigid bodies and never tunnels.
+##
+## Multiplayer: every device flies every projectile (so everyone sees it);
+## only the host hurts zombies, makes noise and leaves recoverable arrows.
+## Each device hurts only its own player.
 
 const GRAVITY := 9.8
 const LIFETIME := 8.0
@@ -80,7 +84,9 @@ func impact(pos: Vector3, normal: Vector3) -> void:
 # --- Projectiles -----------------------------------------------------------
 
 ## Launches an arrow / bolt ("arrow") or a thrown item ("throw").
-func launch(kind: String, item_id: String, from: Vector3, vel: Vector3, dmg := 0.0) -> void:
+func launch(kind: String, item_id: String, from: Vector3, vel: Vector3, dmg := 0.0, remote := false) -> void:
+	if not remote and Net.active():
+		Net.launch(kind, item_id, from, vel, dmg)
 	var mi := MeshInstance3D.new()
 	mi.mesh = Assets.item_meshes.get(item_id)
 	mi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
@@ -152,27 +158,28 @@ func _land(s: Dictionary, hit: Dictionary) -> bool:
 		var z := hit.collider as Zombie
 		if z:
 			var head := z.head_hit(pos)
-			z.take_damage(float(s.dmg) * (2.0 if head else 1.0), (s.vel as Vector3).normalized() * 0.3, true, true, head)
+			if Net.authority():
+				z.take_damage(float(s.dmg) * (2.0 if head else 1.0), (s.vel as Vector3).normalized() * 0.3, true, true, head)
 			blood(pos, (s.vel as Vector3).normalized())
 			# Usually recoverable from the body.
-			if randf() < 0.8 and drops:
+			if randf() < 0.8 and drops and Net.authority():
 				drops.drop(ItemDB.make(s.item), z.global_position + Vector3(0, 0.5, 0))
 		else:
 			impact(pos, normal)
-			if randf() < 0.85 and drops:
+			if randf() < 0.85 and drops and Net.authority():
 				drops.drop(ItemDB.make(s.item), pos, false, false)
-		GameState.make_noise(pos, 4.0)
+		_noise(pos, 4.0)
 		return true
 	# Thrown items.
 	var effect: String = ItemDB.get_def(s.item).get("effect", "")
 	match effect:
 		"bottle":
 			burst(pos, normal, Color(0.3, 0.55, 0.32), 18, 3.0)
-			GameState.make_noise(pos, 30.0)
+			_noise(pos, 30.0)
 			return true
 		"fire":
 			burst(pos, normal, Color(1.0, 0.55, 0.1), 20, 4.0)
-			GameState.make_noise(pos, 22.0)
+			_noise(pos, 22.0)
 			_start_fire(pos)
 			return true
 		"noise":
@@ -186,7 +193,7 @@ func _land(s: Dictionary, hit: Dictionary) -> bool:
 			if (s.vel as Vector3).length() < 1.5:
 				s.resting = true
 			return false
-	if drops:
+	if drops and Net.authority():
 		drops.drop(ItemDB.make(s.item), pos)
 	return true
 
@@ -223,7 +230,7 @@ func _update_fires(delta: float) -> void:
 		(f.light as OmniLight3D).light_energy = 2.0 + sin(f.t * 23.0) * 0.4 + sin(f.t * 7.0) * 0.3
 		if f.tick <= 0.0:
 			f.tick = 0.25
-			if zombies:
+			if zombies and Net.authority():
 				for z in zombies.in_radius(f.pos, 3.2):
 					z.ignite(6.0)
 			if player and not player.dead and player.global_position.distance_to(f.pos) < 2.8:
@@ -254,7 +261,7 @@ func _update_alarms(delta: float) -> void:
 		mi.rotation.z = sin(a.t * 60.0) * 0.12 # Rattling.
 		if a.tick <= 0.0:
 			a.tick = 1.0
-			GameState.make_noise(a.pos, 38.0)
+			_noise(a.pos, 38.0)
 		if a.t <= 0.0:
 			mi.queue_free()
 			_alarms.remove_at(k)
@@ -265,7 +272,7 @@ func _update_alarms(delta: float) -> void:
 
 func _explode(pos: Vector3) -> void:
 	const RADIUS := 7.0
-	GameState.make_noise(pos, 160.0)
+	_noise(pos, 160.0)
 	burst(pos, Vector3.UP, Color(1.0, 0.6, 0.2), 24, 8.0)
 	burst(pos, Vector3.UP, Color(0.25, 0.23, 0.2), 20, 5.0)
 	var flash := MeshInstance3D.new()
@@ -287,7 +294,7 @@ func _explode(pos: Vector3) -> void:
 	tw.tween_property(flash, "scale", Vector3.ONE * 4.0, 0.25)
 	tw.parallel().tween_property(light, "light_energy", 0.0, 0.35)
 	tw.tween_callback(flash.queue_free)
-	if zombies:
+	if zombies and Net.authority():
 		for z in zombies.in_radius(pos, RADIUS):
 			var d := z.global_position.distance_to(pos)
 			var push := (z.global_position - pos).normalized()
@@ -296,3 +303,10 @@ func _explode(pos: Vector3) -> void:
 		var d := player.global_position.distance_to(pos)
 		if d < RADIUS:
 			player.hurt(110.0 * (1.0 - d / RADIUS), pos, "blast")
+
+
+## Zombies live on the host, so only the host makes these noises (every
+## device is simulating the same projectile).
+func _noise(pos: Vector3, radius: float) -> void:
+	if Net.authority():
+		GameState.make_noise(pos, radius)

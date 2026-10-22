@@ -14,6 +14,9 @@ var gen: WorldGen
 var player: Node3D
 var view_radius := 5
 var shadows := false
+## Host: other players' positions. The chunks right around them are loaded
+## with collision too, so zombies chasing them have walls and floors.
+var extra_centers: Array = []
 
 var _chunks := {} # Vector2i -> Chunk
 var _jobs := {} # Vector2i -> Job
@@ -22,6 +25,7 @@ var _wanted := {} # Vector2i -> lod
 var _order: Array[Vector2i] = [] # Wanted keys, nearest first.
 var _max_jobs := 2
 var _center := Vector2i(1 << 30, 1 << 30)
+var _extra_keys: Array = []
 var _spawn_ready := false
 
 
@@ -141,8 +145,10 @@ func _process(_delta: float) -> void:
 	if player == null:
 		return
 	var center := chunk_of(player.global_position)
-	if center != _center:
+	var extra: Array = extra_centers.map(func(p: Vector3) -> Vector2i: return chunk_of(p))
+	if center != _center or extra != _extra_keys:
 		_center = center
+		_extra_keys = extra
 		_update_wanted(center)
 	_poll_jobs()
 	_start_jobs()
@@ -165,6 +171,15 @@ func _update_wanted(center: Vector2i) -> void:
 				continue
 			_wanted[key] = 0 if maxi(absi(dx), absi(dz)) <= NEAR_RADIUS else 1
 			_order.append(key)
+	for ec: Vector2i in _extra_keys:
+		for dz in range(-NEAR_RADIUS, NEAR_RADIUS + 1):
+			for dx in range(-NEAR_RADIUS, NEAR_RADIUS + 1):
+				var key := ec + Vector2i(dx, dz)
+				if key.x < -1 or key.y < -1 or key.x > gen.chunks or key.y > gen.chunks:
+					continue
+				if not _wanted.has(key):
+					_order.append(key)
+				_wanted[key] = 0
 	_order.sort_custom(func(a: Vector2i, b: Vector2i) -> bool:
 		return (a - center).length_squared() < (b - center).length_squared())
 	for key: Vector2i in _chunks.keys():

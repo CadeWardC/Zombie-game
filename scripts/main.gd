@@ -5,6 +5,10 @@ extends Node3D
 ## Also runs the death rules (respawn, new character, permadeath; turning
 ## into a zombie when infected), tracks the explored map and keeps running
 ## generators loud.
+##
+## Multiplayer (see Net): the other players' avatars, sharing clothes,
+## pings, curing a turned friend back to life, watching friends after a
+## permadeath, and the world being lost only when everyone is out.
 
 const AUTOSAVE_INTERVAL := 60.0
 const DAY_SKY := Color(0.58, 0.63, 0.66)
@@ -24,6 +28,11 @@ var inventory_ui: InventoryScreen
 var effects: Effects
 var drops: DropManager
 var perf: PerformanceMonitor
+var avatars: Avatars
+var pings: Array = [] # {pos, kind, name, t}
+var _look_json := ""
+var _spec_cam: Camera3D
+var _spec_index := 0
 var ocean: MeshInstance3D
 var world_ready := false
 var _saved_player := {}
@@ -40,7 +49,20 @@ func _ready() -> void:
 	if GameState.world.is_empty():
 		# Launched straight into the game (editor, tests): use a quick-play world.
 		GameState.start_world(GameState.create_world("Quick Play", GameState.world_size, GameState.world_seed, 1, 0, "quickplay"))
-	_saved_player = GameState.load_game()
+	if Net.is_client():
+		# A guest plays the host's world; the host keeps their save.
+		_saved_player = GameState.net_player
+	else:
+		_saved_player = GameState.load_game()
+	Net.attach_game(self)
+	Net.disconnected.connect(_on_disconnected)
+	Net.ping_received.connect(func(pg: Dictionary) -> void:
+		pg.t = Time.get_ticks_msec()
+		pings.append(pg)
+		if pg.id != Net.my_id():
+			GameState.notify("%s: %s" % [pg.name, {"go": "Over here", "zombie": "Zombie!", "loot": "Loot here",
+				"help": "Help!"}.get(pg.kind, "Look")]))
+	Net.chat_notice.connect(func(t: String) -> void: GameState.notify(t))
 	gen = WorldGen.new(GameState.world_seed, GameState.world_size)
 	_setup_environment()
 	hud = Hud.new()
@@ -76,7 +98,8 @@ func _setup_world() -> void:
 	player.gen = gen
 	add_child(player)
 	if _saved_player.is_empty():
-		player.global_position = gen.spawn_point(GameState.world_seed)
+		# New guests start in a random small town, like any new survivor.
+		player.global_position = gen.spawn_point(randi() if Net.is_client() else GameState.world_seed)
 	else:
 		player.from_dict(_saved_player)
 	player.damaged.connect(func() -> void: hud.flash_damage())
@@ -84,14 +107,19 @@ func _setup_world() -> void:
 	streamer.player = player
 	player.streamer = streamer
 
+	avatars = Avatars.new()
+	add_child(avatars)
 	zombies = ZombieManager.new()
 	zombies.gen = gen
 	zombies.player = player
 	zombies.streamer = streamer
+	zombies.avatars = avatars
+	zombies.turned_cured.connect(_on_turned_cured)
 	add_child(zombies)
 	player.zombies = zombies
 	hud.connect_player(player)
 	hud.zombies = zombies
+	hud.game = self
 
 	drops = DropManager.new()
 	drops.player = player
@@ -135,6 +163,7 @@ func _setup_world() -> void:
 	add_child(perf)
 
 	GameState.quality_changed.connect(apply_quality)
+	GameState.inventory_changed.connect(_check_look)
 	apply_quality()
 	streamer.spawn_area_ready.connect(_on_spawn_ready, CONNECT_ONE_SHOT)
 	world_ready = true
@@ -202,6 +231,14 @@ func _on_spawn_ready() -> void:
 		Input.mouse_mode = Input.MOUSE_MODE_CAPTURED
 	GameState.notify("Find food, water and shelter. Survive.")
 	save_game()
+	if Net.is_client():
+		Net.client_ready()
+		Net.send_look()
+		if GameState.net_out:
+			# Out of a permadeath world: you can only watch your friends.
+			player.health = 0.0
+			player.dead = true
+			hud.show_death(true, GameState.DeathRule.PERMADEATH, "Out of the game", false, true)
 
 
 func _process(delta: float) -> void:
@@ -213,6 +250,11 @@ func _process(delta: float) -> void:
 		return
 	_update_day_night()
 	var p := player.global_position
+	if Net.is_host():
+		streamer.extra_centers = avatars.targets().map(func(a: Node3D) -> Vector3: return a.global_position)
+	_update_spectator()
+	var now := Time.get_ticks_msec()
+	pings = pings.filter(func(pg: Dictionary) -> bool: return now - int(pg.t) < (30000 if pg.kind == "help" else 20000))
 	ocean.global_position = Vector3(snappedf(p.x, 64.0), -0.05, snappedf(p.z, 64.0))
 	if not player.active:
 		return
@@ -277,6 +319,8 @@ func _update_day_night() -> void:
 func save_game() -> void:
 	if world_ready and player.active and not player.dead and not GameState.world.get("lost", false):
 		GameState.save_game(player.to_dict())
+	if world_ready and Net.is_client():
+		Net.send_record()
 
 
 func _on_player_died() -> void:
@@ -295,7 +339,7 @@ func _on_player_died() -> void:
 			var it: Dictionary = GameState.inventory.equip[slot]
 			if not it.is_empty():
 				equip[slot] = {"id": it.id, "v": it.get("v", 0), "c": it.get("c", 1.0)}
-		GameState.add_turned({"id": "%s_%d" % [GameState.player_id, int(GameState.hours() * 100.0)],
+		GameState.add_turned({"id": "%s_%d" % [GameState.player_id, int(GameState.hours() * 100.0) + randi() % 100],
 			"name": GameState.character.name, "owner": GameState.player_id, "p": [at.x, at.y, at.z],
 			"items": GameState.inventory.all_items().duplicate(true), "char": GameState.character.to_dict(), "equip": equip})
 	else:
@@ -304,6 +348,16 @@ func _on_player_died() -> void:
 		for k in items.size():
 			drops.drop(items[k], at + Vector3(cos(k * 2.4), 0.3, sin(k * 2.4)) * 0.6)
 	GameState.inventory.clear()
+	if Net.active():
+		# With friends around, a turned survivor can still be cured, and a
+		# permadeath only ends the world when everyone is out.
+		if rule == GameState.DeathRule.PERMADEATH and not player.turned:
+			GameState.net_out = true
+			Net.mark_out()
+			if Net.is_host():
+				check_world_lost()
+		hud.show_death(true, rule, cause, player.turned, true)
+		return
 	if rule == GameState.DeathRule.PERMADEATH:
 		GameState.mark_world_lost(cause)
 	hud.show_death(true, rule, cause, player.turned)
@@ -327,8 +381,9 @@ func _new_character() -> void:
 
 
 func _respawn() -> void:
-	zombies.clear_all()
-	effects.clear()
+	if not Net.active():
+		zombies.clear_all()
+		effects.clear()
 	var p := gen.spawn_point(randi())
 	player.respawn(Vector3(p.x, gen.height(p.x, p.z) + 1.0, p.z))
 	GameState.give_starting_kit()
@@ -343,6 +398,7 @@ func _respawn() -> void:
 
 func _quit_to_menu() -> void:
 	save_game()
+	Net.stop()
 	get_tree().paused = false
 	GameState.ui_open = false
 	Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
@@ -355,3 +411,123 @@ func _notification(what: int) -> void:
 	if what == NOTIFICATION_WM_CLOSE_REQUEST or what == NOTIFICATION_APPLICATION_PAUSED \
 			or what == NOTIFICATION_APPLICATION_FOCUS_OUT:
 		save_game()
+
+
+# --- Multiplayer ----------------------------------------------------------------------
+
+## Clothes changed: the other players redraw you.
+func _check_look() -> void:
+	if not Net.active():
+		return
+	var j := JSON.stringify(Net._my_look())
+	if j != _look_json:
+		_look_json = j
+		Net.send_look()
+
+
+## Host: someone gave a turned survivor the cure.
+func _on_turned_cured(entry: Dictionary) -> void:
+	var p: Array = entry.p
+	var pos := Vector3(p[0], p[1], p[2])
+	if entry.owner == GameState.player_id:
+		revive(pos, entry.items)
+	elif not Net.revive(str(entry.owner), pos, entry.items):
+		# Their player isn't here: leave the gear where the body stood.
+		for k in entry.items.size():
+			drops.drop(entry.items[k], pos + Vector3(cos(k * 2.4), 0.4, sin(k * 2.4)) * 0.6)
+		GameState.notify("%s is cured, but they aren't here to come back" % entry.name)
+
+
+## Back to life after a friend's cure, with everything you carried.
+func revive(pos: Vector3, items: Array) -> void:
+	if not player.dead:
+		for it in items:
+			GameState.drop_item(Inventory._clean(it), pos)
+		GameState.notify("A friend cured your old body. Your gear is there.")
+		return
+	player.respawn(pos)
+	GameState.inventory.clear()
+	for it in items:
+		GameState.inventory.add(Inventory._clean(it))
+	GameState.net_out = false
+	hud.show_death(false)
+	_stop_spectating()
+	if not GameState.uses_touch():
+		Input.mouse_mode = Input.MOUSE_MODE_CAPTURED
+	GameState.notify("You're cured. Your friends brought you back!")
+
+
+## Permadeath with friends: the world is lost once nobody is left playing.
+func check_world_lost() -> void:
+	if not Net.is_host() or GameState.death_rule() != GameState.DeathRule.PERMADEATH:
+		return
+	if not GameState.net_out:
+		return
+	for id in Net.players:
+		if not Net.players[id].out:
+			return
+	GameState.mark_world_lost("Everyone died")
+	Net.world_lost("Everyone died")
+	on_world_lost("Everyone died")
+
+
+## Your turned body was killed: no cure can bring you back now.
+func on_body_gone() -> void:
+	if not player.dead:
+		return
+	GameState.notify("Your turned body was put down. There's no cure for you now.")
+	var rule := GameState.death_rule()
+	if rule == GameState.DeathRule.PERMADEATH:
+		GameState.net_out = true
+		Net.mark_out()
+		if Net.is_host():
+			check_world_lost()
+	hud.show_death(true, rule, "Your turned body was put down", false, true)
+
+
+func on_world_lost(cause: String) -> void:
+	_stop_spectating()
+	hud.show_death(true, GameState.DeathRule.PERMADEATH, cause, false)
+
+
+## While dead in a multiplayer game, follow a friend's survivor.
+func _update_spectator() -> void:
+	if not player.dead or not Net.active() or hud.death_full():
+		_stop_spectating()
+		return
+	var alive := avatars.targets()
+	if alive.is_empty():
+		_stop_spectating()
+		return
+	if _spec_cam == null:
+		_spec_cam = Camera3D.new()
+		_spec_cam.far = player.camera.far
+		add_child(_spec_cam)
+	_spec_index = posmod(_spec_index, alive.size())
+	var a: Node3D = alive[_spec_index]
+	var behind := a.global_position + a.global_basis.z * 3.2 + Vector3(0, 2.4, 0)
+	_spec_cam.global_position = _spec_cam.global_position.lerp(behind, 0.1) if _spec_cam.current else behind
+	_spec_cam.look_at(a.global_position + Vector3(0, 1.4, 0))
+	_spec_cam.current = true
+	hud.spectating = str(a.player_name)
+
+
+func next_spectated() -> void:
+	_spec_index += 1
+
+
+func _stop_spectating() -> void:
+	if _spec_cam and _spec_cam.current:
+		_spec_cam.current = false
+		player.camera.current = true
+	if hud:
+		hud.spectating = ""
+
+
+func _on_disconnected(reason: String) -> void:
+	GameState.menu_message = reason
+	get_tree().paused = false
+	GameState.ui_open = false
+	Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
+	GameState.world = {}
+	get_tree().change_scene_to_file("res://scenes/menu.tscn")

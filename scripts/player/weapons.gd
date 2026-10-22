@@ -276,6 +276,8 @@ func melee() -> void:
 	_swing_t = 0.3
 	player.use_stamina(d.stam)
 	GameState.make_noise(player.global_position, 5.0)
+	if _hit_player(d.reach, float(d.dmg) * GameState.character.mod("melee")):
+		return
 	var z := _melee_target(d.reach)
 	if z == null:
 		_hit_structure(d)
@@ -301,6 +303,23 @@ func melee() -> void:
 		effects.blood(z.global_position + Vector3(0, 1.3, 0), push)
 	hit_zombie.emit(z.state == Zombie.State.DEAD)
 	_wear(it, d.wear)
+
+
+## PvP worlds: is another player right in front of us? Then hit them.
+func _hit_player(reach: float, dmg: float) -> bool:
+	if not Net.active() or not GameState.world.get("pvp", false):
+		return false
+	var cam := player.camera
+	var from := cam.global_position
+	var hit := get_world_3d().direct_space_state.intersect_ray(
+			PhysicsRayQueryParameters3D.create(from, from - cam.global_basis.z * reach, 1 | 2, [player.get_rid()]))
+	if hit.is_empty() or not hit.collider is Avatars.RemoteAvatar:
+		return false
+	Net.pvp_hit((hit.collider as Avatars.RemoteAvatar).peer, dmg, player.global_position)
+	if effects:
+		effects.blood(hit.position, -cam.global_basis.z)
+	hit_zombie.emit(false)
+	return true
 
 
 ## A swing that hits no zombie can smash a window or batter a door.
@@ -432,6 +451,8 @@ func fire() -> void:
 	_flash.scale = Vector3.ONE * (0.4 if suppressed else 1.0)
 	_flash_light.light_energy = 1.0 if suppressed else 3.0
 	GameState.make_noise(player.global_position, float(d.noise) * (0.3 if suppressed else 1.0))
+	if Net.active():
+		Net.shot(player.global_position)
 	var spread := lerpf(float(d.spread), float(d.ads_spread), aim_blend)
 	spread *= (1.0 - GameState.character.skill("aiming") * 0.06) / player.body.arm_factor()
 	if player.velocity.length() > 1.0:
@@ -458,10 +479,16 @@ func _shoot_ray(spread_deg: float, reach: float, dmg: float) -> int:
 	var r := deg_to_rad(spread_deg) * sqrt(randf()) * 0.5
 	var dir := (-basis.z + basis.x * cos(a) * tan(r) + basis.y * sin(a) * tan(r)).normalized()
 	var from := cam.global_position
-	var q := PhysicsRayQueryParameters3D.create(from, from + dir * reach, 1 | 4, [player.get_rid()])
+	var pvp: bool = Net.active() and GameState.world.get("pvp", false)
+	var q := PhysicsRayQueryParameters3D.create(from, from + dir * reach, 1 | 4 | (2 if pvp else 0), [player.get_rid()])
 	var hit := get_world_3d().direct_space_state.intersect_ray(q)
 	if hit.is_empty():
 		return -1
+	if hit.collider is Avatars.RemoteAvatar:
+		Net.pvp_hit((hit.collider as Avatars.RemoteAvatar).peer, dmg, player.global_position)
+		if effects:
+			effects.blood(hit.position, dir)
+		return 0
 	var z := hit.collider as Zombie
 	if z == null:
 		if hit.collider is WindowBody:

@@ -10,6 +10,7 @@ signal message(text: String)
 signal quality_changed
 signal device_changed
 signal drops_changed
+signal containers_changed(id: String)
 
 enum Quality { LOW, MEDIUM, HIGH }
 
@@ -75,8 +76,14 @@ var ui_open := false # Inventory (or another full-screen menu) is open.
 ## Last input device used: "kbm", "touch", "xbox", "ps" or "nintendo".
 var device := "kbm"
 var force_touch_ui := false
-## This device's player (the host's id once multiplayer arrives).
+## Shown on the main menu after returning to it (e.g. "The host left").
+var menu_message := ""
+## This device's player id (saved in the settings, so a host recognises a
+## returning guest). A guest gets it confirmed by the host.
 var player_id := "p1"
+## Host: everything about each guest who has played in this world, by
+## player id: {char, inv, player, explored (PNG bytes), out}.
+var net_records := {}
 var world := {} # Current world's settings and summary (see create_world).
 
 
@@ -158,6 +165,9 @@ func set_quality(q: int) -> void:
 
 func make_noise(pos: Vector3, radius: float) -> void:
 	noise_made.emit(pos, radius)
+	# Zombies live on the host.
+	if Net.is_client():
+		Net.noise(pos, radius)
 
 
 func notify(text: String) -> void:
@@ -189,8 +199,10 @@ func drop_item(it: Dictionary, pos: Vector3, armed := false) -> void:
 	d.erase("x")
 	d.erase("y")
 	d.erase("r")
-	drops.append({"p": [pos.x, pos.y, pos.z], "it": d, "armed": armed})
+	var drop := {"p": [pos.x, pos.y, pos.z], "it": d, "armed": armed, "id": Net.new_drop_id()}
+	drops.append(drop)
 	drops_changed.emit()
+	Net.drop_added(drop)
 
 
 func remove_drop(drop: Dictionary) -> void:
@@ -198,7 +210,51 @@ func remove_drop(drop: Dictionary) -> void:
 		if is_same(drops[k], drop):
 			drops.remove_at(k)
 			drops_changed.emit()
+			Net.drop_removed(str(drop.get("id", "")))
 			return
+
+
+## A drop changed in place (a sprung trap).
+func drop_updated(drop: Dictionary) -> void:
+	drops_changed.emit()
+	Net.drop_changed(drop)
+
+
+func drop_by_id(id: String) -> Dictionary:
+	for d in drops:
+		if str(d.get("id", "")) == id:
+			return d
+	return {}
+
+
+func apply_drop_add(d: Dictionary) -> void:
+	if not drop_by_id(str(d.id)).is_empty():
+		return
+	drops.append({"p": d.p, "it": Inventory._clean(d.it), "armed": bool(d.get("armed", false)), "id": str(d.id)})
+	drops_changed.emit()
+
+
+func apply_drop_remove(id: String) -> void:
+	for k in drops.size():
+		if str(drops[k].get("id", "")) == id:
+			drops.remove_at(k)
+			drops_changed.emit()
+			return
+
+
+func apply_drop_set(d: Dictionary) -> void:
+	var old := drop_by_id(str(d.id))
+	if old.is_empty():
+		apply_drop_add(d)
+		return
+	old.armed = bool(d.get("armed", false))
+	old.it = Inventory._clean(d.it)
+	drops_changed.emit()
+
+
+## A container's contents changed here (looting): tell the other players.
+func container_changed(id: String) -> void:
+	Net.container_changed(id)
 
 
 ## Contents of a container, rolled the first time it's opened.
@@ -243,6 +299,7 @@ func door_state(id: String) -> Dictionary:
 
 func set_door_state(id: String, st: Dictionary) -> void:
 	ws.doors[id] = st
+	Net.door_changed(id, st)
 
 
 func window_smashed(id: String) -> bool:
@@ -251,6 +308,7 @@ func window_smashed(id: String) -> bool:
 
 func smash_window(id: String) -> void:
 	ws.windows[id] = 1
+	Net.window_smashed(id)
 
 
 func has_power(site: String) -> bool:
@@ -259,6 +317,7 @@ func has_power(site: String) -> bool:
 
 func set_power(site: String, pos: Vector3) -> void:
 	ws.power[site] = [pos.x, pos.y, pos.z]
+	Net.power_on(site, pos)
 
 
 ## Can an interior spawn point hold a zombie again? (Killed ones come back
@@ -272,11 +331,16 @@ func spawn_killed(id: String) -> void:
 
 
 func add_turned(entry: Dictionary) -> void:
+	if Net.is_client():
+		Net.add_turned(entry)
+		return
 	ws.turned.append(entry)
+	Net.turned_changed()
 
 
 func remove_turned(id: String) -> void:
 	ws.turned = ws.turned.filter(func(t: Dictionary) -> bool: return t.id != id)
+	Net.turned_changed()
 
 
 func _reset_ws() -> void:
@@ -393,7 +457,7 @@ func _world_path(file: String) -> String:
 
 
 func save_game(player_data: Dictionary) -> void:
-	if world.is_empty():
+	if world.is_empty() or Net.is_client():
 		return
 	var data := {
 		"version": SAVE_VERSION,
@@ -406,6 +470,7 @@ func save_game(player_data: Dictionary) -> void:
 		"player": player_data,
 		"character": character.to_dict(),
 		"world": ws,
+		"players": net_records,
 	}
 	_write_json(_world_path("save.json"), data)
 	if explored:
@@ -431,6 +496,7 @@ func load_game() -> Dictionary:
 	containers.clear()
 	drops.clear()
 	_reset_ws()
+	net_records = data.get("players", {})
 	if version >= 3:
 		character = Character.from_dict(data.get("character", {}))
 		var w: Dictionary = data.get("world", {})
@@ -465,7 +531,8 @@ func load_game() -> Dictionary:
 		for id in saved:
 			containers[id] = (saved[id] as Array).map(func(o: Dictionary) -> Dictionary: return Inventory._clean(o))
 		for d in data.get("drops", []):
-			drops.append({"p": d.p, "it": Inventory._clean(d.it), "armed": bool(d.get("armed", false))})
+			drops.append({"p": d.p, "it": Inventory._clean(d.it), "armed": bool(d.get("armed", false)),
+				"id": str(d.get("id", Net.new_drop_id()))})
 	inventory.carry_mult = character.mod("carry") * (1.0 + character.skill("strength") * 0.05)
 	drops_changed.emit()
 	return data.get("player", {})
@@ -514,12 +581,69 @@ func _load_settings() -> void:
 	var cfg := ConfigFile.new()
 	if cfg.load(SETTINGS_PATH) == OK:
 		quality = clampi(int(cfg.get_value("graphics", "quality", quality)), Quality.LOW, Quality.HIGH)
+		player_id = str(cfg.get_value("player", "id", ""))
+	if player_id == "" or player_id == "p1":
+		player_id = "p%08x" % (randi() ^ int(Time.get_unix_time_from_system()))
+		_save_settings()
 
 
 func _save_settings() -> void:
 	var cfg := ConfigFile.new()
 	cfg.set_value("graphics", "quality", quality)
+	cfg.set_value("player", "id", player_id)
 	cfg.save(SETTINGS_PATH)
+
+
+# --- Multiplayer worlds -----------------------------------------------------------
+
+## Host: the shared world state a joining guest needs.
+func net_state() -> Dictionary:
+	return {"time": time_of_day, "day": day, "containers": containers, "drops": drops, "ws": ws}
+
+
+## Guest: starts the host's world. `record` is this player's saved data on
+## the host (empty the first time: they make a character).
+func start_net_world(meta: Dictionary, state: Dictionary, record: Dictionary) -> void:
+	var m := meta.duplicate()
+	m.id = "net_" + str(meta.id)
+	DirAccess.make_dir_recursive_absolute(WORLDS_DIR + "/" + m.id)
+	start_world(m)
+	time_of_day = float(state.get("time", 8.0))
+	day = int(state.get("day", 1))
+	var saved: Dictionary = state.get("containers", {})
+	for id in saved:
+		containers[id] = (saved[id] as Array).map(func(o: Dictionary) -> Dictionary: return Inventory._clean(o))
+	for d in state.get("drops", []):
+		apply_drop_add(d)
+	var w: Dictionary = state.get("ws", {})
+	for k in ["doors", "windows", "power", "spawns"]:
+		ws[k] = w.get(k, {})
+	ws.turned = w.get("turned", [])
+	net_records = {}
+	net_player = record.get("player", {})
+	if not record.get("char", {}).is_empty():
+		character = Character.from_dict(record.char)
+		inventory.from_dict(record.get("inv", {}))
+		inventory.carry_mult = character.mod("carry") * (1.0 + character.skill("strength") * 0.05)
+		var png: PackedByteArray = record.get("explored", PackedByteArray())
+		if not png.is_empty():
+			var img := Image.new()
+			if img.load_png_from_buffer(png) == OK and img.get_width() == explored.get_width():
+				img.convert(Image.FORMAT_L8)
+				explored = img
+	net_out = bool(record.get("out", false))
+
+
+## The saved player data a guest resumes with (empty: a new spawn).
+var net_player := {}
+## Permadeath: this guest is out of the game and can only watch.
+var net_out := false
+
+
+## Guest: everything the host keeps for this survivor.
+func local_record(p: Player) -> Dictionary:
+	return {"char": character.to_dict(), "inv": inventory.to_dict(), "player": p.to_dict(),
+		"explored": explored.save_png_to_buffer() if explored else PackedByteArray(), "out": net_out}
 
 
 ## Debug flags, passed after "--" on the command line:
@@ -577,6 +701,7 @@ func _setup_input() -> void:
 	_action("interact", [_key(KEY_E), _button(JOY_BUTTON_B)])
 	_action("throw_quick", [_key(KEY_G), _button(JOY_BUTTON_LEFT_SHOULDER)])
 	_action("pause", [_key(KEY_ESCAPE), _key(KEY_P), _button(JOY_BUTTON_START)])
+	_action("ping", [_key(KEY_Q), _button(JOY_BUTTON_MISC1)])
 	# Inventory screen (gamepad face buttons are read directly there).
 	_action("ui_rotate", [_key(KEY_R)])
 	_action("toggle_fps", [_key(KEY_F3)])

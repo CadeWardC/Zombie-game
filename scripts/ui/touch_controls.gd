@@ -35,6 +35,7 @@ var _buttons := [
 	{"action": "quick_eat", "label": "EAT", "anchor": Vector2(1, 0), "offset": Vector2(-355, 60), "radius": 38.0, "item": "food"},
 	{"action": "flashlight", "label": "LIGHT", "anchor": Vector2(1, 0), "offset": Vector2(-450, 60), "radius": 38.0},
 	{"action": "pause", "label": "II", "anchor": Vector2(0.5, 0), "offset": Vector2(0, 40), "radius": 30.0},
+	{"action": "ping", "label": "PING", "anchor": Vector2(1, 0), "offset": Vector2(-545, 60), "radius": 38.0, "show": "net"},
 ]
 
 
@@ -87,6 +88,8 @@ func _shown(b: Dictionary) -> bool:
 	match b.get("show", ""):
 		"ranged":
 			return player != null and player.weapons.is_ranged()
+		"net":
+			return Net.active()
 	return true
 
 

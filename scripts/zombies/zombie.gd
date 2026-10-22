@@ -49,6 +49,17 @@ var turned_name := ""
 var turned_owner := ""
 var turned_items: Array = []
 var subdued := false
+## Multiplayer: the id the host gave this zombie, and whether this is a
+## guest's copy (a puppet that follows the host's updates; hits on it are
+## sent to the host).
+var net_id := 0
+var puppet := false
+var variant := 0
+var look_kind := "" # "" (its type's look), "scientist" or "turned".
+var _net_pos := Vector3.ZERO
+var _net_yaw := 0.0
+var _net_anim := ""
+var _net_seen := 0
 
 var _model: Node3D
 var _body: MeshInstance3D
@@ -104,8 +115,13 @@ func t() -> Dictionary:
 
 
 ## `mesh` overrides the type's look (turned players, scientists).
-func reset(pos: Vector3, p_type: String, variant: int, speed_mul: float, mesh: Mesh = null) -> void:
+func reset(pos: Vector3, p_type: String, p_variant: int, speed_mul: float, mesh: Mesh = null) -> void:
 	type = p_type if TYPES.has(p_type) else "walker"
+	variant = p_variant
+	look_kind = ""
+	puppet = false
+	_net_pos = pos
+	_net_anim = ""
 	position = pos
 	rotation = Vector3(0, randf() * TAU, 0)
 	velocity = Vector3.ZERO
@@ -232,6 +248,10 @@ func is_behind(from: Vector3) -> bool:
 func stagger(push: Vector3, time: float) -> void:
 	if not alive():
 		return
+	if puppet:
+		Net.zombie_action(net_id, "stagger", [push, time])
+		_play_once("hit", minf(time, 0.6))
+		return
 	# Brutes barely notice a shove.
 	if type == "brute":
 		time *= 0.15
@@ -246,12 +266,17 @@ func stagger(push: Vector3, time: float) -> void:
 func ignite(time: float) -> void:
 	if not alive():
 		return
+	if puppet:
+		Net.zombie_action(net_id, "ignite", time)
+		return
 	_burn_t = maxf(_burn_t, time)
 	_flames.visible = true
 
 
 func trap(time: float) -> void:
-	if alive():
+	if puppet:
+		Net.zombie_action(net_id, "trap", time)
+	elif alive():
 		_trap_t = time
 
 
@@ -270,7 +295,7 @@ func _scream() -> void:
 ## `use_physics` is true only close to the player, where collision matters.
 ## Farther away zombies just slide along the terrain height, which is far
 ## cheaper than move_and_slide.
-func update_ai(dt: float, player: Player, dist: float, use_physics: bool, night: bool, gen: WorldGen) -> void:
+func update_ai(dt: float, player: Node3D, dist: float, use_physics: bool, night: bool, gen: WorldGen) -> void:
 	if state == State.DEAD:
 		dead_timer -= dt
 		return
@@ -401,7 +426,7 @@ func _flat_dist(p: Vector3) -> float:
 ## Steering straight at a target gets zombies stuck on walls, so when one stops
 ## making progress it looks for a way in (a door or window), climbs a low
 ## fence, or sidesteps for a moment.
-func _check_stuck(dt: float, before: Vector3, speed: float, player: Player) -> void:
+func _check_stuck(dt: float, before: Vector3, speed: float, player: Node3D) -> void:
 	if speed < 0.3 or _detour_t > 0.0:
 		_stuck_t = 0.0
 		return
@@ -422,7 +447,7 @@ func _check_stuck(dt: float, before: Vector3, speed: float, player: Player) -> v
 
 
 ## Picks the door or window that best leads toward the target.
-func _find_entry(player: Player) -> bool:
+func _find_entry(_player: Node3D) -> bool:
 	if mgr == null or mgr.streamer == null:
 		return false
 	var best: Node3D = null
@@ -596,7 +621,7 @@ func _play_once(anim_name: String, length: float) -> void:
 	_one_shot = length
 
 
-func _try_attack(player: Player) -> void:
+func _try_attack(player: Node3D) -> void:
 	if _attack_cd > 0.0 or player.dead:
 		return
 	_attack_cd = float(t().cd)
@@ -617,6 +642,20 @@ func _try_attack(player: Player) -> void:
 ## take full damage there). `blast`: explosions kill turned players outright.
 func take_damage(amount: float, push: Vector3, alert := true, flinch := true, head := false, blast := false) -> void:
 	if state == State.DEAD:
+		return
+	if puppet:
+		# The host decides; show the hit (and a likely kill) right away.
+		Net.zombie_hit(net_id, amount, push, alert, flinch, head, blast)
+		var dealt := amount * (1.0 if head or not t().has("armor") else float(t().armor))
+		health -= dealt
+		if health <= 0.0 and (turned_id == "" or head or blast):
+			state = State.DEAD
+			collision_layer = 0
+			GameState.kills += 1
+			_anim.play("crawl_death" if type == "crawler" else "death", 0.1)
+			_net_anim = "death"
+		elif flinch:
+			_play_once("hit", 0.38)
 		return
 	if state == State.SUBDUED:
 		# Killing a subdued friend ends them for good.
@@ -644,6 +683,13 @@ func take_damage(amount: float, push: Vector3, alert := true, flinch := true, he
 
 ## Silent kill from behind.
 func takedown() -> void:
+	if puppet and alive():
+		Net.zombie_action(net_id, "takedown")
+		state = State.DEAD
+		collision_layer = 0
+		_anim.play("death", 0.1)
+		_net_anim = "death"
+		return
 	if alive():
 		health = 0.0
 		_die()
@@ -664,6 +710,9 @@ func _subdue() -> void:
 
 ## The cure: a subdued turned player comes back.
 func cure() -> void:
+	if puppet:
+		Net.zombie_action(net_id, "cure")
+		return
 	if state != State.SUBDUED:
 		return
 	GameState.remove_turned(turned_id)
@@ -697,3 +746,51 @@ func _die() -> void:
 	_anim.speed_scale = 1.0
 	if was_subdued:
 		_anim.seek(0.9, true)
+
+
+# --- Multiplayer ---------------------------------------------------------------------
+
+## Host: this zombie's line in a snapshot for a guest.
+func net_line() -> Array:
+	var anim: String = _anim.current_animation
+	return [net_id, type, variant, look_kind, turned_id, position, rotation.y, Net.ANIMS.find(anim), state,
+		health / maxf(1.0, max_health), awareness]
+
+
+## Guest: the latest word from the host about this zombie.
+func net_apply(line: Array) -> void:
+	_net_pos = line[5]
+	_net_yaw = line[6]
+	_net_seen = Time.get_ticks_msec()
+	var st: int = line[8]
+	awareness = line[10]
+	if state != State.DEAD or st == State.DEAD:
+		health = float(line[9]) * max_health
+	if st != state:
+		state = st as State
+		collision_layer = 0 if st == State.DEAD else 4
+		subdued = st == State.SUBDUED
+	var ai: int = line[7]
+	var anim: String = Net.ANIMS[ai] if ai >= 0 and ai < Net.ANIMS.size() else ""
+	if anim != "" and anim != _net_anim and _one_shot <= 0.0:
+		_net_anim = anim
+		_anim.play(anim, 0.15)
+
+
+## Guest: glide toward the host's position and keep animating.
+func update_puppet(dt: float) -> void:
+	var k := 1.0 - exp(-dt * 10.0)
+	var before := position
+	position = position.lerp(_net_pos, k) if position.distance_to(_net_pos) < 8.0 else _net_pos
+	rotation.y = lerp_angle(rotation.y, _net_yaw, k)
+	var speed := (position - before).length() / maxf(dt, 0.001)
+	if _one_shot > 0.0:
+		_one_shot -= dt
+		if _one_shot <= 0.0 and _net_anim != "":
+			_anim.play(_net_anim, 0.15)
+	elif _net_anim in ["walk", "run"]:
+		_anim.speed_scale = clampf(speed / (1.0 if _net_anim == "walk" else 3.6), 0.5, 1.6)
+	elif _net_anim == "crawl":
+		_anim.speed_scale = clampf(speed / 0.6, 0.6, 2.0)
+	else:
+		_anim.speed_scale = 1.0

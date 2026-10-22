@@ -522,4 +522,45 @@ static func _build_animations() -> AnimationLibrary:
 		"shin.L": [[0.0, Vector3(-20, 0, 0)], [I * 0.5, Vector3(-50, 0, 0)], [I, Vector3(-20, 0, 0)]],
 		"shin.R": [[0.0, Vector3(-40, 0, 0)], [I, Vector3(-40, 0, 0)]],
 	}, [[0.0, down], [I, down]]))
+	# Living survivors (other players): upright, arms at their sides.
+	var HW := 1.0
+	lib.add_animation("h_idle", _anim(I, true, {
+		"spine": [[0.0, Vector3(0, 0, 0)], [I * 0.5, Vector3(-2, 0, 0)], [I, Vector3(0, 0, 0)]],
+		"head": [[0.0, Vector3(0, 0, 0)], [I * 0.5, Vector3(3, 5, 0)], [I, Vector3(0, 0, 0)]],
+		"upper_arm.L": [[0.0, Vector3(4, 0, -4)], [I, Vector3(4, 0, -4)]],
+		"upper_arm.R": [[0.0, Vector3(4, 0, 4)], [I, Vector3(4, 0, 4)]],
+		"forearm.L": [[0.0, Vector3(8, 0, 0)], [I, Vector3(8, 0, 0)]],
+		"forearm.R": [[0.0, Vector3(8, 0, 0)], [I, Vector3(8, 0, 0)]],
+	}))
+	for spec: Array in [["h_walk", HW, 22.0, 28.0, 0.03], ["h_run", 0.62, 45.0, 50.0, 0.06]]:
+		var n: String = spec[0]
+		var T: float = spec[1]
+		var arm: float = spec[2]
+		var leg: float = spec[3]
+		var bob: float = spec[4]
+		var lean := -4.0 if n == "h_walk" else -14.0
+		lib.add_animation(n, _anim(T, true, {
+			"spine": [[0.0, Vector3(lean, 4, 0)], [T * 0.5, Vector3(lean, -4, 0)], [T, Vector3(lean, 4, 0)]],
+			"upper_arm.L": [[0.0, Vector3(-arm, 0, -5)], [T * 0.5, Vector3(arm, 0, -5)], [T, Vector3(-arm, 0, -5)]],
+			"upper_arm.R": [[0.0, Vector3(arm, 0, 5)], [T * 0.5, Vector3(-arm, 0, 5)], [T, Vector3(arm, 0, 5)]],
+			"forearm.L": [[0.0, Vector3(15, 0, 0)], [T * 0.5, Vector3(arm, 0, 0)], [T, Vector3(15, 0, 0)]],
+			"forearm.R": [[0.0, Vector3(arm, 0, 0)], [T * 0.5, Vector3(15, 0, 0)], [T, Vector3(arm, 0, 0)]],
+			"thigh.L": [[0.0, Vector3(leg, 0, 0)], [T * 0.5, Vector3(-leg, 0, 0)], [T, Vector3(leg, 0, 0)]],
+			"thigh.R": [[0.0, Vector3(-leg, 0, 0)], [T * 0.5, Vector3(leg, 0, 0)], [T, Vector3(-leg, 0, 0)]],
+			"shin.L": [[0.0, Vector3(-5, 0, 0)], [T * 0.25, Vector3(-leg * 1.4, 0, 0)], [T * 0.5, Vector3(-5, 0, 0)], [T, Vector3(-5, 0, 0)]],
+			"shin.R": [[0.0, Vector3(-5, 0, 0)], [T * 0.5, Vector3(-5, 0, 0)], [T * 0.75, Vector3(-leg * 1.4, 0, 0)], [T, Vector3(-5, 0, 0)]],
+		}, [[0.0, h], [T * 0.25, h + Vector3(0, bob, 0)], [T * 0.5, h], [T * 0.75, h + Vector3(0, bob, 0)], [T, h]]))
+	var ch := Vector3(0, 0.62, 0)
+	lib.add_animation("h_crouch", _anim(HW * 1.2, true, {
+		"spine": [[0.0, Vector3(-25, 0, 0)], [HW * 1.2, Vector3(-25, 0, 0)]],
+		"head": [[0.0, Vector3(20, 0, 0)], [HW * 1.2, Vector3(20, 0, 0)]],
+		"upper_arm.L": [[0.0, Vector3(25, 0, -8)], [HW * 0.6, Vector3(35, 0, -8)], [HW * 1.2, Vector3(25, 0, -8)]],
+		"upper_arm.R": [[0.0, Vector3(35, 0, 8)], [HW * 0.6, Vector3(25, 0, 8)], [HW * 1.2, Vector3(35, 0, 8)]],
+		"forearm.L": [[0.0, Vector3(40, 0, 0)], [HW * 1.2, Vector3(40, 0, 0)]],
+		"forearm.R": [[0.0, Vector3(40, 0, 0)], [HW * 1.2, Vector3(40, 0, 0)]],
+		"thigh.L": [[0.0, Vector3(75, 0, 0)], [HW * 0.6, Vector3(55, 0, 0)], [HW * 1.2, Vector3(75, 0, 0)]],
+		"thigh.R": [[0.0, Vector3(55, 0, 0)], [HW * 0.6, Vector3(75, 0, 0)], [HW * 1.2, Vector3(55, 0, 0)]],
+		"shin.L": [[0.0, Vector3(-100, 0, 0)], [HW * 1.2, Vector3(-100, 0, 0)]],
+		"shin.R": [[0.0, Vector3(-100, 0, 0)], [HW * 1.2, Vector3(-100, 0, 0)]],
+	}, [[0.0, ch], [HW * 1.2, ch]]))
 	return lib

@@ -11,6 +11,10 @@ extends Node3D
 ## Also decides which type each zombie is (more runners at night, soldiers
 ## around research sites), fills buildings' interior spawn points, and keeps
 ## turned players walking the world with their gear.
+##
+## Multiplayer: the host simulates zombies around every player (each zombie
+## goes after the nearest one) and sends each guest the zombies near them;
+## on a guest this node only shows those as puppets.
 
 signal screamed(pos: Vector3)
 ## A turned player was given the cure (multiplayer brings them back).
@@ -30,6 +34,7 @@ var player: Player
 var gen: WorldGen
 var streamer: WorldStreamer
 var drops: DropManager
+var avatars: Avatars
 var max_zombies := 28
 var shadows := false
 ## 0..1: how close any zombie is to spotting the player (1 = being chased).
@@ -45,6 +50,9 @@ var _rng := RandomNumberGenerator.new()
 var _special_t := 0.0
 var _by_spawn := {} # Interior spawn id -> Zombie
 var _by_turned := {} # Turned player id -> Zombie
+var _by_net := {} # Net id -> Zombie
+var _next_net_id := 1
+var _spawn_cursor := 0
 
 
 func _ready() -> void:
@@ -79,27 +87,53 @@ func set_shadows(enabled: bool) -> void:
 		z.set_shadows(enabled)
 
 
+## Everyone zombies can go after: this device's player and, on a host, the
+## other players' avatars.
+func targets() -> Array:
+	var out: Array = [player]
+	if avatars and Net.is_host():
+		out.append_array(avatars.targets())
+	return out
+
+
+func by_net_id(id: int) -> Zombie:
+	return _by_net.get(id)
+
+
 func _physics_process(delta: float) -> void:
 	if player == null or not player.active:
 		return
 	_frame += 1
+	if Net.is_client():
+		_update_puppets(delta)
+		return
 	var ppos := player.global_position
 	var night := GameState.is_night()
+	var tgts := targets()
 
 	_spawn_t -= delta
 	if _spawn_t <= 0.0:
-		_spawn_t = 0.7
-		_try_spawn(ppos, night)
+		_spawn_t = 0.7 / tgts.size()
+		_spawn_cursor = (_spawn_cursor + 1) % tgts.size()
+		_try_spawn((tgts[_spawn_cursor] as Node3D).global_position, night)
 	_special_t -= delta
 	if _special_t <= 0.0:
 		_special_t = 1.0
-		_spawn_interiors(ppos, night)
-		_spawn_turned(ppos)
+		for t: Node3D in tgts:
+			_spawn_interiors(t.global_position, night)
+			_spawn_turned(t.global_position)
 
 	var i := _active.size() - 1
 	while i >= 0:
 		var z := _active[i]
-		var dist := z.position.distance_to(ppos)
+		# Each zombie deals with the nearest player.
+		var tgt: Node3D = player
+		var dist := INF
+		for t: Node3D in tgts:
+			var d := z.position.distance_to(t.global_position)
+			if d < dist and not (t != player and t.dead):
+				dist = d
+				tgt = t
 		if dist > DESPAWN_DIST or (z.state == Zombie.State.DEAD and z.dead_timer <= 0.0):
 			_recycle(i)
 			i -= 1
@@ -107,7 +141,10 @@ func _physics_process(delta: float) -> void:
 		z.accum += delta
 		var interval := 1 if dist < PHYSICS_DIST else (4 if dist < MID_DIST else 10)
 		if interval == 1 or (_frame + z.slot) % interval == 0:
-			z.update_ai(z.accum, player, dist, dist < PHYSICS_DIST, night, gen)
+			# Real collision needs the ground built there (near a guest far
+			# from the host it may not be yet).
+			var physics := dist < PHYSICS_DIST and (tgt == player or streamer == null or streamer.is_ready_at(z.position))
+			z.update_ai(z.accum, tgt, dist, physics, night, gen)
 			z.accum = 0.0
 		# Animation level of detail: smooth up close, choppier (and much
 		# cheaper) farther away.
@@ -118,8 +155,10 @@ func _physics_process(delta: float) -> void:
 			z.anim_accum = 0.0
 		i -= 1
 
-	_separate(ppos)
-	_check_sight(ppos, night)
+	for t: Node3D in tgts:
+		_separate(t.global_position)
+	for t: Node3D in tgts:
+		_check_sight(t, night)
 	var det := 0.0
 	for z in _active:
 		if z.alive() and z.position.distance_squared_to(ppos) < 1600.0:
@@ -131,7 +170,13 @@ func _try_spawn(ppos: Vector3, night: bool) -> void:
 	var in_town := gen.town_weight(ppos.x, ppos.z) > 0.5
 	var wanted := int((8 + (10 if night else 0) + (12 if in_town else 0)) * GameState.difficulty().zombies)
 	wanted = mini(wanted, max_zombies)
-	if _active.size() >= wanted:
+	# Count the zombies around this player; the overall cap grows a little
+	# with each extra player.
+	var near := 0
+	for z in _active:
+		if z.position.distance_squared_to(ppos) < DESPAWN_DIST * DESPAWN_DIST:
+			near += 1
+	if near >= wanted or _active.size() >= cap():
 		return
 	for attempt in 4:
 		var ang := _rng.randf() * TAU
@@ -145,7 +190,7 @@ func _try_spawn(ppos: Vector3, night: bool) -> void:
 		# Small groups, bigger at night.
 		var group := _rng.randi_range(1, 4 if night else 2)
 		for g in group:
-			if _active.size() >= max_zombies:
+			if _active.size() >= cap():
 				return
 			var gx := x + _rng.randf_range(-3, 3)
 			var gz := z + _rng.randf_range(-3, 3)
@@ -174,6 +219,12 @@ func pick_type(night: bool, pos: Vector3) -> String:
 	return "walker"
 
 
+## Most zombies at once: grows by 60% of the single-player cap per extra
+## player, so a host like the Tab S6 Lite stays within budget.
+func cap() -> int:
+	return int(max_zombies * (1.0 + 0.6 * (targets().size() - 1)))
+
+
 func _spawn(pos: Vector3, type := "walker", mesh: Mesh = null) -> Zombie:
 	var z: Zombie
 	if _pool.is_empty():
@@ -185,6 +236,9 @@ func _spawn(pos: Vector3, type := "walker", mesh: Mesh = null) -> Zombie:
 	z.mgr = self
 	z.reset(pos, type, _rng.randi() % 8, _rng.randf_range(0.85, 1.15), mesh)
 	z.set_shadows(shadows)
+	z.net_id = _next_net_id
+	_next_net_id += 1
+	_by_net[z.net_id] = z
 	_active.append(z)
 	return z
 
@@ -206,7 +260,10 @@ func _spawn_interiors(ppos: Vector3, night: bool) -> void:
 		var z: Zombie
 		if kind == "scientist":
 			var looks: Array = ZombieModel.type_meshes.scientist
-			z = _spawn(pos, "walker", looks[_rng.randi() % looks.size()])
+			var v := _rng.randi() % looks.size()
+			z = _spawn(pos, "walker", looks[v])
+			z.variant = v
+			z.look_kind = "scientist"
 		else:
 			z = _spawn(pos, kind if kind != "" else pick_type(night, pos))
 		z.spawn_id = sp.id
@@ -224,6 +281,7 @@ func _spawn_turned(ppos: Vector3) -> void:
 			continue
 		var ch := Character.from_dict(entry.get("char", {}))
 		var z := _spawn(pos, "walker", ZombieModel.mesh_for(ch.body_look(entry.get("equip", {}), true)))
+		z.look_kind = "turned"
 		z.make_turned(entry)
 		_by_turned[entry.id] = z
 
@@ -234,6 +292,11 @@ func zombie_died(z: Zombie) -> void:
 		GameState.spawn_killed(z.spawn_id)
 	if z.turned_id != "":
 		GameState.remove_turned(z.turned_id)
+		if Net.active():
+			if z.turned_owner == GameState.player_id:
+				get_parent().on_body_gone()
+			else:
+				Net.body_gone(z.turned_owner)
 		if drops:
 			for k in z.turned_items.size():
 				drops.drop(z.turned_items[k], z.global_position + Vector3(cos(k * 2.4), 0.4, sin(k * 2.4)) * 0.6)
@@ -246,6 +309,8 @@ func zombie_died(z: Zombie) -> void:
 func _recycle(index: int) -> void:
 	var z := _active[index]
 	_active.remove_at(index)
+	if _by_net.get(z.net_id) == z:
+		_by_net.erase(z.net_id)
 	if z.spawn_id != "" and _by_spawn.get(z.spawn_id) == z:
 		_by_spawn.erase(z.spawn_id)
 	if z.turned_id != "":
@@ -290,17 +355,18 @@ func _separate(ppos: Vector3) -> void:
 				zb.position -= push
 
 
-## Stealth: zombies that can see the player build up awareness, faster when
+## Stealth: zombies that can see a player build up awareness, faster when
 ## close; crouching, cover and darkness shrink how far they can see.
-func _check_sight(ppos: Vector3, night: bool) -> void:
-	if _active.is_empty() or player.dead:
+func _check_sight(who: Node3D, night: bool) -> void:
+	if _active.is_empty() or who.dead:
 		return
+	var ppos := who.global_position
 	var range_ := SIGHT_DAY
 	if night:
-		range_ = SIGHT_FLASHLIGHT if player.flashlight.visible else SIGHT_NIGHT
-	range_ *= player.visibility()
+		range_ = SIGHT_FLASHLIGHT if who.flashlight.visible else SIGHT_NIGHT
+	range_ *= who.visibility()
 	var space := get_world_3d().direct_space_state
-	var eye := ppos + Vector3(0, player.head.position.y, 0)
+	var eye := ppos + Vector3(0, who.head.position.y, 0)
 	var now := Time.get_ticks_msec()
 	for k in mini(LOS_CHECKS_PER_FRAME, _active.size()):
 		_los_cursor = (_los_cursor + 1) % _active.size()
@@ -316,7 +382,7 @@ func _check_sight(ppos: Vector3, night: bool) -> void:
 			continue
 		var forward := -z.global_basis.z
 		# Right next to a zombie it senses you anyway, unless you're sneaking.
-		var close := dist < 2.5 and not player.crouching
+		var close: bool = dist < 2.5 and not who.crouching
 		if not close and forward.dot(to / maxf(dist, 0.01)) < 0.35:
 			continue
 		var query := PhysicsRayQueryParameters3D.create(z.position + Vector3(0, 1.6, 0), eye, 1)
@@ -327,3 +393,84 @@ func _check_sight(ppos: Vector3, night: bool) -> void:
 		else:
 			var near := 1.0 - dist / range_
 			z.notice(dt * (0.25 + 1.8 * near * near), ppos)
+
+
+# --- Multiplayer -----------------------------------------------------------------------
+
+## Host: the zombies near a guest, for their device to show.
+func snapshot(pos: Vector3, _peer: int) -> Array:
+	var out := []
+	var r2 := DESPAWN_DIST * DESPAWN_DIST
+	for z in _active:
+		if z.position.distance_squared_to(pos) < r2:
+			out.append(z.net_line())
+	return out
+
+
+## Guest: create, move or remove puppets to match the host.
+func apply_snapshot(snap: Array) -> void:
+	for line in snap:
+		var id: int = line[0]
+		var z: Zombie = _by_net.get(id)
+		if z == null:
+			z = _spawn_puppet(line)
+		z.net_apply(line)
+
+
+func _spawn_puppet(line: Array) -> Zombie:
+	var z: Zombie
+	if _pool.is_empty():
+		z = Zombie.new()
+		add_child(z)
+	else:
+		z = _pool.pop_back()
+	var mesh: Mesh = null
+	match str(line[3]):
+		"scientist":
+			var looks: Array = ZombieModel.type_meshes.scientist
+			mesh = looks[int(line[2]) % looks.size()]
+		"turned":
+			for entry in GameState.ws.turned:
+				if entry.id == str(line[4]):
+					mesh = ZombieModel.mesh_for(Character.from_dict(entry.get("char", {})).body_look(entry.get("equip", {}), true))
+					z.turned_name = str(entry.get("name", "Survivor"))
+	z.mgr = self
+	z.slot = _rng.randi() % 10
+	var name_kept := z.turned_name
+	z.reset(line[5], str(line[1]), int(line[2]), 1.0, mesh)
+	z.position = line[5]
+	z.rotation.y = line[6]
+	z.puppet = true
+	z.look_kind = str(line[3])
+	z.turned_id = str(line[4])
+	z.turned_name = name_kept
+	z.net_id = int(line[0])
+	z.set_shadows(shadows)
+	_by_net[z.net_id] = z
+	_active.append(z)
+	return z
+
+
+func _update_puppets(delta: float) -> void:
+	var now := Time.get_ticks_msec()
+	var ppos := player.global_position
+	var det := 0.0
+	var i := _active.size() - 1
+	while i >= 0:
+		var z := _active[i]
+		# Gone from the host's updates: despawned or out of range.
+		if now - z._net_seen > 1500:
+			_recycle(i)
+			i -= 1
+			continue
+		z.update_puppet(delta)
+		var dist := z.position.distance_to(ppos)
+		z.anim_accum += delta
+		var anim_interval := 1 if dist < 25.0 else (3 if dist < 60.0 else 8)
+		if anim_interval == 1 or (_frame + z.slot) % anim_interval == 0:
+			z.advance_anim(z.anim_accum)
+			z.anim_accum = 0.0
+		if z.alive() and dist < 40.0:
+			det = maxf(det, 1.0 if z.state == Zombie.State.CHASE and dist < 25.0 else z.awareness)
+		i -= 1
+	detection = det

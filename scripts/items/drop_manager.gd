@@ -104,7 +104,7 @@ func _check_traps() -> void:
 		if not d.get("armed", false):
 			continue
 		var p := _pos(d)
-		if zombies:
+		if zombies and Net.authority():
 			for z in zombies.in_radius(p, 1.5):
 				if Vector2(z.position.x - p.x, z.position.z - p.z).length() > TRAP_RADIUS:
 					continue
@@ -125,4 +125,4 @@ func _check_traps() -> void:
 func _spring(d: Dictionary) -> void:
 	GameState.make_noise(_pos(d), 12.0)
 	d.armed = false
-	GameState.drops_changed.emit()
+	GameState.drop_updated(d)

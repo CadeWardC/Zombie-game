@@ -1,6 +1,8 @@
 class_name PauseMenu
 extends CanvasLayer
-## Pause menu: resume, map, graphics quality, save, new world, quit.
+## Pause menu: resume, map, inviting friends on the same Wi-Fi (who's
+## playing), graphics quality, save, quit. In a multiplayer game the world
+## keeps running while it's open.
 
 signal save_requested
 signal menu_requested
@@ -11,6 +13,10 @@ var _map_layer: Control
 var _map: MapView
 var _map_info: Label
 var _box: VBoxContainer
+var _invite_btn: Button
+var _save_btn: Button
+var _quit_btn: Button
+var _players_label: Label
 var _first_btn: Button
 var _opened_frame := -1
 
@@ -32,8 +38,8 @@ func _ready() -> void:
 	box.anchor_bottom = 0.5
 	box.offset_left = -160
 	box.offset_right = 160
-	box.offset_top = -230
-	box.offset_bottom = 230
+	box.offset_top = -300
+	box.offset_bottom = 300
 	box.alignment = BoxContainer.ALIGNMENT_CENTER
 	box.add_theme_constant_override("separation", 14)
 	bg.add_child(box)
@@ -47,11 +53,20 @@ func _ready() -> void:
 
 	_first_btn = _button(box, "Resume", close)
 	_button(box, "Map", _open_map)
+	_invite_btn = _button(box, "Invite Friends (Wi-Fi)", func() -> void:
+		if Net.host():
+			GameState.notify("Friends on your Wi-Fi can join from Join Game")
+		_update_net())
+	_players_label = Label.new()
+	_players_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	_players_label.autowrap_mode = TextServer.AUTOWRAP_WORD
+	_players_label.add_theme_font_size_override("font_size", 16)
+	box.add_child(_players_label)
 	_quality_btn = _button(box, "", _cycle_quality)
-	_button(box, "Save Game", func() -> void:
+	_save_btn = _button(box, "Save Game", func() -> void:
 		save_requested.emit()
 		GameState.notify("Game saved"))
-	_button(box, "Quit to Menu", func() -> void:
+	_quit_btn = _button(box, "Quit to Menu", func() -> void:
 		visible = false
 		menu_requested.emit())
 	if not OS.has_feature("ios"): # iOS apps must not quit themselves.
@@ -126,7 +141,9 @@ func _update_quality_text() -> void:
 func open() -> void:
 	visible = true
 	_opened_frame = Engine.get_process_frames()
-	get_tree().paused = true
+	_update_net()
+	# With friends playing, the world can't stop for one player.
+	get_tree().paused = not Net.active()
 	Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
 	_first_btn.grab_focus()
 
@@ -140,6 +157,21 @@ func close() -> void:
 		Input.mouse_mode = Input.MOUSE_MODE_CAPTURED
 
 
+func _update_net() -> void:
+	_invite_btn.visible = not Net.is_client()
+	_invite_btn.disabled = Net.is_host()
+	_invite_btn.text = "Hosting on Wi-Fi" if Net.is_host() else "Invite Friends (Wi-Fi)"
+	_save_btn.visible = not Net.is_client()
+	_quit_btn.text = "Leave Game" if Net.is_client() else ("Close Game and Quit to Menu" if Net.is_host() else "Quit to Menu")
+	var names: PackedStringArray = [GameState.character.name + " (you)"]
+	for id in Net.players:
+		names.append(str(Net.players[id].name))
+	var pvp := "PvP on" if GameState.world.get("pvp", false) else "PvP off"
+	_players_label.text = ("Playing: %s  -  %s" % [", ".join(names), pvp]) if Net.active() else ""
+
+
 func _process(_delta: float) -> void:
+	if visible and Engine.get_process_frames() % 30 == 0:
+		_update_net()
 	if visible and Engine.get_process_frames() != _opened_frame and Input.is_action_just_pressed("pause"):
 		close()
