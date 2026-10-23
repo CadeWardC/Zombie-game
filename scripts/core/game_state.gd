@@ -65,7 +65,17 @@ var pending_character: Character
 ##   spawns: interior spawn id -> in-game hour its zombie was killed
 ##   turned: players who died infected and rose as zombies:
 ##           [{id, name, p: [x, y, z], items, look, owner}]
-var ws := {"doors": {}, "windows": {}, "power": {}, "spawns": {}, "turned": [], "vehicles": {}, "pumps": {}}
+##   vehicles: id -> vehicle record (see VehicleDB); pumps: id -> litres left
+##   structures: id -> built structure record (see BaseManager)
+##   boards: window id -> hp of the boards nailed over it
+##   chopped: tree id -> 1 (cut down); forage: bush id -> hour picked
+##   fridges: container id -> 1 (fridges keep food fresh while there's power)
+##   grid: {until: in-game hour the restarted power plant runs until}
+const WS_KEYS := ["doors", "windows", "power", "spawns", "vehicles", "pumps", "structures", "boards", "chopped", "forage",
+	"fridges", "grid"]
+var ws := {}
+## Weather (see Weather): {k: kind, i: intensity, until: hour}.
+var weather := {"k": "clear", "i": 0.5, "until": 0.0}
 ## Which parts of the map have been seen (one byte per EXPLORE_CELL square).
 var explored: Image
 ## Opened containers: id -> Array of items (each with grid x, y, r).
@@ -73,6 +83,10 @@ var containers := {}
 ## Items on the ground: [{p: [x, y, z], it: item, armed: bool (traps)}].
 var drops: Array = []
 var ui_open := false # Inventory (or another full-screen menu) is open.
+## Time speed-up while sleeping (1 = normal).
+var sleep_mult := 1.0
+var _fridge_t := 0.0
+var _fridge_hours := -1.0
 ## Last input device used: "kbm", "touch", "xbox", "ps" or "nintendo".
 var device := "kbm"
 var force_touch_ui := false
@@ -89,6 +103,7 @@ var world := {} # Current world's settings and summary (see create_world).
 
 func _ready() -> void:
 	quality = Quality.MEDIUM if OS.has_feature("mobile") else Quality.HIGH
+	_reset_ws()
 	_load_settings()
 	_parse_args()
 	_setup_input()
@@ -122,10 +137,42 @@ func using_gamepad() -> bool:
 
 
 func _process(delta: float) -> void:
-	time_of_day += delta * 24.0 / DAY_LENGTH
+	time_of_day += delta * 24.0 / DAY_LENGTH * time_mult()
 	if time_of_day >= 24.0:
 		time_of_day -= 24.0
 		day += 1
+	_fridge_t -= delta
+	if _fridge_t <= 0.0:
+		_fridge_t = 5.0
+		_chill_fridges()
+
+
+## How fast time runs now: faster while sleeping (in multiplayer only when
+## everyone sleeps; the host decides).
+func time_mult() -> float:
+	return Net.time_mult if Net.active() else sleep_mult
+
+
+## Is there mains power (and running water)? For the first couple of weeks
+## after the outbreak; later only while a restarted power plant runs.
+func grid_on() -> bool:
+	var days := int(world.get("utilities", 14))
+	if days < 0 or day <= days:
+		return true
+	return hours() < float(ws.grid.get("until", 0.0))
+
+
+## Fridges with power keep food fresh: push back its spoil time.
+func _chill_fridges() -> void:
+	var now := hours()
+	var elapsed := now - _fridge_hours if _fridge_hours >= 0.0 else 0.0
+	_fridge_hours = now
+	if elapsed <= 0.0 or not grid_on():
+		return
+	for id in ws.fridges:
+		for it in containers.get(id, []):
+			if it.has("exp"):
+				it.exp = float(it.exp) + elapsed * 0.8
 
 
 ## In-game hours since the world began (for timers that outlast a day).
@@ -172,6 +219,15 @@ func make_noise(pos: Vector3, radius: float) -> void:
 
 func notify(text: String) -> void:
 	message.emit(text)
+
+
+## Doing something trains the skill behind it.
+func practice(skill: String, amount: float) -> void:
+	var lvl := character.add_xp(skill, amount)
+	if lvl > 0:
+		notify("%s improved to level %d" % [Character.SKILL_NAMES.get(skill, skill), lvl])
+		if skill == "strength":
+			inventory.carry_mult = character.mod("carry") * (1.0 + character.skill("strength") * 0.05)
 
 
 # --- Inventory -------------------------------------------------------------
@@ -259,6 +315,8 @@ func container_changed(id: String) -> void:
 
 ## Contents of a container, rolled the first time it's opened.
 func container_items(ct: Dictionary) -> Array:
+	if ct.get("type", "") in ["fridge", "cryo_fridge"]:
+		ws.fridges[ct.id] = 1
 	if not containers.has(ct.id):
 		containers[ct.id] = Loot.fill(ct.type, ct.get("bld", ""), ct.id, ct.get("must", []))
 	return containers[ct.id]
@@ -311,6 +369,19 @@ func smash_window(id: String) -> void:
 	Net.window_smashed(id)
 
 
+## Boards nailed over a window: their hp (0: none).
+func window_boards(id: String) -> float:
+	return float(ws.boards.get(id, 0.0))
+
+
+func set_window_boards(id: String, hp: float) -> void:
+	if hp <= 0.0:
+		ws.boards.erase(id)
+	else:
+		ws.boards[id] = hp
+	Net.window_boards(id, hp)
+
+
 func has_power(site: String) -> bool:
 	return ws.power.has(site)
 
@@ -344,7 +415,10 @@ func remove_turned(id: String) -> void:
 
 
 func _reset_ws() -> void:
-	ws = {"doors": {}, "windows": {}, "power": {}, "spawns": {}, "turned": [], "vehicles": {}, "pumps": {}}
+	ws = {"turned": []}
+	for k in WS_KEYS:
+		ws[k] = {}
+	weather = {"k": "clear", "i": 0.5, "until": 0.0}
 
 
 # --- Explored map ------------------------------------------------------------------
@@ -470,6 +544,7 @@ func save_game(player_data: Dictionary) -> void:
 		"player": player_data,
 		"character": character.to_dict(),
 		"world": ws,
+		"weather": weather,
 		"players": net_records,
 	}
 	_write_json(_world_path("save.json"), data)
@@ -500,8 +575,9 @@ func load_game() -> Dictionary:
 	if version >= 3:
 		character = Character.from_dict(data.get("character", {}))
 		var w: Dictionary = data.get("world", {})
-		for k in ["doors", "windows", "power", "spawns", "vehicles", "pumps"]:
+		for k in WS_KEYS:
 			ws[k] = w.get(k, {})
+		weather = data.get("weather", weather)
 		ws.turned = w.get("turned", [])
 		for t in ws.turned:
 			t.items = (t.get("items", []) as Array).map(func(o: Dictionary) -> Dictionary: return Inventory._clean(o))
@@ -598,7 +674,7 @@ func _save_settings() -> void:
 
 ## Host: the shared world state a joining guest needs.
 func net_state() -> Dictionary:
-	return {"time": time_of_day, "day": day, "containers": containers, "drops": drops, "ws": ws}
+	return {"time": time_of_day, "day": day, "containers": containers, "drops": drops, "ws": ws, "weather": weather}
 
 
 ## Guest: starts the host's world. `record` is this player's saved data on
@@ -616,8 +692,9 @@ func start_net_world(meta: Dictionary, state: Dictionary, record: Dictionary) ->
 	for d in state.get("drops", []):
 		apply_drop_add(d)
 	var w: Dictionary = state.get("ws", {})
-	for k in ["doors", "windows", "power", "spawns", "vehicles", "pumps"]:
+	for k in WS_KEYS:
 		ws[k] = w.get(k, {})
+	weather = state.get("weather", weather)
 	ws.turned = w.get("turned", [])
 	net_records = {}
 	net_player = record.get("player", {})
@@ -702,6 +779,7 @@ func _setup_input() -> void:
 	_action("throw_quick", [_key(KEY_G), _button(JOY_BUTTON_LEFT_SHOULDER)])
 	_action("pause", [_key(KEY_ESCAPE), _key(KEY_P), _button(JOY_BUTTON_START)])
 	_action("ping", [_key(KEY_Q), _button(JOY_BUTTON_MISC1)])
+	_action("craft", [_key(KEY_K)])
 	# Inventory screen (gamepad face buttons are read directly there).
 	_action("ui_rotate", [_key(KEY_R)])
 	_action("toggle_fps", [_key(KEY_F3)])

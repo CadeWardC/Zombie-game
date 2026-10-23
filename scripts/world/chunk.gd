@@ -15,6 +15,8 @@ var spawns: Array = []
 ## Parked vehicles drawn as props here: {id, t, m, xf (world), mm, i, box,
 ## trunk}. See VehicleManager.
 var vehicle_spots: Array = []
+## Trees: {id, pos (world), mm, i, shape (near chunks)}. See Forest.
+var trees: Array = []
 var doors: Array[DoorBody] = []
 var windows: Array[WindowBody] = []
 ## Work deferred to later frames so a big town chunk never causes a hitch.
@@ -49,6 +51,12 @@ func setup(data: Dictionary, shadows: bool) -> void:
 			if prop_name.begins_with("car") or prop_name in ["hydrant", "mailbox", "fuel_pump"]:
 				mmi.visibility_range_end = 260.0
 
+	for tr in data.get("trees", []):
+		var td: Dictionary = tr.duplicate()
+		td.pos = position + (tr.pos as Vector3)
+		trees.append(td)
+		if GameState.ws.chopped.has(td.id):
+			hide_tree(td)
 	for sp in data.vehicle_spots:
 		var vs: Dictionary = sp.duplicate()
 		vs.xf = Transform3D(Basis.IDENTITY, position) * (sp.xf as Transform3D)
@@ -60,8 +68,9 @@ func setup(data: Dictionary, shadows: bool) -> void:
 	body.collision_mask = 0
 	add_child(body)
 	_add_heightmap(body, data)
-	for p in data.tree_points:
-		_add_shape(body, Assets.tree_shape, Transform3D(Basis.IDENTITY, p + Vector3(0, 2.0, 0)))
+	for tr in trees:
+		if not GameState.ws.chopped.has(tr.id):
+			tr.shape = _add_shape(body, Assets.tree_shape, Transform3D(Basis.IDENTITY, (tr.pos as Vector3) - position + Vector3(0, 2.0, 0)))
 	for xf in data.car_boxes:
 		_car_shapes.append(_add_shape(body, Assets.car_shape, xf))
 	# Walls, floors, furniture: one concave shape per building, baked on the
@@ -156,6 +165,16 @@ func _add_shape(body: StaticBody3D, shape: Shape3D, xf: Transform3D) -> Collisio
 	cs.transform = xf
 	body.add_child(cs)
 	return cs
+
+
+## A tree was cut down: stop drawing it, and walk through where it stood.
+func hide_tree(tr: Dictionary) -> void:
+	var mm: MultiMesh = _mms.get(tr.mm)
+	if mm and int(tr.i) < mm.instance_count:
+		mm.set_instance_transform(int(tr.i), Transform3D(Basis.from_scale(Vector3.ONE * 0.001), Vector3(0, -500, 0)))
+	var cs: CollisionShape3D = tr.get("shape")
+	if cs and is_instance_valid(cs):
+		cs.disabled = true
 
 
 ## A parked vehicle was taken (or moved before): stop drawing it here.

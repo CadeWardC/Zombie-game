@@ -20,6 +20,8 @@ var _memorial_info: Label
 var _memorial_map: MapView
 var _pending_world := {}
 var _pvp_opt: OptionButton
+var _season_opt: OptionButton
+var _util_opt: OptionButton
 var _games_list: VBoxContainer
 var _join_status: Label
 var _home_note: Label
@@ -192,6 +194,16 @@ func _build_new_world() -> void:
 	_pvp_opt.add_item("Off")
 	_pvp_opt.add_item("On")
 	_row(box, "Player vs player", _pvp_opt)
+	_season_opt = OptionButton.new()
+	for n in ["1 week", "2 weeks", "4 weeks"]:
+		_season_opt.add_item(n)
+	_season_opt.select(1)
+	_row(box, "Season length", _season_opt)
+	_util_opt = OptionButton.new()
+	for n in ["Day 1", "After ~2 weeks", "Never"]:
+		_util_opt.add_item(n)
+	_util_opt.select(1)
+	_row(box, "Power and water shut off", _util_opt)
 	_diff_opt.item_selected.connect(func(i: int) -> void:
 		_infect_opt.select(GameState.INFECTION_CHANCES.find(GameState.DIFFICULTIES[i].infection)))
 	var hint := Label.new()
@@ -211,7 +223,8 @@ func _create() -> void:
 	var meta := GameState.create_world(_name_edit.text.strip_edges() if _name_edit.text.strip_edges() != "" else "World",
 			sizes[_size_opt.selected], seed_value, _diff_opt.selected, _rule_opt.selected, "",
 			{"zspeed": _speed_opt.selected, "infection": GameState.INFECTION_CHANCES[_infect_opt.selected],
-			"pvp": _pvp_opt.selected == 1})
+			"pvp": _pvp_opt.selected == 1, "season_days": [7, 14, 28][_season_opt.selected],
+			"utilities": [0, 14, -1][_util_opt.selected]})
 	# Next: who survives in it.
 	_pending_world = meta
 	for k in _screens:

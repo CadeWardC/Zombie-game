@@ -85,6 +85,9 @@ func _holding_anything() -> bool:
 
 
 func _shown(b: Dictionary) -> bool:
+	# The reload button doubles as the second action (board up, rotate...).
+	if b.action == "reload" and player != null and player.alt_prompt != "" and not player.vehicle:
+		return true
 	if player != null and player.vehicle:
 		# Driving: no aiming, shoving or switching weapons.
 		if b.action in ["aim", "shove", "weapon_next"]:
@@ -176,6 +179,16 @@ func _on_release(index: int) -> void:
 func _label(b: Dictionary) -> String:
 	if player == null:
 		return b.label
+	if player.build.active():
+		match b.action:
+			"attack":
+				return "PLACE"
+			"reload":
+				return "ROTATE"
+			"interact":
+				return "CANCEL"
+	elif b.action == "reload" and player.alt_prompt != "" and not player.vehicle:
+		return player.alt_prompt.get_slice(" (", 0).to_upper().substr(0, 10)
 	if player.vehicle:
 		match b.action:
 			"attack":

@@ -9,6 +9,9 @@ extends Node3D
 ## Multiplayer (see Net): the other players' avatars, sharing clothes,
 ## pings, curing a turned friend back to life, watching friends after a
 ## permadeath, and the world being lost only when everyone is out.
+##
+## Survival (stage 6): bases (BaseManager), the crafting menu, the weather
+## (picked here on the host, drawn by WeatherFX) and sleeping.
 
 const AUTOSAVE_INTERVAL := 60.0
 const DAY_SKY := Color(0.58, 0.63, 0.66)
@@ -31,6 +34,9 @@ var perf: PerformanceMonitor
 var avatars: Avatars
 var vehicles: VehicleManager
 var vehicle_menu: VehicleMenu
+var bases: BaseManager
+var craft_menu: CraftMenu
+var weather_fx: WeatherFX
 var pings: Array = [] # {pos, kind, name, t}
 var _look_json := ""
 var _spec_cam: Camera3D
@@ -147,6 +153,22 @@ func _setup_world() -> void:
 	add_child(vehicles)
 	streamer.vehicles = vehicles
 	player.vehicles = vehicles
+	bases = BaseManager.new()
+	bases.gen = gen
+	bases.player = player
+	bases.avatars = avatars
+	bases.zombies = zombies
+	add_child(bases)
+	player.bases = bases
+	zombies.bases = bases
+	craft_menu = CraftMenu.new()
+	craft_menu.player = player
+	craft_menu.game = self
+	add_child(craft_menu)
+	weather_fx = WeatherFX.new()
+	weather_fx.camera = player.camera
+	add_child(weather_fx)
+
 	vehicle_menu = VehicleMenu.new()
 	vehicle_menu.player = player
 	vehicle_menu.streamer = streamer
@@ -158,6 +180,13 @@ func _setup_world() -> void:
 	inventory_ui.drops = drops
 	add_child(inventory_ui)
 	player.open_inventory.connect(inventory_ui.open)
+	player.open_crafting.connect(func(tab: String) -> void:
+		if inventory_ui.is_open():
+			inventory_ui.close()
+		craft_menu.open(tab))
+	inventory_ui.craft_requested.connect(func() -> void:
+		inventory_ui.close()
+		craft_menu.open(""))
 	ItemIcons.build(self)
 
 	touch = TouchControls.new()
@@ -275,7 +304,8 @@ func _process(delta: float) -> void:
 	ocean.global_position = Vector3(snappedf(p.x, 64.0), -0.05, snappedf(p.z, 64.0))
 	if not player.active:
 		return
-	if Input.is_action_just_pressed("pause") and not player.dead and not inventory_ui.is_open() and not vehicle_menu.is_open():
+	if Input.is_action_just_pressed("pause") and not player.dead and not inventory_ui.is_open() and not vehicle_menu.is_open() \
+			and not craft_menu.is_open() and not player.build.active() and not player.sleeping:
 		pause_menu.open()
 	if Input.is_action_just_pressed("toggle_fps"):
 		hud.toggle_debug()
@@ -296,6 +326,12 @@ func _process(delta: float) -> void:
 			var gp := Vector3(g[0], g[1], g[2])
 			if gp.distance_to(p) < 400.0:
 				GameState.make_noise(gp, 60.0)
+	# The host (or a single player) decides the weather.
+	if Net.authority() and Weather.update():
+		Net.weather_changed()
+		if player.active:
+			GameState.notify({"rain": "It starts to rain", "storm": "A storm rolls in", "fog": "Fog creeps in",
+				"snow": "It's snowing", "clear": "The sky clears", "cloudy": "Clouds gather"}.get(Weather.kind(), ""))
 	if GameState.is_night() and not _night_hint_shown:
 		_night_hint_shown = true
 		GameState.notify("Night falls. Zombies are faster - use your flashlight.")
@@ -312,6 +348,13 @@ func _update_day_night() -> void:
 	var t := GameState.time_of_day
 	var dark := GameState.darkness()
 	var sky := DAY_SKY.lerp(NIGHT_SKY, dark)
+	weather_fx.update(get_process_delta_time(), player.sheltered)
+	sky = sky * weather_fx.sky_tint
+	sky = sky.lerp(Color(0.85, 0.88, 1.0), weather_fx.lightning * 0.8)
+	var q := GameState.preset()
+	var far: float = (q.view_radius + 0.5) * WorldGen.CHUNK_SIZE * GameState.character.mod("view")
+	env.fog_depth_begin = far * 0.3 * weather_fx.fog_factor * (0.4 if Weather.kind() == "fog" else 1.0)
+	env.fog_depth_end = far * 0.95 * weather_fx.fog_factor
 	# Warm tint around sunrise and sunset.
 	var dusk := maxf(0.0, 1.0 - absf(dark - 0.5) * 2.0)
 	sky = sky.lerp(DUSK_SKY * (1.0 - dark * 0.6), dusk * 0.5)
@@ -324,12 +367,12 @@ func _update_day_night() -> void:
 		# The sun travels east to west between 06:00 and 18:00.
 		var a := clampf((t - 6.0) / 12.0 * PI, 0.15, PI - 0.15)
 		sun.basis = Basis.looking_at(Vector3(-cos(a), -sin(a), 0.35).normalized())
-		sun.light_energy = 1.25 * (1.0 - dark)
+		sun.light_energy = 1.25 * (1.0 - dark) * (weather_fx.sky_tint.v * 0.8 + 0.2) + weather_fx.lightning * 2.0
 		sun.light_color = Color(1.0, 0.95, 0.88).lerp(Color(1.0, 0.6, 0.4), dusk)
 	else:
 		# Moonlight.
 		sun.basis = Basis.looking_at(Vector3(0.4, -0.8, 0.45).normalized())
-		sun.light_energy = 0.12
+		sun.light_energy = 0.12 + weather_fx.lightning * 2.0
 		sun.light_color = Color(0.6, 0.7, 1.0)
 
 
@@ -431,6 +474,15 @@ func _notification(what: int) -> void:
 
 
 # --- Multiplayer ----------------------------------------------------------------------
+
+## Workbenches and lit fires within reach (for crafting and cooking).
+func stations_near(pos: Vector3) -> Array:
+	var out := bases.stations_near(pos) if bases else []
+	# A burning molotov puddle works as a cooking fire too.
+	if effects and not "fire" in out and effects.fire_near(pos, 2.5):
+		out.append("fire")
+	return out
+
 
 ## Clothes changed: the other players redraw you.
 func _check_look() -> void:

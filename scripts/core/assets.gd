@@ -26,6 +26,7 @@ static var item_meshes := {} # item id -> ArrayMesh (see ItemModels)
 ## motorbike, rowboat, motorboat, helicopter (no rotor), prop_plane, rotor,
 ## propeller.
 static var vehicle_meshes := {}
+static var structure_meshes := {} # Buildable structure type -> ArrayMesh (see StructureModels)
 static var particle_material: StandardMaterial3D
 static var flash_material: StandardMaterial3D # Additive glow (muzzle flash, explosions).
 static var flame_mesh: ArrayMesh
@@ -33,7 +34,7 @@ static var muzzle_flash_mesh: ArrayMesh
 static var _built := false
 
 const PROP_NAMES := ["pine", "pine_far", "broadleaf", "broadleaf_far", "yard_tree", "dead_tree", "bush", "dry_bush",
-	"cactus", "rock", "streetlight", "utility_pole", "hydrant", "mailbox", "fuel_pump", "road_sign"]
+	"cactus", "rock", "streetlight", "utility_pole", "hydrant", "mailbox", "fuel_pump", "road_sign", "cooling_tower"]
 const AIRCRAFT := ["airliner", "prop_plane", "helicopter"]
 const CAR_COUNT := 16 # 14 everyday cars + ambulance + school bus.
 
@@ -73,6 +74,8 @@ static func build() -> void:
 	vehicle_meshes.prop_plane = props.prop_plane
 	props.bicycle = vehicle_meshes.bicycle
 	props.motorbike = vehicle_meshes.motorbike
+	for t in Structures.LIST:
+		structure_meshes[t] = StructureModels.build(t).to_mesh(material)
 	var rng := RandomNumberGenerator.new()
 	rng.seed = 7
 	for k in 14:

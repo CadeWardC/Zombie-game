@@ -51,6 +51,8 @@ static func render(gen: WorldGen, px: int) -> Image:
 			img.set_pixelv(Vector2i(lot.center / scale).clamp(Vector2i.ZERO, Vector2i(px - 1, px - 1)), Color(0.7, 0.3, 0.25))
 	for site in gen.settlements.sites:
 		var col := Color(0.72, 0.45, 0.8) if site.type == "research" else (Color(0.6, 0.75, 0.88) if site.type == "airport" else Color(0.85, 0.55, 0.2))
+		if site.type == "power_plant":
+			col = Color(0.95, 0.85, 0.3)
 		_disc(img, site.center / scale, maxf(2.0, site.half.y / scale), col)
 	return img
 

@@ -6,8 +6,8 @@ extends RefCounted
 ##
 ## Traits and backgrounds change the game through modifiers: mod("melee")
 ## multiplies melee damage, mod("bleed") bleeding, and so on. Skills are
-## levels 0..10; a few already matter (aiming, melee, first aid, stealth,
-## fitness, strength), the rest wait for crafting and vehicles.
+## levels 0..10 and grow by doing (add_xp): shooting raises aiming, building
+## raises carpentry, and so on.
 
 const POINTS := 0 # Starting trait points before the background.
 const SKIN_TONES := [Color(0.96, 0.8, 0.69), Color(0.87, 0.67, 0.52), Color(0.76, 0.56, 0.42),
@@ -19,6 +19,10 @@ const BEARDS := ["None", "Stubble", "Beard"]
 const BUILDS := ["Masculine", "Feminine"]
 const SKILLS := ["aiming", "melee", "first_aid", "stealth", "fitness", "strength", "mechanics", "carpentry",
 	"farming", "cooking", "foraging", "piloting"]
+const SKILL_NAMES := {"aiming": "Aiming", "melee": "Melee", "first_aid": "First Aid", "stealth": "Stealth",
+	"fitness": "Fitness", "strength": "Strength", "mechanics": "Mechanics", "carpentry": "Carpentry",
+	"farming": "Farming", "cooking": "Cooking", "foraging": "Foraging", "piloting": "Piloting"}
+const MAX_LEVEL := 10
 
 ## Past jobs. points: trait points it gives (or costs); skills: starting
 ## levels; items: [[id, count]]; clothes: [[id, variant]].
@@ -34,8 +38,8 @@ const BACKGROUNDS := {
 		"desc": "Steadier aim with guns.",
 		"items": [["ammo_9mm", 8]], "clothes": [["uniform_shirt", 0], ["cargo_pants", 2], ["work_boots", 0]]},
 	"mechanic": {"name": "Mechanic", "points": 0, "skills": {"mechanics": 3, "strength": 1},
-		"desc": "Knows engines (vehicles come later). Starts with a hammer.",
-		"items": [["hammer", 1]], "clothes": [["t_shirt", 3], ["work_pants", 0], ["work_boots", 0]]},
+		"desc": "Knows engines: hotwires and repairs vehicles. Starts with a hammer and a screwdriver.",
+		"items": [["hammer", 1], ["screwdriver", 1]], "clothes": [["t_shirt", 3], ["work_pants", 0], ["work_boots", 0]]},
 	"farmer": {"name": "Farmer", "points": 0, "skills": {"farming": 3, "strength": 1, "foraging": 1},
 		"desc": "Hardy and practical.",
 		"items": [["canned_beans", 1]], "clothes": [["flannel_shirt", 0], ["jeans", 0], ["work_boots", 0], ["baseball_cap", 1]]},
@@ -46,7 +50,7 @@ const BACKGROUNDS := {
 		"desc": "Quiet on their feet and a good shot.",
 		"items": [["hunting_knife", 1]], "clothes": [["flannel_shirt", 1], ["hunting_jacket", 0], ["cargo_pants", 1], ["work_boots", 0]]},
 	"pilot": {"name": "Pilot", "points": 0, "skills": {"piloting": 4},
-		"desc": "Can fly the planes at the airports (later stage).",
+		"desc": "Flies helicopters and planes steadier.",
 		"items": [], "clothes": [["uniform_shirt", 1], ["jeans", 1], ["sneakers", 1]]},
 	"firefighter": {"name": "Firefighter", "points": -2, "skills": {"fitness": 2, "strength": 2},
 		"desc": "Fit and strong.",
@@ -64,13 +68,13 @@ const TRAITS := {
 	"keen_hearing": {"name": "Keen Hearing", "cost": 3, "desc": "Sense zombies around you from farther away.", "mods": {"hearing": 1.8}},
 	"thick_skinned": {"name": "Thick Skinned", "cost": 3, "desc": "Bites and scratches break the skin less often.", "mods": {"skin": 0.7}},
 	"fast_healer": {"name": "Fast Healer", "cost": 3, "desc": "Wounds heal faster.", "mods": {"heal": 1.5}, "not": "slow_healer"},
-	"fast_learner": {"name": "Fast Learner", "cost": 3, "desc": "Skills improve faster (skills grow in a later stage).", "mods": {"xp": 1.3}},
+	"fast_learner": {"name": "Fast Learner", "cost": 3, "desc": "Skills improve faster.", "mods": {"xp": 1.3}},
 	"light_eater": {"name": "Light Eater", "cost": 2, "desc": "Gets hungry more slowly.", "mods": {"hunger": 0.75}, "not": "hearty_appetite"},
 	"cat_eyes": {"name": "Cat's Eyes", "cost": 2, "desc": "See better at night.", "mods": {"night_vision": 1.8}},
 	"short_sighted": {"name": "Short-Sighted", "cost": -2, "desc": "Far things fade into a blur.", "mods": {"view": 0.6}},
 	"smoker": {"name": "Smoker", "cost": -2, "desc": "Craves cigarettes; tires faster while craving.", "mods": {}},
 	"clumsy": {"name": "Clumsy", "cost": -2, "desc": "Louder footsteps.", "mods": {"noise": 1.5}},
-	"heavy_sleeper": {"name": "Heavy Sleeper", "cost": -1, "desc": "Sleeps longer and wakes late (sleep comes in a later stage).", "mods": {}},
+	"heavy_sleeper": {"name": "Heavy Sleeper", "cost": -1, "desc": "Sleeps longer and wakes late.", "mods": {}},
 	"weak": {"name": "Weak", "cost": -3, "desc": "Hits softer and carries less.", "mods": {"melee": 0.8, "carry": 0.75}, "not": "strong"},
 	"unfit": {"name": "Out of Shape", "cost": -3, "desc": "Runs out of breath quickly.", "mods": {"stamina": 1.35}, "not": "athletic"},
 	"slow_healer": {"name": "Slow Healer", "cost": -2, "desc": "Wounds heal slowly.", "mods": {"heal": 0.6}, "not": "fast_healer"},
@@ -85,6 +89,8 @@ var look := {"build": 0, "skin": 1, "hair": 0, "hair_col": 1, "beard": 0}
 var background := "unemployed"
 var traits: Array = []
 var skills := {}
+## Progress towards each skill's next level.
+var xp := {}
 ## Lifetime stats for this character (kept across respawns).
 var stats := {"kills": 0, "days": 0}
 
@@ -138,6 +144,32 @@ func skill(s: String) -> int:
 	return int(skills.get(s, 0))
 
 
+## XP for the next level of a skill at `level` (medium speed: the first
+## levels come in a session, the last ones take weeks).
+static func xp_needed(level: int) -> float:
+	return 60.0 * (level + 1) * (level + 1)
+
+
+## Practice: returns the new level if the skill went up, else -1.
+func add_xp(s: String, amount: float) -> int:
+	var lvl := skill(s)
+	if lvl >= MAX_LEVEL or amount <= 0.0:
+		return -1
+	var x := float(xp.get(s, 0.0)) + amount * mod("xp")
+	var need := xp_needed(lvl)
+	if x < need:
+		xp[s] = x
+		return -1
+	xp[s] = x - need
+	skills[s] = lvl + 1
+	return lvl + 1
+
+
+## 0..1 progress to the next level (for the skills page).
+func xp_progress(s: String) -> float:
+	return clampf(float(xp.get(s, 0.0)) / xp_needed(skill(s)), 0.0, 1.0) if skill(s) < MAX_LEVEL else 1.0
+
+
 ## Product of every trait's modifier for `key` (1.0 when none apply).
 func mod(key: String) -> float:
 	var m := 1.0
@@ -159,7 +191,7 @@ func starting_gear() -> Dictionary:
 
 func to_dict() -> Dictionary:
 	return {"name": name, "look": look.duplicate(), "background": background, "traits": traits.duplicate(),
-		"skills": skills.duplicate(), "stats": stats.duplicate()}
+		"skills": skills.duplicate(), "xp": xp.duplicate(), "stats": stats.duplicate()}
 
 
 static func from_dict(d: Dictionary) -> Character:
@@ -179,6 +211,9 @@ static func from_dict(d: Dictionary) -> Character:
 	var sk: Dictionary = d.get("skills", {})
 	for s in sk:
 		c.skills[s] = int(sk[s])
+	var xd: Dictionary = d.get("xp", {})
+	for s in xd:
+		c.xp[s] = float(xd[s])
 	var st: Dictionary = d.get("stats", {})
 	for k in st:
 		c.stats[k] = int(st[k])

@@ -33,6 +33,9 @@ var turn_hours := 36.0 # How long this infection takes to turn you.
 var antibiotics := 0.0 # Hours of antibiotics left in the blood.
 var painkillers := 0.0
 var since_smoke := 0.0 # Hours since the last cigarette (smokers).
+## Food poisoning (rotten or raw food, dirty water, bad mushrooms): 0..1.
+## It wears off over a day or so; while it lasts you throw up and feel weak.
+var sick := 0.0
 
 
 func clear() -> void:
@@ -42,6 +45,7 @@ func clear() -> void:
 	antibiotics = 0.0
 	painkillers = 0.0
 	since_smoke = 0.0
+	sick = 0.0
 
 
 func add(kind: String, part: String, dirty := false) -> Dictionary:
@@ -149,6 +153,10 @@ func tick(dt: float, ch: Character) -> float:
 	if infected:
 		var speed := (0.35 if antibiotics > 0.0 else 1.0) * (ch.mod("infection") if ch else 1.0)
 		infection = minf(1.0, infection + hours / turn_hours * speed)
+	if sick > 0.0:
+		if sick > 0.6:
+			delta -= (sick - 0.6) * 0.12 * dt
+		sick = maxf(0.0, sick - hours * (0.08 if antibiotics <= 0.0 else 0.2))
 	antibiotics = maxf(0.0, antibiotics - hours)
 	painkillers = maxf(0.0, painkillers - hours)
 	since_smoke += hours
@@ -157,7 +165,7 @@ func tick(dt: float, ch: Character) -> float:
 
 ## Multiplies the health bar's slow natural regeneration.
 func regen_factor() -> float:
-	if fever() or bleeding():
+	if fever() or bleeding() or sick > 0.3:
 		return 0.0
 	return 1.0 - symptoms() * 0.9
 
@@ -328,7 +336,7 @@ static func describe(inj: Dictionary) -> String:
 
 func to_dict() -> Dictionary:
 	return {"injuries": injuries.duplicate(true), "infection": infection, "infected": infected, "turn_hours": turn_hours,
-		"antibiotics": antibiotics, "painkillers": painkillers, "since_smoke": since_smoke}
+		"antibiotics": antibiotics, "painkillers": painkillers, "since_smoke": since_smoke, "sick": sick}
 
 
 func from_dict(d: Dictionary) -> void:
@@ -344,3 +352,4 @@ func from_dict(d: Dictionary) -> void:
 	antibiotics = float(d.get("antibiotics", 0.0))
 	painkillers = float(d.get("painkillers", 0.0))
 	since_smoke = float(d.get("since_smoke", 0.0))
+	sick = float(d.get("sick", 0.0))

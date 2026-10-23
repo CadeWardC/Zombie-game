@@ -98,6 +98,9 @@ func add(it: Dictionary) -> int:
 			if o.id == it.id and int(o.n) < max_stack:
 				var moved := mini(max_stack - int(o.n), left)
 				o.n = int(o.n) + moved
+				# A mixed stack of fresh food goes off with its oldest piece.
+				if it.has("exp"):
+					o.exp = minf(float(o.get("exp", it.exp)), float(it.exp))
 				left -= moved
 				if left == 0:
 					return 0
@@ -146,6 +149,8 @@ func sort() -> void:
 			if p.id == o.id and int(p.n) < int(ItemDB.get_def(o.id).get("stack", 1)):
 				merged = true
 				p.n = int(p.n) + int(o.n)
+				if o.has("exp"):
+					p.exp = minf(float(p.get("exp", o.exp)), float(o.exp))
 				break
 		if not merged:
 			pool.append(o.duplicate(true))

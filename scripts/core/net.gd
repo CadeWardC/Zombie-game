@@ -61,6 +61,10 @@ var _container_t := 0.0
 var _game: Node # The running game (main.gd), when there is one.
 ## Who sits where: vehicle id -> {seat: peer id}.
 var vehicle_seats := {}
+## How fast time runs (the host speeds it up while everyone sleeps).
+var time_mult := 1.0
+var _my_sleep := false
+var _weather_json := ""
 
 
 func _ready() -> void:
@@ -155,6 +159,8 @@ func _close() -> void:
 	mode = Mode.OFFLINE
 	players.clear()
 	vehicle_seats.clear()
+	time_mult = 1.0
+	_my_sleep = false
 	state_changed.emit()
 
 
@@ -172,6 +178,7 @@ func _on_peer_disconnected(id: int) -> void:
 	players.erase(id)
 	_clear_seats(id)
 	if is_host():
+		_update_time_mult()
 		rpc("_player_gone", id)
 		chat_notice.emit("%s left" % info.name)
 	player_left.emit(info)
@@ -793,13 +800,138 @@ func _body_gone() -> void:
 
 
 func _send_clock() -> void:
-	rpc("_clock", GameState.time_of_day, GameState.day)
+	rpc("_clock", GameState.time_of_day, GameState.day, time_mult, GameState.weather)
 
 
 @rpc("authority", "unreliable")
-func _clock(t: float, d: int) -> void:
+func _clock(t: float, d: int, mult: float, weather: Dictionary) -> void:
 	GameState.time_of_day = t
 	GameState.day = d
+	time_mult = mult
+	GameState.weather = weather
+
+
+## Host: time flies only while every player sleeps.
+func _update_time_mult() -> void:
+	var all := _my_sleep
+	for id in players:
+		if not players[id].get("sleep", false) and not players[id].get("out", false):
+			all = false
+	var want := Player.SLEEP_SPEED if all else 1.0
+	if want != time_mult:
+		time_mult = want
+		_send_clock()
+
+
+func sleeping(on: bool) -> void:
+	_my_sleep = on
+	if is_host():
+		_update_time_mult()
+	elif is_client():
+		rpc_id(1, "_sleep", on)
+
+
+@rpc("any_peer", "reliable")
+func _sleep(on: bool) -> void:
+	var id := multiplayer.get_remote_sender_id()
+	if players.has(id):
+		players[id].sleep = on
+		_update_time_mult()
+
+
+## Host: the weather changed; tell everyone now (not just with the clock).
+func weather_changed() -> void:
+	if is_host():
+		_send_clock()
+
+
+# --- Bases and the land -------------------------------------------------------------------
+
+func structure(r: Dictionary) -> void:
+	if active():
+		_broadcast("_structure", [r])
+
+
+@rpc("any_peer", "reliable")
+func _structure(r: Dictionary) -> void:
+	if is_host():
+		_relay("_structure", [r])
+	if _game and _game.bases:
+		_game.bases.apply_record(r)
+	else:
+		GameState.ws.structures[r.id] = r
+
+
+func structure_gone(id: String) -> void:
+	if active():
+		_broadcast("_structure_gone", [id])
+
+
+@rpc("any_peer", "reliable")
+func _structure_gone(id: String) -> void:
+	if is_host():
+		_relay("_structure_gone", [id])
+	if _game and _game.bases:
+		_game.bases.remove(id, false)
+	else:
+		GameState.ws.structures.erase(id)
+
+
+func window_boards(id: String, hp: float) -> void:
+	if active():
+		_broadcast("_boards", [id, hp])
+
+
+@rpc("any_peer", "reliable")
+func _boards(id: String, hp: float) -> void:
+	if is_host():
+		_relay("_boards", [id, hp])
+	if hp <= 0.0:
+		GameState.ws.boards.erase(id)
+	else:
+		GameState.ws.boards[id] = hp
+	var w: WindowBody = WindowBody.by_id.get(id)
+	if w and is_instance_valid(w):
+		w.apply_boards(hp)
+
+
+func tree_felled(id: String) -> void:
+	if active():
+		_broadcast("_tree", [id])
+
+
+@rpc("any_peer", "reliable")
+func _tree(id: String) -> void:
+	if is_host():
+		_relay("_tree", [id])
+	if _game and _game.streamer:
+		_game.streamer.fell_tree(id)
+	else:
+		GameState.ws.chopped[id] = 1
+
+
+func grid_restarted(until: float) -> void:
+	if active():
+		_broadcast("_grid", [until])
+
+
+@rpc("any_peer", "reliable")
+func _grid(until: float) -> void:
+	if is_host():
+		_relay("_grid", [until])
+	GameState.ws.grid = {"until": until}
+
+
+func foraged(id: String) -> void:
+	if active():
+		_broadcast("_forage", [id, GameState.hours()])
+
+
+@rpc("any_peer", "reliable")
+func _forage(id: String, h: float) -> void:
+	if is_host():
+		_relay("_forage", [id, h])
+	GameState.ws.forage[id] = h
 
 
 ## Sends a world change to everyone: the host tells every guest; a guest

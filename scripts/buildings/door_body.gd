@@ -10,9 +10,12 @@ extends StaticBody3D
 ##   unless it's a brute).
 ## - Security doors (research labs) open with a keycard, and only while the
 ##   site's generator is running. They can't be broken.
+## - Barricades (planks nailed across from the inside) hold a closed door
+##   shut: nobody opens it until they're pried off or battered apart.
 
 const OPEN_ANGLE := deg_to_rad(100.0)
 const MAX_HP := 100.0
+const BAR_HP := 260.0
 
 ## Loaded doors by id (for changes arriving from other players).
 static var by_id := {}
@@ -21,6 +24,8 @@ var id := ""
 var is_open := false
 var locked := false
 var hp := MAX_HP
+var bar := 0.0 # Barricade hp (0: none).
+var _bar_mesh: MeshInstance3D
 var key := "" # Keycard item id for security doors.
 var power := "" # Site whose generator powers the keycard reader.
 var out := 0 # +1 / -1: which local Z side is outdoors (0: an inside door).
@@ -63,13 +68,54 @@ func setup(d: Dictionary, mm: MultiMesh, index: int) -> void:
 		is_open = bool(st.get("o", false))
 		locked = bool(st.get("l", locked))
 		hp = float(st.get("hp", MAX_HP))
+		bar = float(st.get("bar", 0.0))
 	if is_open:
 		_target = OPEN_ANGLE
 		_angle = _target
 	if hp <= 0.0:
 		_break_apart()
 	_apply()
+	_update_bar()
 	set_process(false)
+
+
+func barricaded() -> bool:
+	return bar > 0.0
+
+
+## Can a barricade go up (or come down) from here? Only from the inside of
+## a closed, unbroken, ordinary door.
+func can_barricade(from: Vector3) -> bool:
+	return key == "" and not broken() and not is_open and inside(from)
+
+
+func barricade(carpentry: int) -> void:
+	bar = BAR_HP * (1.0 + carpentry * 0.1)
+	GameState.make_noise(global_position, 15.0)
+	_save()
+	_update_bar()
+
+
+func remove_barricade() -> void:
+	bar = 0.0
+	_save()
+	_update_bar()
+
+
+func _update_bar() -> void:
+	if barricaded() and _bar_mesh == null:
+		_bar_mesh = MeshInstance3D.new()
+		var m := MeshData.new()
+		var col := Color(0.5, 0.36, 0.22)
+		for k in 3:
+			var y := _size.y * (0.25 + k * 0.25)
+			for z: float in [_size.z * 0.5 + 0.03, -_size.z * 0.5 - 0.03]:
+				m.box(Transform3D(Basis(Vector3.FORWARD, 0.1 * (1 - k)), Vector3(_size.x * 0.5, y, z)), Vector3(_size.x + 0.4, 0.16, 0.035), col.darkened(0.05 * k), false)
+		_bar_mesh.mesh = m.to_mesh(Assets.material)
+		get_parent().add_child.call_deferred(_bar_mesh)
+		_bar_mesh.transform = _closed_xf
+	if _bar_mesh:
+		_bar_mesh.visible = barricaded()
 
 
 func broken() -> bool:
@@ -104,6 +150,8 @@ func prompt(from: Vector3) -> String:
 		if GameState.item_count(key) <= 0:
 			return "Needs a %s" % ItemDB.item_name(key)
 		return "Swipe %s" % ItemDB.item_name(key)
+	if barricaded():
+		return "Barricaded"
 	if locked:
 		return "Unlock and open" if inside(from) else "Locked"
 	return "Close door" if is_open else "Open door"
@@ -121,6 +169,11 @@ func interact(from: Vector3) -> void:
 			locked = false
 			GameState.notify("Access granted")
 			_open_from(from)
+		return
+	if barricaded():
+		GameState.notify("It's barricaded" + (". Pry the boards off to open it." if inside(from) else "."))
+		_shake_t = 0.25
+		set_process(true)
 		return
 	if locked:
 		if inside(from):
@@ -166,7 +219,7 @@ func _open_from(from: Vector3) -> void:
 func zombie_push(from: Vector3) -> bool:
 	if broken() or is_open:
 		return true
-	if locked:
+	if locked or barricaded():
 		return false
 	_open_from(from)
 	GameState.make_noise(global_position, 3.0)
@@ -179,6 +232,14 @@ func damage(amount: float, _from: Vector3) -> void:
 		return
 	if key != "":
 		GameState.notify("The steel door doesn't budge")
+		return
+	if barricaded():
+		bar = maxf(0.0, bar - amount * 2.0)
+		_shake_t = 0.2
+		set_process(true)
+		GameState.make_noise(global_position, 22.0)
+		_update_bar()
+		_save()
 		return
 	hp -= amount
 	_shake_t = 0.2
@@ -200,7 +261,7 @@ func _break_apart() -> void:
 
 
 func _save() -> void:
-	GameState.set_door_state(id, {"o": is_open, "l": locked, "hp": hp})
+	GameState.set_door_state(id, {"o": is_open, "l": locked, "hp": hp, "bar": bar})
 
 
 ## Another player changed this door.
@@ -209,6 +270,8 @@ func apply_state(st: Dictionary) -> void:
 		return
 	locked = bool(st.get("l", locked))
 	hp = float(st.get("hp", hp))
+	bar = float(st.get("bar", bar))
+	_update_bar()
 	var open := bool(st.get("o", is_open))
 	if hp <= 0.0:
 		is_open = true

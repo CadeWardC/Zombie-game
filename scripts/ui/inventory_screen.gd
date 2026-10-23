@@ -8,10 +8,12 @@ extends CanvasLayer
 ##   click) to quick-move; buttons for the rest.
 ## - gamepad: a cell cursor moved with the D-pad or stick. A picks up / puts
 ##   down, X quick-moves, Y uses or equips, RB rotates, LB drops, LT sorts,
-##   RT takes everything, L3 switches tabs, B cancels or closes.
+##   RT takes everything, L3 switches tabs, R3 opens crafting, B cancels or
+##   closes.
 ## The game keeps running while it's open (it's a survival game).
 
 signal closed
+signal craft_requested
 
 const MARGIN := 24.0
 const GAP := 1.0 # Cells between columns.
@@ -91,7 +93,7 @@ func _ready() -> void:
 	var row := HBoxContainer.new()
 	row.add_theme_constant_override("separation", 8)
 	bar.add_child(row)
-	for b in [["tab", "Body"], ["use", "Use"], ["equip", "Equip"], ["treat", "Treat"], ["repair", "Repair"], ["rip", "Rip Up"],
+	for b in [["craft", "Craft"], ["tab", "Body"], ["use", "Use"], ["equip", "Equip"], ["treat", "Treat"], ["repair", "Repair"], ["rip", "Rip Up"],
 			["rotate", "Rotate"], ["drop", "Drop"], ["unload", "Unload"], ["detach", "Detach"], ["sort", "Sort"],
 			["take_all", "Take All"], ["close", "Close"]]:
 		var btn := Button.new()
@@ -558,6 +560,8 @@ func _on_button(id: String) -> void:
 			_take_all()
 		"close":
 			close()
+		"craft":
+			craft_requested.emit()
 		"tab":
 			_set_tab("body" if _tab == "gear" else "gear")
 		"treat":
@@ -701,6 +705,9 @@ func _process(delta: float) -> void:
 	if Engine.get_process_frames() != _opened_frame and (Input.is_action_just_pressed("inventory") or Input.is_action_just_pressed("pause")):
 		close()
 		return
+	if Engine.get_process_frames() != _opened_frame and Input.is_action_just_pressed("craft") and _held.is_empty():
+		craft_requested.emit()
+		return
 	if Input.is_action_just_pressed("ui_rotate") and not _held.is_empty():
 		_rotate(_held.it)
 	if player and player.dead:
@@ -769,6 +776,10 @@ func _input(event: InputEvent) -> void:
 				_inv().notify()
 		JOY_BUTTON_LEFT_STICK:
 			_set_tab("body" if _tab == "gear" else "gear")
+		JOY_BUTTON_RIGHT_STICK:
+			if _held.is_empty():
+				craft_requested.emit()
+				return
 	get_viewport().set_input_as_handled()
 	_update_info()
 	_board.queue_redraw()
@@ -851,6 +862,7 @@ func _update_info() -> void:
 	_buttons.unload.visible = _buttons.unload.visible and _tab == "gear"
 	_buttons.detach.visible = _buttons.detach.visible and _tab == "gear"
 	_buttons.close.visible = true
+	_buttons.craft.visible = true
 	for b in _buttons.values():
 		if _pad_mode:
 			b.visible = false # Gamepad hints are drawn instead.
@@ -1001,7 +1013,7 @@ func _text(font: Font, pos: Vector2, t: String, fs: int, col: Color) -> void:
 func _draw_pad_hints(font: Font) -> void:
 	var hints := [["ui_accept", "Put down" if not _held.is_empty() else "Pick up"], ["reload", "Quick move"],
 		["flashlight", "Use / equip"], ["shove", "Rotate"], ["throw_quick", "Drop"], ["aim", "Sort"],
-		["attack", "Take all"], ["sprint", "Gear" if _tab == "body" else "Body"],
+		["attack", "Take all"], ["sprint", "Gear" if _tab == "body" else "Body"], ["crouch", "Craft"],
 		["ui_cancel", "Cancel" if not _held.is_empty() else "Close"]]
 	var x := MARGIN
 	var y := _board.size.y - 52.0

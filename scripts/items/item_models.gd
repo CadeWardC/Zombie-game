@@ -234,6 +234,106 @@ static func build(id: String) -> MeshData:
 			_b(m, Vector3(0, 0.002, 0), Vector3(0.085, 0.004, 0.054), Color(0.92, 0.92, 0.92))
 			_b(m, Vector3(0, 0.0045, 0.012), Vector3(0.085, 0.001, 0.025), col)
 			_b(m, Vector3(-0.025, 0.0045, -0.015), Vector3(0.02, 0.001, 0.015), Color(0.8, 0.7, 0.3))
+		# --- Stage 6: food, materials, tools ------------------------------------
+		"dirty_water", "milk":
+			var col := Color(0.45, 0.42, 0.3) if id == "dirty_water" else Color(0.95, 0.95, 0.92)
+			m.cylinder(Vector3.ZERO, 0.035, 0.035, 0.17, 8, col)
+			m.cylinder(Vector3(0, 0.17, 0), 0.035, 0.014, 0.05, 8, col, false)
+			m.cylinder(Vector3(0, 0.22, 0), 0.014, 0.014, 0.03, 6, Color(0.2, 0.3, 0.7) if id == "milk" else Color(0.5, 0.5, 0.5))
+		"bread":
+			_b(m, Vector3(0, 0.05, 0), Vector3(0.24, 0.1, 0.11), Color(0.75, 0.5, 0.25))
+			_b(m, Vector3(0, 0.1, 0), Vector3(0.22, 0.02, 0.09), Color(0.65, 0.4, 0.18))
+		"raw_meat", "cooked_meat":
+			var col := Color(0.75, 0.2, 0.2) if id == "raw_meat" else Color(0.45, 0.25, 0.12)
+			_b(m, Vector3(0, 0.025, 0), Vector3(0.12, 0.05, 0.09), col)
+			_b(m, Vector3(0.04, 0.026, 0.0), Vector3(0.03, 0.052, 0.07), Color(0.92, 0.88, 0.8) if id == "raw_meat" else col.darkened(0.2))
+		"raw_fish", "cooked_fish":
+			var col := Color(0.55, 0.6, 0.62) if id == "raw_fish" else Color(0.6, 0.4, 0.2)
+			_b(m, Vector3(0, 0.03, 0), Vector3(0.06, 0.06, 0.22), col)
+			m.box(Transform3D(Basis(Vector3.UP, PI * 0.25), Vector3(0, 0.03, 0.13)), Vector3(0.06, 0.05, 0.06), col.darkened(0.15), false)
+		"berries":
+			for k in 5:
+				m.cylinder(Vector3(cos(k * 1.3) * 0.02, 0.0, sin(k * 1.3) * 0.02), 0.012, 0.012, 0.022, 5, Color(0.35, 0.1, 0.35))
+		"mushrooms":
+			m.cylinder(Vector3.ZERO, 0.012, 0.012, 0.04, 6, Color(0.9, 0.88, 0.8))
+			m.cylinder(Vector3(0, 0.04, 0), 0.04, 0.005, 0.03, 8, Color(0.6, 0.42, 0.25))
+		"potato", "baked_potato":
+			_b(m, Vector3(0, 0.03, 0), Vector3(0.08, 0.06, 0.06), Color(0.65, 0.5, 0.3) if id == "potato" else Color(0.45, 0.3, 0.15))
+		"carrot":
+			m.append(_cyl(0.018, 0.004, 0.16, Color(0.9, 0.45, 0.1), 6), Transform3D(_FWD, Vector3(0, 0.02, 0)))
+			_b(m, Vector3(0, 0.02, 0.09), Vector3(0.03, 0.02, 0.05), Color(0.3, 0.55, 0.2))
+		"tomato":
+			m.cylinder(Vector3.ZERO, 0.035, 0.03, 0.05, 8, Color(0.8, 0.12, 0.08))
+			_b(m, Vector3(0, 0.052, 0), Vector3(0.03, 0.008, 0.03), Color(0.3, 0.5, 0.2))
+		"corn":
+			m.append(_cyl(0.025, 0.02, 0.18, Color(0.95, 0.8, 0.25), 6), Transform3D(_FWD, Vector3(0, 0.03, 0)))
+			m.append(_cyl(0.028, 0.008, 0.2, Color(0.45, 0.6, 0.25), 6), Transform3D(_FWD, Vector3(0.01, 0.03, -0.01)))
+		"stew":
+			m.cylinder(Vector3.ZERO, 0.06, 0.05, 0.06, 10, Color(0.85, 0.85, 0.82))
+			m.cylinder(Vector3(0, 0.05, 0), 0.055, 0.055, 0.01, 10, Color(0.5, 0.28, 0.12), false)
+		"dog_food":
+			m.cylinder(Vector3.ZERO, 0.045, 0.045, 0.09, 10, SILVER)
+			m.cylinder(Vector3(0, 0.012, 0), 0.047, 0.047, 0.06, 10, Color(0.75, 0.55, 0.15), false)
+		"purification_tablets":
+			_b(m, Vector3(0, 0.035, 0), Vector3(0.05, 0.07, 0.03), Color(0.3, 0.55, 0.85))
+		"log":
+			m.append(_cyl(0.07, 0.07, 0.6, Color(0.42, 0.3, 0.18), 7), Transform3D(_FWD, Vector3(0, 0.07, 0)))
+		"plank":
+			_b(m, Vector3(0, 0.012, 0), Vector3(0.12, 0.025, 0.65), WOOD.lightened(0.15))
+		"nails":
+			_b(m, Vector3(0, 0.025, 0), Vector3(0.07, 0.05, 0.05), Color(0.6, 0.45, 0.25))
+		"scrap_metal":
+			m.box(Transform3D(Basis(Vector3.UP, 0.3), Vector3(0, 0.01, 0)), Vector3(0.22, 0.02, 0.12), SILVER.darkened(0.3), false)
+			m.box(Transform3D(Basis(Vector3.UP, -0.4), Vector3(0.03, 0.025, 0.02)), Vector3(0.15, 0.02, 0.08), Color(0.5, 0.3, 0.2), false)
+		"rope":
+			m.cylinder(Vector3.ZERO, 0.05, 0.05, 0.04, 10, Color(0.7, 0.6, 0.4))
+		"duct_tape":
+			m.cylinder(Vector3.ZERO, 0.045, 0.045, 0.045, 10, Color(0.62, 0.63, 0.64))
+		"feathers":
+			_b(m, Vector3(0, 0.004, 0), Vector3(0.03, 0.008, 0.12), Color(0.85, 0.85, 0.82))
+		"animal_hide":
+			_b(m, Vector3(0, 0.01, 0), Vector3(0.35, 0.02, 0.3), Color(0.5, 0.36, 0.22))
+		"saw":
+			_b(m, Vector3(0, 0, 0.05), Vector3(0.03, 0.09, 0.1), Color(0.6, 0.15, 0.1))
+			_b(m, Vector3(0, 0.01, -0.2), Vector3(0.004, 0.1, 0.4), SILVER)
+		"cooking_pot":
+			m.cylinder(Vector3.ZERO, 0.12, 0.12, 0.12, 12, Color(0.3, 0.3, 0.32))
+			_b(m, Vector3(0.14, 0.1, 0), Vector3(0.06, 0.015, 0.02), DARK)
+			_b(m, Vector3(-0.14, 0.1, 0), Vector3(0.06, 0.015, 0.02), DARK)
+		"matches":
+			_b(m, Vector3(0, 0.01, 0), Vector3(0.05, 0.02, 0.035), Color(0.8, 0.2, 0.1))
+		"lighter":
+			_b(m, Vector3(0, 0.03, 0), Vector3(0.025, 0.06, 0.012), Color(0.2, 0.4, 0.8))
+		"fishing_rod":
+			m.append(_cyl(0.012, 0.004, 1.0, Color(0.25, 0.25, 0.28)), Transform3D(_FWD, Vector3(0, 0, -0.4)))
+			m.cylinder(Vector3(0, -0.03, 0.02), 0.025, 0.025, 0.03, 8, SILVER)
+		"watering_can":
+			m.cylinder(Vector3.ZERO, 0.08, 0.08, 0.16, 10, Color(0.3, 0.5, 0.35))
+			m.box(Transform3D(Basis(Vector3.RIGHT, -0.7), Vector3(0, 0.12, -0.11)), Vector3(0.025, 0.025, 0.16), Color(0.3, 0.5, 0.35), false)
+		"sleeping_bag":
+			m.append(_cyl(0.1, 0.1, 0.3, Color(0.2, 0.35, 0.25), 10), Transform3D(Basis(Vector3.FORWARD, PI * 0.5), Vector3(0, 0.1, 0)))
+		"seeds_potato", "seeds_carrot", "seeds_tomato", "seeds_corn":
+			var col: Color = {"seeds_potato": Color(0.6, 0.48, 0.3), "seeds_carrot": Color(0.9, 0.45, 0.1),
+				"seeds_tomato": Color(0.8, 0.12, 0.08), "seeds_corn": Color(0.9, 0.78, 0.25)}[id]
+			_b(m, Vector3(0, 0.003, 0), Vector3(0.07, 0.006, 0.1), Color(0.92, 0.9, 0.82))
+			_b(m, Vector3(0, 0.0065, 0.01), Vector3(0.05, 0.001, 0.05), col)
+		"hatchet":
+			_b(m, Vector3(0, 0, -0.06), Vector3(0.025, 0.03, 0.32), WOOD)
+			_b(m, Vector3(0, 0.035, -0.2), Vector3(0.02, 0.1, 0.06), SILVER.darkened(0.2))
+		"shovel":
+			_b(m, Vector3(0, 0, -0.3), Vector3(0.03, 0.03, 0.85), WOOD)
+			_b(m, Vector3(0, 0, -0.8), Vector3(0.18, 0.015, 0.22), SILVER.darkened(0.3))
+			_b(m, Vector3(0, 0, 0.13), Vector3(0.12, 0.025, 0.025), DARK)
+		"spear":
+			_b(m, Vector3(0, 0, -0.3), Vector3(0.03, 0.03, 0.95), WOOD.lightened(0.15))
+			_wedge(m, Vector3(0, 0.002, -0.76), 0.004, 0.03, 0.17, SILVER)
+			_b(m, Vector3(0, 0, -0.74), Vector3(0.036, 0.036, 0.06), Color(0.6, 0.6, 0.6))
+		"nail_bat":
+			m.append(_cyl(0.017, 0.017, 0.16, DARK), Transform3D(_FWD, Vector3(0, 0, 0.08)))
+			m.append(_cyl(0.019, 0.034, 0.62, WOOD.lightened(0.25)), Transform3D(_FWD, Vector3(0, 0, -0.08)))
+			for k in 8:
+				var a := k * 1.1
+				_b(m, Vector3(cos(a) * 0.035, sin(a) * 0.035, -0.25 - k * 0.025), Vector3(0.006, 0.006, 0.006) + Vector3(absf(cos(a)), absf(sin(a)), 0) * 0.04, SILVER)
 		_:
 			if ItemDB.get_def(id).get("cat", "") == "clothing":
 				_clothing(m, id)

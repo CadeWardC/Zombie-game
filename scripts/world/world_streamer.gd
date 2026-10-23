@@ -116,6 +116,47 @@ func spawns_near(pos: Vector3, radius: float) -> Array:
 	return out
 
 
+## The standing tree nearest `pos` (within `radius`), or {}.
+func tree_near(pos: Vector3, radius: float) -> Dictionary:
+	var best := {}
+	var bd := radius
+	var c: Chunk = _chunks.get(chunk_of(pos))
+	if c == null:
+		return best
+	for tr in c.trees:
+		if GameState.ws.chopped.has(tr.id):
+			continue
+		var d := Vector2(tr.pos.x - pos.x, tr.pos.z - pos.z).length()
+		if d < bd:
+			bd = d
+			best = tr
+	return best
+
+
+## A tree was felled (here or by another player): hide it everywhere.
+func fell_tree(id: String) -> void:
+	GameState.ws.chopped[id] = 1
+	for c: Chunk in _chunks.values():
+		for tr in c.trees:
+			if tr.id == id:
+				c.hide_tree(tr)
+
+
+## The bush nearest `pos` within `radius` (Vector3.INF if none).
+func bush_near(pos: Vector3, radius: float) -> Vector3:
+	var best := Vector3.INF
+	var bd := radius
+	var c: Chunk = _chunks.get(chunk_of(pos))
+	if c == null:
+		return best
+	for p in c.cover:
+		var d := p.distance_to(pos)
+		if d < bd:
+			bd = d
+			best = p
+	return best
+
+
 ## Distance to the nearest bush (cover) around `pos`, up to `radius`.
 func cover_distance(pos: Vector3, radius: float) -> float:
 	var best := INF

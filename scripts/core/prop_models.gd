@@ -70,6 +70,15 @@ static func build(type: String) -> MeshData:
 			m.box(Transform3D(Basis.IDENTITY, Vector3(0, 1.0, 0)), Vector3(0.8, 1.6, 0.5), Color(0.85, 0.85, 0.85))
 			m.box(Transform3D(Basis.IDENTITY, Vector3(0, 1.85, 0)), Vector3(0.85, 0.25, 0.55), Color(0.75, 0.15, 0.12))
 			m.box(Transform3D(Basis.IDENTITY, Vector3(0, 1.3, 0.26)), Vector3(0.4, 0.3, 0.02), Color(0.1, 0.12, 0.1))
+		"cooling_tower":
+			# A hyperboloid shell in stacked rings, with a lip of concrete.
+			var c := Color(0.68, 0.67, 0.64)
+			var rings := [[0.0, 16.0], [6.0, 13.0], [14.0, 10.5], [22.0, 10.0], [28.0, 11.0]]
+			for k in rings.size() - 1:
+				var a: Array = rings[k]
+				var b: Array = rings[k + 1]
+				m.cylinder(Vector3(0, a[0], 0), a[1], b[1], b[0] - a[0], 16, c.darkened(0.04 * (k % 2)), false)
+			m.cylinder(Vector3(0, 27.6, 0), 11.2, 11.2, 0.6, 16, Color(0.55, 0.55, 0.53), false)
 		"road_sign":
 			m.box(Transform3D(Basis.IDENTITY, Vector3(0, 1.2, 0)), Vector3(0.07, 2.4, 0.07), Color(0.6, 0.6, 0.62))
 			m.box(Transform3D(Basis.IDENTITY, Vector3(0, 2.4, 0.04)), Vector3(1.6, 0.9, 0.04), Color(0.1, 0.35, 0.2))

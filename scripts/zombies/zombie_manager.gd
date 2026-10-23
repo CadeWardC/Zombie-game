@@ -35,6 +35,7 @@ var gen: WorldGen
 var streamer: WorldStreamer
 var drops: DropManager
 var avatars: Avatars
+var bases: BaseManager
 var max_zombies := 28
 var shadows := false
 ## 0..1: how close any zombie is to spotting the player (1 = being chased).
@@ -225,6 +226,18 @@ func cap() -> int:
 	return int(max_zombies * (1.0 + 0.6 * (targets().size() - 1)))
 
 
+## A zombie shambling in from `dist` metres away, already onto the player
+## (e.g. finding someone asleep in the open). Host only.
+func spawn_near(pos: Vector3, dist: float) -> void:
+	if not Net.authority() or _active.size() >= cap():
+		return
+	var a := _rng.randf() * TAU
+	var p := pos + Vector3(cos(a), 0, sin(a)) * dist
+	p.y = gen.height(p.x, p.z)
+	var z := _spawn(p)
+	z.hear(pos)
+
+
 func _spawn(pos: Vector3, type := "walker", mesh: Mesh = null) -> Zombie:
 	var z: Zombie
 	if _pool.is_empty():
@@ -329,6 +342,8 @@ func _recycle(index: int) -> void:
 
 
 func _on_noise(pos: Vector3, radius: float) -> void:
+	# Rain and storms drown sounds out.
+	radius *= Weather.sense_factor()
 	var r2 := radius * radius
 	for z in _active:
 		if z.position.distance_squared_to(pos) < r2:
@@ -364,7 +379,7 @@ func _check_sight(who: Node3D, night: bool) -> void:
 	var range_ := SIGHT_DAY
 	if night:
 		range_ = SIGHT_FLASHLIGHT if who.flashlight.visible else SIGHT_NIGHT
-	range_ *= who.visibility()
+	range_ *= who.visibility() * Weather.sense_factor()
 	var space := get_world_3d().direct_space_state
 	var eye := ppos + Vector3(0, who.head.position.y, 0)
 	var now := Time.get_ticks_msec()

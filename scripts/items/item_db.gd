@@ -23,13 +23,19 @@ extends RefCounted
 ##          gw x gh (pockets it adds, optional)
 ##   medical: treats (injury kinds it treats: bleed, deep, fracture,
 ##          wound_infection, infection, pain), uses (charges, for kits)
+##   fresh food: life (in-game hours until it spoils; item instances carry
+##          exp, the hour it goes off), raw (risky to eat uncooked), dirty
+##          (water that can make you sick)
+##   seed: crop (what it grows into)
+##   tool: tool (what it counts as for recipes: saw, pot, fire_starter...)
 
 const CAT_COLORS := {
 	"food": Color(0.55, 0.42, 0.22), "drink": Color(0.22, 0.42, 0.6), "medical": Color(0.62, 0.22, 0.22),
 	"melee": Color(0.42, 0.36, 0.3), "gun": Color(0.3, 0.32, 0.34), "bow": Color(0.36, 0.4, 0.28),
 	"ammo": Color(0.5, 0.45, 0.25), "throw": Color(0.45, 0.3, 0.2), "attachment": Color(0.3, 0.3, 0.4),
 	"bag": Color(0.3, 0.38, 0.3), "clothing": Color(0.34, 0.3, 0.38), "key": Color(0.25, 0.42, 0.45),
-	"misc": Color(0.4, 0.38, 0.32), "part": Color(0.35, 0.37, 0.42),
+	"misc": Color(0.4, 0.38, 0.32), "part": Color(0.35, 0.37, 0.42), "material": Color(0.46, 0.38, 0.28),
+	"tool": Color(0.36, 0.34, 0.3), "seed": Color(0.34, 0.44, 0.24),
 }
 
 const ITEMS := {
@@ -42,6 +48,22 @@ const ITEMS := {
 	"mre": {"name": "MRE Ration", "cat": "food", "w": 1, "h": 2, "kg": 0.6, "stack": 1, "hunger": 60.0, "thirst": 5.0},
 	"water_bottle": {"name": "Water Bottle", "cat": "drink", "w": 1, "h": 2, "kg": 0.55, "stack": 1, "thirst": 40.0},
 	"soda": {"name": "Soda Can", "cat": "drink", "w": 1, "h": 1, "kg": 0.36, "stack": 1, "thirst": 25.0, "hunger": 4.0},
+	"dirty_water": {"name": "Dirty Water", "cat": "drink", "w": 1, "h": 2, "kg": 0.55, "stack": 1, "thirst": 35.0, "dirty": true},
+	"milk": {"name": "Milk", "cat": "drink", "w": 1, "h": 2, "kg": 1.0, "stack": 1, "thirst": 30.0, "hunger": 10.0, "life": 60.0},
+	"bread": {"name": "Bread", "cat": "food", "w": 2, "h": 1, "kg": 0.4, "stack": 1, "hunger": 25.0, "thirst": -4.0, "life": 96.0},
+	"raw_meat": {"name": "Raw Meat", "cat": "food", "w": 1, "h": 1, "kg": 0.4, "stack": 3, "hunger": 15.0, "life": 30.0, "raw": true, "cooks": "cooked_meat"},
+	"cooked_meat": {"name": "Cooked Meat", "cat": "food", "w": 1, "h": 1, "kg": 0.35, "stack": 3, "hunger": 40.0, "life": 60.0},
+	"raw_fish": {"name": "Raw Fish", "cat": "food", "w": 2, "h": 1, "kg": 0.5, "stack": 1, "hunger": 12.0, "life": 24.0, "raw": true, "cooks": "cooked_fish"},
+	"cooked_fish": {"name": "Cooked Fish", "cat": "food", "w": 2, "h": 1, "kg": 0.45, "stack": 1, "hunger": 34.0, "thirst": -3.0, "life": 48.0},
+	"berries": {"name": "Wild Berries", "cat": "food", "w": 1, "h": 1, "kg": 0.1, "stack": 5, "hunger": 8.0, "thirst": 4.0, "life": 60.0},
+	"mushrooms": {"name": "Wild Mushrooms", "cat": "food", "w": 1, "h": 1, "kg": 0.1, "stack": 1, "hunger": 12.0, "life": 48.0},
+	"potato": {"name": "Potato", "cat": "food", "w": 1, "h": 1, "kg": 0.25, "stack": 4, "hunger": 10.0, "life": 360.0, "cooks": "baked_potato"},
+	"baked_potato": {"name": "Baked Potato", "cat": "food", "w": 1, "h": 1, "kg": 0.25, "stack": 4, "hunger": 28.0, "life": 72.0},
+	"carrot": {"name": "Carrot", "cat": "food", "w": 1, "h": 1, "kg": 0.1, "stack": 5, "hunger": 10.0, "thirst": 3.0, "life": 240.0},
+	"tomato": {"name": "Tomato", "cat": "food", "w": 1, "h": 1, "kg": 0.15, "stack": 4, "hunger": 8.0, "thirst": 8.0, "life": 120.0},
+	"corn": {"name": "Corn", "cat": "food", "w": 2, "h": 1, "kg": 0.3, "stack": 3, "hunger": 14.0, "life": 168.0},
+	"stew": {"name": "Stew", "cat": "food", "w": 1, "h": 1, "kg": 0.6, "stack": 1, "hunger": 70.0, "thirst": 20.0, "health": 5.0, "life": 96.0},
+	"dog_food": {"name": "Dog Food", "cat": "food", "w": 1, "h": 1, "kg": 0.45, "stack": 1, "hunger": 15.0},
 	# --- Medical ---------------------------------------------------------------
 	"bandage": {"name": "Bandage", "cat": "medical", "w": 1, "h": 1, "kg": 0.05, "stack": 4, "health": 5.0, "treats": ["bleed"]},
 	"rag": {"name": "Rag", "cat": "medical", "w": 1, "h": 1, "kg": 0.05, "stack": 6, "health": 2.0, "treats": ["bleed"], "dirty": true},
@@ -54,6 +76,7 @@ const ITEMS := {
 	"antibiotics": {"name": "Antibiotics", "cat": "medical", "w": 1, "h": 1, "kg": 0.05, "stack": 1, "treats": ["wound_infection", "infection"]},
 	"cure_vial": {"name": "Cure Vial", "cat": "medical", "w": 1, "h": 1, "kg": 0.1, "stack": 1, "treats": ["cure"]},
 	# --- Misc --------------------------------------------------------------------
+	"purification_tablets": {"name": "Purification Tablets", "cat": "misc", "w": 1, "h": 1, "kg": 0.05, "stack": 1, "uses": 10},
 	"cigarettes": {"name": "Cigarettes", "cat": "misc", "w": 1, "h": 1, "kg": 0.03, "stack": 1, "uses": 10},
 	"sewing_kit": {"name": "Sewing Kit", "cat": "misc", "w": 1, "h": 1, "kg": 0.15, "stack": 1, "uses": 5},
 	"gas_can": {"name": "Gas Can", "cat": "misc", "w": 2, "h": 2, "kg": 1.0, "stack": 1, "uses": 20, "fuel": "gas"},
@@ -62,6 +85,26 @@ const ITEMS := {
 	"car_battery": {"name": "Car Battery", "cat": "part", "w": 2, "h": 1, "kg": 12.0, "stack": 1},
 	"car_tire": {"name": "Spare Tire", "cat": "part", "w": 2, "h": 2, "kg": 9.0, "stack": 1},
 	"engine_parts": {"name": "Engine Parts", "cat": "part", "w": 2, "h": 1, "kg": 2.5, "stack": 1},
+	# --- Materials, tools, seeds -------------------------------------------------
+	"log": {"name": "Log", "cat": "material", "w": 3, "h": 1, "kg": 5.0, "stack": 2},
+	"plank": {"name": "Plank", "cat": "material", "w": 3, "h": 1, "kg": 1.5, "stack": 6},
+	"nails": {"name": "Nails", "cat": "material", "w": 1, "h": 1, "kg": 0.005, "stack": 60},
+	"scrap_metal": {"name": "Scrap Metal", "cat": "material", "w": 2, "h": 1, "kg": 1.0, "stack": 5},
+	"rope": {"name": "Rope", "cat": "material", "w": 1, "h": 1, "kg": 0.3, "stack": 3},
+	"duct_tape": {"name": "Duct Tape", "cat": "material", "w": 1, "h": 1, "kg": 0.2, "stack": 1, "uses": 6},
+	"feathers": {"name": "Feathers", "cat": "material", "w": 1, "h": 1, "kg": 0.01, "stack": 30},
+	"animal_hide": {"name": "Animal Hide", "cat": "material", "w": 2, "h": 2, "kg": 1.5, "stack": 1},
+	"saw": {"name": "Saw", "cat": "tool", "w": 3, "h": 1, "kg": 0.7, "stack": 1, "tool": "saw"},
+	"cooking_pot": {"name": "Cooking Pot", "cat": "tool", "w": 2, "h": 2, "kg": 1.0, "stack": 1, "tool": "pot"},
+	"matches": {"name": "Matches", "cat": "tool", "w": 1, "h": 1, "kg": 0.02, "stack": 1, "uses": 10, "tool": "fire_starter"},
+	"lighter": {"name": "Lighter", "cat": "tool", "w": 1, "h": 1, "kg": 0.03, "stack": 1, "uses": 40, "tool": "fire_starter"},
+	"fishing_rod": {"name": "Fishing Rod", "cat": "tool", "w": 4, "h": 1, "kg": 0.6, "stack": 1, "tool": "rod"},
+	"watering_can": {"name": "Watering Can", "cat": "tool", "w": 2, "h": 2, "kg": 0.8, "stack": 1, "uses": 8, "tool": "watering_can"},
+	"sleeping_bag": {"name": "Sleeping Bag", "cat": "tool", "w": 3, "h": 2, "kg": 2.0, "stack": 1, "tool": "bed"},
+	"seeds_potato": {"name": "Potato Seeds", "cat": "seed", "w": 1, "h": 1, "kg": 0.02, "stack": 10, "crop": "potato"},
+	"seeds_carrot": {"name": "Carrot Seeds", "cat": "seed", "w": 1, "h": 1, "kg": 0.02, "stack": 10, "crop": "carrot"},
+	"seeds_tomato": {"name": "Tomato Seeds", "cat": "seed", "w": 1, "h": 1, "kg": 0.02, "stack": 10, "crop": "tomato"},
+	"seeds_corn": {"name": "Corn Seeds", "cat": "seed", "w": 1, "h": 1, "kg": 0.02, "stack": 10, "crop": "corn"},
 	"keycard_blue": {"name": "Blue Keycard", "cat": "key", "w": 1, "h": 1, "kg": 0.01, "stack": 1},
 	"keycard_red": {"name": "Red Keycard", "cat": "key", "w": 1, "h": 1, "kg": 0.01, "stack": 1},
 	# --- Melee -----------------------------------------------------------------
@@ -78,7 +121,15 @@ const ITEMS := {
 	"baseball_bat": {"name": "Baseball Bat", "cat": "melee", "w": 4, "h": 1, "kg": 1.0, "stack": 1,
 		"dmg": 36.0, "cd": 0.6, "reach": 2.6, "stam": 6.5, "wear": 0.01},
 	"fire_axe": {"name": "Fire Axe", "cat": "melee", "w": 4, "h": 1, "kg": 2.5, "stack": 1,
-		"dmg": 55.0, "cd": 0.85, "reach": 2.6, "stam": 10.0, "wear": 0.005},
+		"dmg": 55.0, "cd": 0.85, "reach": 2.6, "stam": 10.0, "wear": 0.005, "chop": 2.0},
+	"hatchet": {"name": "Hatchet", "cat": "melee", "w": 2, "h": 1, "kg": 0.9, "stack": 1,
+		"dmg": 32.0, "cd": 0.52, "reach": 2.0, "stam": 5.5, "wear": 0.006, "chop": 1.6},
+	"shovel": {"name": "Shovel", "cat": "melee", "w": 4, "h": 1, "kg": 2.0, "stack": 1,
+		"dmg": 30.0, "cd": 0.7, "reach": 2.6, "stam": 7.0, "wear": 0.004, "tool": "shovel"},
+	"spear": {"name": "Spear", "cat": "melee", "w": 4, "h": 1, "kg": 1.2, "stack": 1,
+		"dmg": 38.0, "cd": 0.6, "reach": 3.0, "stam": 6.0, "wear": 0.02},
+	"nail_bat": {"name": "Nail Bat", "cat": "melee", "w": 4, "h": 1, "kg": 1.2, "stack": 1,
+		"dmg": 46.0, "cd": 0.62, "reach": 2.6, "stam": 7.0, "wear": 0.012},
 	"sledgehammer": {"name": "Sledgehammer", "cat": "melee", "w": 4, "h": 2, "kg": 5.0, "stack": 1,
 		"dmg": 75.0, "cd": 1.2, "reach": 2.7, "stam": 15.0, "wear": 0.003, "heavy": true},
 	# --- Guns ------------------------------------------------------------------
@@ -172,6 +223,14 @@ const ITEMS := {
 	"firefighter_jacket": {"name": "Firefighter Jacket", "cat": "clothing", "slot": "jacket", "w": 2, "h": 3, "kg": 2.2, "stack": 1,
 		"covers": ["torso", "arms"], "bite": 0.4, "scratch": 0.7, "warmth": 4.0, "look": "jacket", "extra": "vest", "fire": 0.7,
 		"col": [Color(0.55, 0.48, 0.3)]},
+	"winter_coat": {"name": "Winter Coat", "cat": "clothing", "slot": "jacket", "w": 3, "h": 3, "kg": 2.0, "stack": 1,
+		"covers": ["torso", "arms"], "bite": 0.2, "scratch": 0.5, "warmth": 6.5, "look": "coat", "gw": 2, "gh": 2,
+		"col": [Color(0.2, 0.25, 0.32), Color(0.45, 0.15, 0.12), Color(0.25, 0.25, 0.22)]},
+	"raincoat": {"name": "Raincoat", "cat": "clothing", "slot": "jacket", "w": 2, "h": 2, "kg": 0.6, "stack": 1,
+		"covers": ["torso", "arms"], "bite": 0.05, "scratch": 0.2, "warmth": 1.5, "look": "coat", "rain": 0.85,
+		"col": [Color(0.85, 0.7, 0.1), Color(0.2, 0.35, 0.3)]},
+	"scrap_armor": {"name": "Scrap Armor", "cat": "clothing", "slot": "jacket", "w": 3, "h": 3, "kg": 5.5, "stack": 1,
+		"covers": ["torso", "arms"], "bite": 0.6, "scratch": 0.8, "warmth": 1.5, "look": "armor", "col": [Color(0.45, 0.43, 0.4)]},
 	"riot_armor": {"name": "Riot Armor", "cat": "clothing", "slot": "jacket", "w": 3, "h": 3, "kg": 6.0, "stack": 1,
 		"covers": ["torso", "arms"], "bite": 0.75, "scratch": 0.9, "warmth": 2.0, "look": "armor", "col": [Color(0.12, 0.13, 0.16)]},
 	"military_armor": {"name": "Military Armor", "cat": "clothing", "slot": "jacket", "w": 3, "h": 3, "kg": 8.0, "stack": 1,
@@ -252,6 +311,8 @@ static func is_consumable(id: String) -> bool:
 static func make(id: String, count := 1, condition := 1.0) -> Dictionary:
 	var it := {"id": id, "n": count}
 	var d := get_def(id)
+	if d.has("life"):
+		it.exp = GameState.hours() + float(d.life)
 	if d.get("cat", "") in ["melee", "gun", "bow", "clothing"]:
 		it.c = condition
 	if d.has("uses"):
@@ -283,9 +344,19 @@ static func describe(it: Dictionary) -> String:
 	var parts: Array[String] = []
 	match d.get("cat", ""):
 		"food", "drink", "medical":
+			if is_rotten(it):
+				parts.append("ROTTEN - it will make you sick")
+			elif d.has("life"):
+				parts.append("Fresh" if freshness(it) > 0.5 else "Going off soon")
 			for k: String in ["hunger", "thirst", "health", "stamina"]:
 				if d.has(k):
 					parts.append("%s %+d" % [k.capitalize(), int(d[k])])
+			if d.get("raw", false):
+				parts.append("Cook it first")
+			if d.get("dirty", false):
+				parts.append("Boil or purify it first")
+			if it.get("poison", false) and GameState.character.skill("foraging") >= 3:
+				parts.append("Looks poisonous")
 			for t: String in d.get("treats", []):
 				parts.append({"bleed": "Stops bleeding", "deep": "Closes deep wounds", "fracture": "Sets broken bones",
 					"wound_infection": "Treats wound infection", "infection": "Slows zombie infection",
@@ -320,11 +391,21 @@ static func describe(it: Dictionary) -> String:
 				parts.append("%d / %d litres of %s" % [int(it.get("u", 0)), int(d.uses), "gasoline" if d.fuel == "gas" else "jet fuel"])
 			elif it.id == "screwdriver":
 				parts.append("For hotwiring cars")
+			elif it.id == "purification_tablets":
+				parts.append("Makes dirty water safe (%d left)" % int(it.get("u", 1)))
 			else:
 				parts.append("%d uses left" % int(it.get("u", 1)))
 		"part":
 			parts.append({"car_battery": "Swap into a vehicle with a dead battery",
 				"car_tire": "Replaces a flat tire", "engine_parts": "Repairs a damaged engine"}.get(it.id, ""))
+		"material":
+			parts.append("Crafting and building material")
+		"tool":
+			parts.append({"saw": "Cuts logs into planks", "pot": "Boil water, cook stews", "fire_starter": "Lights campfires (%d uses)" % int(it.get("u", 0)),
+				"rod": "Catch fish in rivers, lakes and the sea", "watering_can": "Waters crops (%d / %d)" % [int(it.get("u", 0)), int(d.get("uses", 0))],
+				"bed": "Sleep anywhere (safer than the bare ground)"}.get(d.get("tool", ""), ""))
+		"seed":
+			parts.append("Plant in a farm plot (spring to autumn)")
 		"throw":
 			parts.append({"bottle": "Shatters loudly: distracts zombies", "noise": "Rings for 15 s: lures zombies",
 				"fire": "Sets an area on fire", "explode": "Explodes after 3 s", "trap": "Place on the ground; holds and hurts"}[d.effect])
@@ -332,3 +413,15 @@ static func describe(it: Dictionary) -> String:
 		parts.append("Condition %d%%" % int(float(it.c) * 100.0))
 	parts.append("%.1f kg" % weight(it))
 	return "  -  ".join(parts)
+
+
+## 0..1 of an item's shelf life left (1 for things that never spoil).
+static func freshness(it: Dictionary) -> float:
+	var d := get_def(it.id)
+	if not d.has("life") or not it.has("exp"):
+		return 1.0
+	return clampf((float(it.exp) - GameState.hours()) / float(d.life), 0.0, 1.0)
+
+
+static func is_rotten(it: Dictionary) -> bool:
+	return get_def(it.id).has("life") and it.has("exp") and GameState.hours() >= float(it.exp)

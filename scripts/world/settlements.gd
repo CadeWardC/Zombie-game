@@ -9,10 +9,10 @@ const COUNTS := { # map size -> [cities, towns, villages]
 	16384: [4, 18, 40],
 	32768: [9, 50, 120],
 }
-const SITE_COUNTS := { # map size -> [airports, research centers]
-	8192: [1, 1],
-	16384: [2, 2],
-	32768: [3, 4],
+const SITE_COUNTS := { # map size -> [airports, research centers, power plants]
+	8192: [1, 1, 1],
+	16384: [2, 2, 1],
+	32768: [3, 4, 2],
 }
 
 ## {id, kind, center: Vector2, radius, axis (radians), base (height), name}
@@ -40,6 +40,8 @@ func generate(terrain: Terrain, hydro: Hydrology, seed_value: int) -> void:
 		_place_airport(rng)
 	for k in sc[1]:
 		_place_research(rng)
+	for k in sc[2]:
+		_place_power_plant(rng)
 	var names := TownNames.new(seed_value)
 	for s in list:
 		s.name = names.next(s.kind)
@@ -213,6 +215,32 @@ func _place_research(rng: RandomNumberGenerator) -> void:
 		if not remote or _too_close(c, 200.0, 800.0):
 			continue
 		sites.append({"id": sites.size(), "type": "research", "center": c, "rot": rot, "half": half,
+				"base": (rel.x + rel.y) * 0.5 + 0.5})
+		return
+
+
+## A power plant: on flat ground by a river, lake or the coast (it needs
+## cooling water), not far from a city or town.
+func _place_power_plant(rng: RandomNumberGenerator) -> void:
+	var half := Vector2(130.0, 95.0)
+	for attempt in 1200:
+		var margin := Terrain.BORDER + 250.0
+		var c: Vector2
+		if not list.is_empty() and attempt < 900:
+			var s: Dictionary = list[rng.randi() % mini(list.size(), 6)]
+			c = s.center + Vector2.from_angle(rng.randf() * TAU) * (s.radius + rng.randf_range(300.0, 1400.0))
+		else:
+			c = Vector2(rng.randf_range(margin, _terrain.size - margin), rng.randf_range(margin, _terrain.size - margin))
+		if c.x < margin or c.y < margin or c.x > _terrain.size - margin or c.y > _terrain.size - margin:
+			continue
+		var wd := minf(_field(_water_dist, c), _field(_ocean_dist, c))
+		if wd > 450.0 and attempt < 1000:
+			continue
+		var rot := rng.randf() * PI
+		var rel := _pad_ok(c, rot, half, 25.0 + attempt * 0.02)
+		if rel.x == INF or _too_close(c, half.x, 250.0):
+			continue
+		sites.append({"id": sites.size(), "type": "power_plant", "center": c, "rot": rot, "half": half,
 				"base": (rel.x + rel.y) * 0.5 + 0.5})
 		return
 

@@ -92,7 +92,7 @@ func launch(kind: String, item_id: String, from: Vector3, vel: Vector3, dmg := 0
 	mi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 	add_child(mi)
 	mi.global_position = from
-	var shot := {"node": mi, "vel": vel, "item": item_id, "dmg": dmg, "kind": kind, "age": 0.0, "resting": false,
+	var shot := {"node": mi, "vel": vel, "item": item_id, "dmg": dmg, "kind": kind, "age": 0.0, "resting": false, "mine": not remote,
 		"fuse": 3.0 if ItemDB.get_def(item_id).get("effect", "") == "explode" else -1.0}
 	_orient(shot)
 	_shots.append(shot)
@@ -161,6 +161,8 @@ func _land(s: Dictionary, hit: Dictionary) -> bool:
 			if Net.authority():
 				z.take_damage(float(s.dmg) * (2.0 if head else 1.0), (s.vel as Vector3).normalized() * 0.3, true, true, head)
 			blood(pos, (s.vel as Vector3).normalized())
+			if s.get("mine", false):
+				GameState.practice("aiming", 6.0)
 			# Usually recoverable from the body.
 			if randf() < 0.8 and drops and Net.authority():
 				drops.drop(ItemDB.make(s.item), z.global_position + Vector3(0, 0.5, 0))
@@ -219,6 +221,13 @@ func _start_fire(pos: Vector3) -> void:
 	light.position.y = 1.0
 	root.add_child(light)
 	_fires.append({"pos": pos, "t": 10.0, "tick": 0.0, "node": root, "light": light})
+
+
+func fire_near(pos: Vector3, radius: float) -> bool:
+	for f in _fires:
+		if (f.pos as Vector3).distance_to(pos) < radius:
+			return true
+	return false
 
 
 func _update_fires(delta: float) -> void:

@@ -30,6 +30,9 @@ var signs: Array = []
 var props := {} # mesh name -> PackedFloat32Array (MultiMesh buffer)
 var prop_counts := {}
 var tree_points := PackedVector3Array()
+## Trees that can be chopped down: {id, pos (chunk-local), mm, i} (all LODs,
+## so a felled tree disappears from far away too).
+var trees: Array = []
 var cover_points := PackedVector3Array() # Bushes you can hide in (stealth).
 var car_boxes: Array = []
 ## Parked vehicles you can take: {id, t (type), m (car model), xf (chunk
@@ -75,7 +78,7 @@ func _result() -> Dictionary:
 		"terrain": terrain, "water": water, "road": road, "solid": solid,
 		"building": building, "glass": glass, "boxes": boxes, "doors": doors,
 		"windows": windows, "spawns": spawns, "containers": containers, "signs": signs, "props": props, "prop_counts": prop_counts,
-		"tree_points": tree_points, "car_boxes": car_boxes, "cover_points": cover_points,
+		"tree_points": tree_points, "trees": trees, "car_boxes": car_boxes, "cover_points": cover_points,
 		"vehicle_spots": vehicle_spots,
 		"collision_batches": _collision_batches(),
 	}
@@ -391,6 +394,8 @@ func _add_prop(type: String, xf: Transform3D) -> void:
 	elif type in ["bicycle", "motorbike", "prop_plane", "helicopter"]:
 		vehicle_spots.append({"id": vid, "t": type, "m": -1, "xf": xf, "mm": name, "i": prop_counts.get(name, 0),
 			"box": -1, "trunk": ""})
+	elif type == "cooling_tower" and lod == 0:
+		boxes.append([xf * Transform3D(Basis.IDENTITY, Vector3(0, 14.0, 0)), Vector3(22.0, 28.0, 22.0)])
 	elif type == "fuel_pump" or type == "jet_pump":
 		# Pumps still hold fuel (see GameState.ws.pumps).
 		name = "fuel_pump"
@@ -401,6 +406,8 @@ func _add_prop(type: String, xf: Transform3D) -> void:
 			name = "pine_far"
 		elif type in ["broadleaf", "yard_tree"]:
 			name = "broadleaf_far"
+	if type in ["pine", "broadleaf", "yard_tree", "dead_tree", "cactus"]:
+		trees.append({"id": "t_%d_%d" % [int(w.x * 2.0), int(w.z * 2.0)], "pos": xf.origin, "mm": name, "i": prop_counts.get(name, 0)})
 	var buf: PackedFloat32Array = props.get(name, PackedFloat32Array())
 	var b := xf.basis
 	var o := xf.origin

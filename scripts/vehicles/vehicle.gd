@@ -224,6 +224,8 @@ func _physics_process(dt: float) -> void:
 		"plane":
 			_plane(dt)
 	_use_fuel(dt)
+	if airborne and running and driver() is Player:
+		GameState.practice("piloting", dt * 0.4)
 	_hit_zombies(dt)
 	_alarm(dt)
 	_animate(dt)
@@ -399,7 +401,9 @@ func _plane(dt: float) -> void:
 		move_and_slide()
 		if is_on_floor():
 			var sink := sin(pitch) * speed
-			if sink < -5.0 or absf(bank) > 0.35 or speed > top * 0.9:
+			# Practised pilots get away with firmer landings.
+			var skill := GameState.character.skill("piloting") if driver() is Player else 0
+			if sink < -5.0 - skill * 0.5 or absf(bank) > 0.35 + skill * 0.03 or speed > top * 0.9:
 				_crash(impact)
 			else:
 				airborne = false

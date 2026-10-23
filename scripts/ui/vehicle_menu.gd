@@ -234,6 +234,7 @@ func _swap(item: String) -> void:
 			r.eng = minf(1.0, maxf(float(r.eng), 0.6) + 0.3)
 			GameState.notify("Engine fixed up")
 	GameState.make_noise(vehicle.global_position, 8.0)
+	GameState.practice("mechanics", 15.0)
 	_changed()
 
 
@@ -249,6 +250,7 @@ func _hotwire() -> void:
 	if randf() < _hotwire_chance():
 		r.hot = true
 		GameState.notify("The engine wires spark - it's hotwired")
+		GameState.practice("mechanics", 20.0)
 	else:
 		GameState.notify("You fumble with the wires... try again")
 		if vehicle.def.closed and randf() < 0.15 and float(r.bat) >= 0.2:

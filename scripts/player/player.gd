@@ -5,12 +5,16 @@ extends CharacterBody3D
 ## and infection (in `body`), stealth visibility, using items and interacting
 ## with doors, windows, containers, generators and items on the ground.
 ## Weapons live in the Weapons child node. Traits and skills come from
-## GameState.character.
+## GameState.character. Survival interactions (structures, water, bushes,
+## fishing, trees) are in PlayerActions; placing structures in BuildMode.
+## Fatigue and sleep, body temperature and getting wet are here.
 
 signal damaged
 signal died
 ## Ask the game to open the inventory; `container` is empty for just the bag.
 signal open_inventory(container: Dictionary)
+## Ask the game to open the crafting menu (on a tab, or "" for the last one).
+signal open_crafting(tab: String)
 
 const WALK_SPEED := 4.2
 const SPRINT_SPEED := 7.0
@@ -30,6 +34,9 @@ const HUNGER_RATE := 100.0 / 960.0
 const THIRST_RATE := 100.0 / 660.0
 const STARVE_DAMAGE := 1.0
 const REGEN_RATE := 0.4
+## Fatigue fills in about 18 waking in-game hours; sleep clears it in ~7.
+const FATIGUE_RATE := 100.0 / (18.0 * GameState.DAY_LENGTH / 24.0)
+const SLEEP_SPEED := 40.0 # Time runs this much faster while sleeping (single player).
 
 var health := 100.0
 var body := Health.new()
@@ -40,6 +47,12 @@ var turned := false
 var hunger := 100.0
 var thirst := 100.0
 var stamina := 100.0
+var fatigue := 0.0 # 0 rested .. 100 exhausted.
+var cold := 0.0 # 0 fine .. 100 freezing.
+var wet := 0.0 # 0 dry .. 100 soaked.
+var sheltered := false # A roof overhead (rain can't reach you).
+var feels_like := 18.0 # Temperature you feel (C): air, fires, clothes, shelter, wetness.
+var sleeping := false
 var dead := false
 var active := false # False while the world is still loading.
 var sprinting := false
@@ -50,6 +63,9 @@ var gen: WorldGen
 var streamer: WorldStreamer
 var zombies: ZombieManager
 var drops: DropManager
+var bases: BaseManager
+var actions: PlayerActions
+var build: BuildMode
 var vehicles: VehicleManager
 var vehicle_menu: VehicleMenu
 ## The vehicle you're sitting in (null on foot) and which seat (0 drives).
@@ -61,6 +77,8 @@ var swimming := false
 var prompt := ""
 var prompt_action := "interact"
 var hold_prompt := ""
+## A second action on the focus (the reload button: board up, add a log...).
+var alt_prompt := ""
 
 var head: Node3D
 var camera: Camera3D
@@ -87,6 +105,10 @@ var _climb_t := 0.0 # Climbing through a window.
 var _climb_from := Vector3.ZERO
 var _climb_to := Vector3.ZERO
 var _crave_told := false
+var _vomit_t := 30.0
+var _sleep_bed: StructureBody
+var _shelter_t := 0.0
+var _wake_hp := 0.0
 var _ping_t := -1.0
 var _cam_yaw := 0.0 # Chase camera orbit, relative to the vehicle.
 var _cam_pitch := -0.25
@@ -116,6 +138,8 @@ func _ready() -> void:
 	camera.near = 0.05
 	head.add_child(camera)
 
+	actions = PlayerActions.new(self)
+	build = BuildMode.new(self)
 	weapons = Weapons.new()
 	weapons.player = self
 	camera.add_child(weapons)
@@ -156,6 +180,9 @@ func _physics_process(delta: float) -> void:
 		return
 	if vehicle:
 		_in_vehicle(delta)
+		return
+	if sleeping:
+		_update_sleep(delta)
 		return
 	var can_act := not GameState.ui_open
 
@@ -230,6 +257,10 @@ func _physics_process(delta: float) -> void:
 
 	if not can_act:
 		return
+	if build.active():
+		build.update(delta)
+		_update_ping(delta)
+		return
 	if not swimming:
 		weapons.update(delta, moving)
 	if Input.is_action_just_pressed("quick_eat"):
@@ -244,11 +275,20 @@ func _physics_process(delta: float) -> void:
 	flashlight.spot_angle = 20.0 if gun_light else 30.0
 	if Input.is_action_just_pressed("inventory"):
 		open_inventory.emit({})
+	if Input.is_action_just_pressed("craft"):
+		open_crafting.emit("")
 	_prompt_t -= delta
 	if _prompt_t <= 0.0:
 		_prompt_t = 0.12
 		_update_focus()
+	if actions.fishing():
+		actions.update_fishing(delta)
+		if Input.is_action_just_pressed("interact"):
+			return
 	_update_interact(delta)
+	if alt_prompt != "" and Input.is_action_just_pressed("reload"):
+		if actions.alt(_focus):
+			_prompt_t = 0.0
 	_update_ping(delta)
 
 
@@ -268,6 +308,9 @@ func _update_stats(delta: float, moving: bool) -> void:
 	thirst = maxf(0.0, thirst - THIRST_RATE * delta * (1.5 if sprinting else 1.0))
 	if sprinting:
 		use_stamina(18.0 * delta)
+		GameState.practice("fitness", delta * 0.6)
+	elif moving and GameState.inventory.weight() > Inventory.CARRY_KG * GameState.inventory.carry_mult * 0.7:
+		GameState.practice("strength", delta * 0.25)
 	else:
 		_stamina_delay -= delta
 		if _stamina_delay <= 0.0:
@@ -292,6 +335,9 @@ func _update_stats(delta: float, moving: bool) -> void:
 		take_damage(health + 1.0, Vector3.ZERO, false)
 		return
 	_update_symptoms(delta)
+	_update_sickness(delta)
+	_update_fatigue(delta)
+	_update_temperature(delta)
 	if ch.has_trait("smoker") and craving() and not _crave_told:
 		_crave_told = true
 		GameState.notify("You're craving a cigarette")
@@ -310,8 +356,143 @@ func _update_symptoms(delta: float) -> void:
 		GameState.notify("*cough*" if sym < 0.6 else "You cough up blood")
 
 
+## Staying awake tires you; exhaustion blurs and slows you.
+func _update_fatigue(delta: float) -> void:
+	var rate := FATIGUE_RATE * (1.6 if sprinting else 1.0) * (1.25 if cold > 50.0 else 1.0)
+	fatigue = minf(100.0, fatigue + rate * delta)
+	if fatigue >= 100.0 and not sleeping and not dead and randf() < delta * 0.03:
+		GameState.notify("You can't keep your eyes open...")
+		start_sleep(null)
+
+
+## Body temperature: the air (season, weather, time of day, place), shelter,
+## nearby fires, the warmth of your clothes, and being wet.
+func _update_temperature(delta: float) -> void:
+	_shelter_t -= delta
+	if _shelter_t <= 0.0:
+		_shelter_t = 0.5
+		var from := global_position + Vector3(0, 1.7, 0)
+		var up := get_world_3d().direct_space_state.intersect_ray(PhysicsRayQueryParameters3D.create(from, from + Vector3(0, 12.0, 0), 1, [get_rid()]))
+		sheltered = not up.is_empty() or vehicle != null and vehicle.def.closed
+	var air := Weather.temperature(gen, global_position)
+	if sheltered:
+		air = lerpf(air, 17.0, 0.6) # Walls and a roof take the edge off.
+	var fire := bases.warmth_at(global_position) if bases else 0.0
+	var clothes := GameState.inventory.warmth()
+	# Rain soaks you (a raincoat keeps most of it off); swimming soaks you
+	# right through; warmth and shelter dry you.
+	var rain_guard := float(ItemDB.get_def(GameState.inventory.equip.jacket.get("id", "")).get("rain", 0.0))
+	if swimming:
+		wet = 100.0
+	elif Weather.wet() and not sheltered:
+		wet = minf(100.0, wet + Weather.intensity() * 2.5 * (1.0 - rain_guard) * delta)
+	else:
+		wet = maxf(0.0, wet - (0.6 + fire * 3.0 + (0.5 if sheltered else 0.0) + maxf(0.0, air - 15.0) * 0.05) * delta)
+	feels_like = air + fire * 18.0 + clothes * 2.2 - wet * 0.08 - (4.0 if swimming else 0.0)
+	if feels_like < 12.0:
+		cold = minf(100.0, cold + (12.0 - feels_like) * 0.04 * delta)
+	else:
+		cold = maxf(0.0, cold - (feels_like - 11.0) * 0.05 * delta)
+	if cold >= 85.0:
+		death_cause = "Froze to death"
+		take_damage(0.35 * delta, Vector3.ZERO, false)
+	# Heat makes you thirsty.
+	if feels_like > 30.0:
+		thirst = maxf(0.0, thirst - THIRST_RATE * (feels_like - 30.0) * 0.08 * delta)
+
+
+func can_sleep() -> bool:
+	return fatigue > 30.0
+
+
+## Lies down: in a bed (safe), in a sleeping bag, or on the bare ground.
+## Time flies while you sleep (single player); you wake when rested, hungry,
+## or when something hurts you.
+func start_sleep(bed: StructureBody) -> void:
+	if not can_sleep() and bed != null:
+		GameState.notify("You're not tired")
+		return
+	if bed == null and Recipes.has_tool("bed"):
+		GameState.notify("You roll out the sleeping bag")
+	if zombies:
+		for z in zombies.in_radius(global_position, 18.0):
+			if z.state == Zombie.State.CHASE:
+				GameState.notify("You can't sleep with zombies after you!")
+				return
+	sleeping = true
+	_sleep_bed = bed
+	_wake_hp = health
+	velocity = Vector3.ZERO
+	crouching = false
+	flashlight.visible = false
+	GameState.sleep_mult = 1.0 if Net.active() else SLEEP_SPEED
+	if Net.active():
+		Net.sleeping(true)
+
+
+func wake(msg := "") -> void:
+	if not sleeping:
+		return
+	sleeping = false
+	_sleep_bed = null
+	GameState.sleep_mult = 1.0
+	if Net.active():
+		Net.sleeping(false)
+	if msg != "":
+		GameState.notify(msg)
+
+
+func _update_sleep(delta: float) -> void:
+	var mult := GameState.time_mult()
+	var game_dt := delta * mult
+	# Rested: a bed is best, a sleeping bag good, the ground poor.
+	var rest := (1.0 if _sleep_bed else (0.8 if Recipes.has_tool("bed") else 0.55))
+	if GameState.character.has_trait("heavy_sleeper"):
+		rest *= 0.85
+	fatigue = maxf(0.0, fatigue - 100.0 / (7.0 * GameState.DAY_LENGTH / 24.0) * rest * game_dt * (6.0 if Net.active() and mult <= 1.0 else 1.0))
+	hunger = maxf(0.0, hunger - HUNGER_RATE * 0.5 * game_dt)
+	thirst = maxf(0.0, thirst - THIRST_RATE * 0.5 * game_dt)
+	var dh := body.tick(game_dt, GameState.character)
+	if dh < 0.0:
+		death_cause = "Bled out" if body.bleeding() else "Died of a wound infection"
+		take_damage(-dh, Vector3.ZERO, false)
+	elif hunger > 30.0 and thirst > 30.0:
+		health = minf(100.0, health + REGEN_RATE * 2.0 * body.regen_factor() * game_dt)
+	_update_temperature(game_dt)
+	# Out in the open, something might find you.
+	if _sleep_bed == null and not sheltered and zombies and randf() < delta * mult * 0.0006:
+		zombies.spawn_near(global_position, 14.0)
+		wake("Something's coming! You jolt awake.")
+		return
+	if fatigue <= 0.0:
+		wake("You wake up rested")
+	elif hunger < 10.0 or thirst < 10.0:
+		wake("Hunger wakes you")
+	elif cold > 70.0:
+		wake("You wake up shivering")
+	elif health < _wake_hp - 1.0:
+		wake("Pain wakes you!")
+	elif Input.is_action_just_pressed("interact") or Input.is_action_just_pressed("pause"):
+		wake("You get up")
+	_update_camera(delta, false)
+
+
+## Food poisoning: you throw up now and then, losing food and water.
+func _update_sickness(delta: float) -> void:
+	if body.sick < 0.25:
+		return
+	_vomit_t -= delta
+	if _vomit_t <= 0.0:
+		_vomit_t = randf_range(40.0, 90.0) * (1.3 - body.sick)
+		hunger = maxf(0.0, hunger - 12.0)
+		thirst = maxf(0.0, thirst - 18.0)
+		_shake = maxf(_shake, 0.5)
+		GameState.make_noise(global_position, 10.0)
+		GameState.notify("You throw up")
+
+
 func max_stamina() -> float:
-	return 100.0 * (1.0 - body.symptoms() * 0.45) * (1.0 - body.pain() * 0.25)
+	return 100.0 * (1.0 - body.symptoms() * 0.45) * (1.0 - body.pain() * 0.25) * (1.0 - body.sick * 0.4)
 
 
 func craving() -> bool:
@@ -350,6 +531,12 @@ func _update_noise(delta: float, moving: bool) -> void:
 		var ch := GameState.character
 		var loud := ch.mod("noise") * (1.0 - ch.skill("stealth") * 0.05)
 		GameState.make_noise(global_position, (16.0 if sprinting else (1.2 if crouching else 6.0)) * loud)
+		# Sneaking past zombies that haven't noticed you trains stealth.
+		if crouching and zombies:
+			for z in zombies.in_radius(global_position, 12.0):
+				if z.unaware():
+					GameState.practice("stealth", 0.5)
+					break
 
 
 func _update_camera(delta: float, moving: bool) -> void:
@@ -466,6 +653,9 @@ func _update_focus() -> void:
 	prompt = ""
 	prompt_action = "interact"
 	hold_prompt = ""
+	alt_prompt = ""
+	if actions.fishing():
+		return
 	var from := camera.global_position
 	var fwd := -camera.global_basis.z
 	var space := get_world_3d().direct_space_state
@@ -475,7 +665,8 @@ func _update_focus() -> void:
 		if c is DoorBody:
 			_focus = c
 			prompt = c.prompt(global_position)
-			hold_prompt = "lock" if c.can_lock(global_position) and not c.locked else ("unlock" if c.can_lock(global_position) else "")
+			hold_prompt = "lock" if c.can_lock(global_position) and not c.locked and not c.barricaded() else ("unlock" if c.can_lock(global_position) and not c.barricaded() else "")
+			actions.focus_door(c)
 			return
 		if c is WindowBody:
 			_focus = c
@@ -484,6 +675,10 @@ func _update_focus() -> void:
 			elif weapons.current == "melee" or weapons.current == "":
 				prompt = "Smash window"
 				prompt_action = "attack"
+			actions.focus_window(c)
+			return
+		if c is StructureBody:
+			actions.focus_structure(c)
 			return
 		if c is Zombie and c.subdued:
 			_focus = c
@@ -517,6 +712,8 @@ func _update_focus() -> void:
 				var t: String = e.v.rec.t if e.v else e.sp.t
 				prompt = "%s" % VehicleDB.get_def(t).name
 				return
+	if _focus == null and actions.focus_nature(from, fwd):
+		return
 	if _focus == null:
 		if weapons.current == "melee" and crouching and _takedown_ready():
 			prompt = "Silent takedown"
@@ -524,6 +721,12 @@ func _update_focus() -> void:
 		return
 	if _focus.has("pos"):
 		if _focus.type == "generator":
+			if _power_plant(_focus.site):
+				var on := GameState.hours() < float(GameState.ws.grid.get("until", 0.0))
+				prompt = "The plant is running (%d h left)" % int(float(GameState.ws.grid.until) - GameState.hours()) if on \
+					else "Restart the power plant (20 L of fuel, engine parts)"
+				hold_prompt = "" if on else "start"
+				return
 			prompt = "Generator running" if GameState.has_power(_focus.site) else "Start generator"
 			hold_prompt = "" if GameState.has_power(_focus.site) else "start"
 			return
@@ -604,7 +807,7 @@ func _update_interact(delta: float) -> void:
 
 
 func _hold_needed() -> float:
-	return 2.5 if hold_prompt == "start" else 0.5
+	return 2.5 if hold_prompt == "start" else (1.2 if hold_prompt == "take apart" else 0.5)
 
 
 ## 0..1 while interact is held on something holdable (for the HUD ring).
@@ -616,6 +819,9 @@ func hold_progress() -> float:
 
 func _interact() -> void:
 	if _focus == null:
+		return
+	if actions.interact(_focus):
+		_prompt_t = 0.0
 		return
 	if _focus is Vehicle:
 		vehicle_menu.open(_focus)
@@ -648,13 +854,47 @@ func _interact() -> void:
 
 
 func _interact_hold() -> void:
+	if actions.hold(_focus):
+		_prompt_t = 0.0
+		return
 	if _focus is DoorBody:
 		_focus.toggle_lock(global_position)
+	elif _focus is Dictionary and _focus.has("pos") and _focus.type == "generator" and _power_plant(_focus.site):
+		_restart_grid(_focus)
 	elif _focus is Dictionary and _focus.has("pos") and _focus.type == "generator":
 		GameState.set_power(_focus.site, _focus.pos)
 		GameState.make_noise(_focus.pos, 120.0)
 		GameState.notify("The generator roars to life. Power is on - and every zombie heard it.")
 	_prompt_t = 0.0
+
+
+## Is this generator the control room of a power plant (not a lab's)?
+func _power_plant(site: String) -> bool:
+	if gen == null or not site.begins_with("site"):
+		return false
+	var i := int(site.substr(4))
+	return i >= 0 and i < gen.settlements.sites.size() and gen.settlements.sites[i].type == "power_plant"
+
+
+## Brings the region's grid back for a week: fridges keep food again. It
+## takes fuel and engine parts, and it's very loud.
+func _restart_grid(ct: Dictionary) -> void:
+	if Recipes.uses_of("gas_can") < 20 or GameState.item_count("engine_parts") < 1:
+		GameState.notify("It needs 20 litres of fuel (gas cans) and engine parts")
+		return
+	var left := 20
+	for g in GameState.inventory.grids():
+		for it in g.items:
+			if it.id == "gas_can" and left > 0:
+				var t := mini(left, int(it.get("u", 0)))
+				it.u = int(it.get("u", 0)) - t
+				left -= t
+	GameState.inventory.take("engine_parts", 1)
+	GameState.ws.grid = {"until": GameState.hours() + 7.0 * 24.0}
+	Net.grid_restarted(float(GameState.ws.grid.until))
+	GameState.make_noise(ct.pos, 160.0)
+	GameState.practice("mechanics", 40.0)
+	GameState.notify("The turbines spin up. The power is back on - for about a week.")
 
 
 ## Climbing through a smashed window takes a moment and leaves you exposed.
@@ -720,8 +960,23 @@ func consume(it: Dictionary) -> bool:
 		if msg == "" and (health >= 99.0 or float(d.get("health", 0.0)) <= 0.0):
 			GameState.notify("You don't need %s right now" % ItemDB.item_name(it.id))
 			return false
-	hunger = clampf(hunger + float(d.get("hunger", 0.0)), 0.0, 100.0)
-	thirst = clampf(thirst + float(d.get("thirst", 0.0)), 0.0, 100.0)
+	# Fresh food loses some goodness as it ages; good cooks make more of it.
+	var value := float(it.get("q", 1.0)) * (lerpf(0.7, 1.0, ItemDB.freshness(it)) if d.has("life") else 1.0)
+	var risk := 0.0
+	if ItemDB.is_rotten(it):
+		risk = 0.85
+		value *= 0.4
+	elif d.get("raw", false):
+		risk = 0.45
+	elif d.get("dirty", false):
+		risk = 0.55
+	elif it.get("poison", false):
+		risk = 1.0
+	hunger = clampf(hunger + float(d.get("hunger", 0.0)) * (value if float(d.get("hunger", 0.0)) > 0.0 else 1.0), 0.0, 100.0)
+	thirst = clampf(thirst + float(d.get("thirst", 0.0)) * (value if float(d.get("thirst", 0.0)) > 0.0 else 1.0), 0.0, 100.0)
+	if risk > 0.0 and randf() < risk:
+		body.sick = minf(1.0, body.sick + (0.7 if it.get("poison", false) else 0.45))
+		msg = "That was a bad idea. Your stomach churns."
 	health = minf(100.0, health + float(d.get("health", 0.0)))
 	stamina = minf(max_stamina(), stamina + float(d.get("stamina", 0.0)))
 	it.n = int(it.get("n", 1)) - 1
@@ -729,8 +984,10 @@ func consume(it: Dictionary) -> bool:
 		GameState.inventory.detach(it)
 	GameState.inventory.notify()
 	GameState.notify(msg if msg != "" else "Used %s" % ItemDB.item_name(it.id))
-	if it.id == "water_bottle":
-		# Keep the empty bottle: it's a throwable distraction.
+	if msg != "":
+		GameState.practice("first_aid", 8.0)
+	if it.id == "water_bottle" or it.id == "dirty_water" or it.id == "milk":
+		# Keep the empty bottle: refill it, or throw it as a distraction.
 		GameState.add_item(ItemDB.make("glass_bottle"), global_position)
 	return true
 
@@ -856,8 +1113,13 @@ func take_damage(amount: float, _from: Vector3, feedback := true) -> void:
 	if feedback:
 		_shake = 1.0
 		damaged.emit()
+	if sleeping and feedback:
+		wake("You wake to an attack!")
 	if health <= 0.0:
 		health = 0.0
+		sleeping = false
+		GameState.sleep_mult = 1.0
+		build.stop()
 		if vehicle:
 			exit_vehicle(true)
 		dead = true
@@ -881,6 +1143,10 @@ func respawn(pos: Vector3) -> void:
 	hunger = 80.0
 	thirst = 80.0
 	stamina = 100.0
+	fatigue = 0.0
+	cold = 0.0
+	wet = 0.0
+	sleeping = false
 	dead = false
 	turned = false
 	death_cause = ""
@@ -903,6 +1169,7 @@ func to_dict() -> Dictionary:
 		"pos": [at.x, at.y, at.z],
 		"yaw": rotation.y,
 		"health": health, "hunger": hunger, "thirst": thirst, "stamina": stamina,
+		"fatigue": fatigue, "cold": cold, "wet": wet,
 		"weapon": weapons.current, "body": body.to_dict(),
 	}
 
@@ -916,6 +1183,9 @@ func from_dict(d: Dictionary) -> void:
 	hunger = float(d.get("hunger", 100.0))
 	thirst = float(d.get("thirst", 100.0))
 	stamina = float(d.get("stamina", 100.0))
+	fatigue = float(d.get("fatigue", 0.0))
+	cold = float(d.get("cold", 0.0))
+	wet = float(d.get("wet", 0.0))
 	body.from_dict(d.get("body", {}))
 	weapons.select(str(d.get("weapon", "melee")))
 

@@ -27,6 +27,8 @@ static func build(s: Dictionary, gen: WorldGen) -> SiteLayout:
 			sl._research(rng)
 		"gas_station":
 			sl._gas_station()
+		"power_plant":
+			sl._power_plant()
 	return sl
 
 
@@ -85,6 +87,19 @@ func _airport(rng: RandomNumberGenerator) -> void:
 		_surface("helipad", Vector2(hx - 90.0 - k * 50.0, 190), Vector2(14.0, 14.0))
 		_prop("helicopter", Vector2(hx - 90.0 - k * 50.0, 190), PI * 0.5)
 	_perimeter(6.0)
+
+
+## Turbine hall, control room (its generator restarts the grid), cooling
+## towers and a fenced yard.
+func _power_plant() -> void:
+	_surface("concrete", Vector2(0, 0), site.half - Vector2(12.0, 12.0))
+	_lot("warehouse", Vector2(-40, 10), 70.0, 36.0, Vector2(0, -1))
+	_lot("generator_shed", Vector2(30, -35), 16.0, 12.0, Vector2(0, -1))
+	_lot("warehouse", Vector2(45, 30), 36.0, 24.0, Vector2(-1, 0))
+	for k in 2:
+		_prop("cooling_tower", Vector2(-70.0 + k * 40.0, 60.0), 0.0)
+	_surface("parking", Vector2(60, -60), Vector2(26.0, 14.0))
+	_perimeter(5.0)
 
 
 func _research(rng: RandomNumberGenerator) -> void:

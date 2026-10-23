@@ -79,6 +79,8 @@ var _trap_t := 0.0 # Caught in a bear trap.
 var _burn_t := 0.0
 var _scream_cd := 0.0
 var _entry: Node3D # Door or window it's heading for.
+var _bash: StructureBody # A built wall (or crate...) in the way, being battered.
+var _bash_t := 0.0
 var _entry_t := 0.0
 var _through_t := 0.0 # Walking through an opened doorway.
 var _through := Vector3.ZERO
@@ -377,6 +379,8 @@ func update_ai(dt: float, player: Node3D, dist: float, use_physics: bool, night:
 			_try_attack(player)
 	if _entry != null and _through_t <= 0.0:
 		dir = _use_entry(dt, dir)
+	elif _bash != null:
+		dir = _use_bash(dt, dir)
 	if _stagger_t > 0.0:
 		_stagger_t -= dt
 		dir = Vector3.ZERO
@@ -435,6 +439,8 @@ func _check_stuck(dt: float, before: Vector3, speed: float, player: Node3D) -> v
 		_stuck_t += dt
 		if _stuck_t > 0.6:
 			_stuck_t = 0.0
+			if _bash == null and state != State.WANDER and _find_bash():
+				return
 			if _entry == null and state != State.WANDER and _find_entry(player):
 				return
 			if _try_climb():
@@ -444,6 +450,38 @@ func _check_stuck(dt: float, before: Vector3, speed: float, player: Node3D) -> v
 			_detour_dir = global_basis.x * side
 	else:
 		_stuck_t = 0.0
+
+
+## A structure players built is in the way (it's pushing against it).
+func _find_bash() -> bool:
+	var fwd := -global_basis.z
+	var hit := get_world_3d().direct_space_state.intersect_ray(PhysicsRayQueryParameters3D.create(
+			position + Vector3(0, 0.8, 0), position + Vector3(0, 0.8, 0) + fwd * 1.4, 1))
+	if hit.is_empty() or not hit.collider is StructureBody:
+		return false
+	# Behind the wall is where it wants to be (otherwise it walks around).
+	if (target - position).dot(fwd) <= 0.0:
+		return false
+	_bash = hit.collider
+	_bash_t = 0.0
+	return true
+
+
+## Battering a built structure until it breaks (or it loses interest).
+func _use_bash(dt: float, dir: Vector3) -> Vector3:
+	_bash_t += dt
+	if not is_instance_valid(_bash) or _bash_t > 45.0 or state == State.WANDER or _bash.global_position.distance_to(position) > float(_bash.def.size.x) + 1.5:
+		_bash = null
+		return dir
+	if _attack_cd <= 0.0:
+		_attack_cd = float(t().cd)
+		_play_once("attack" if type != "crawler" else "crawl_attack", 0.85)
+		_face(_bash.global_position)
+		if Net.authority() and mgr and mgr.bases:
+			mgr.bases.hit(_bash, float(t().dmg) * (3.0 if type == "brute" else 0.6))
+			if _bash and is_instance_valid(_bash) and _bash.t == "spikes":
+				take_damage(8.0, Vector3.ZERO, true, false)
+	return Vector3.ZERO
 
 
 ## Picks the door or window that best leads toward the target.
@@ -458,6 +496,10 @@ func _find_entry(_player: Node3D) -> bool:
 		var cost := position.distance_to(e.global_position) + e.global_position.distance_to(target) * 1.2
 		if e is WindowBody and not (e as WindowBody).smashed:
 			cost += 4.0 # Smashing takes time; prefer doors.
+		if e is WindowBody and (e as WindowBody).boarded():
+			cost += 8.0
+		if e is DoorBody and (e as DoorBody).barricaded():
+			cost += 10.0
 		if cost < best_cost:
 			best_cost = cost
 			best = e
@@ -516,6 +558,15 @@ func _use_entry(dt: float, dir: Vector3) -> Vector3:
 				_face(door.global_position)
 		return Vector3.ZERO
 	var w := _entry as WindowBody
+	if w.boarded():
+		if state == State.CHASE or state == State.INVESTIGATE:
+			if _attack_cd <= 0.0:
+				_attack_cd = float(t().cd)
+				_play_once("attack", 0.85)
+				_face(w.global_position)
+				if Net.authority():
+					w.hit_boards(float(t().dmg) * (3.0 if type == "brute" else 0.6))
+		return Vector3.ZERO
 	if not w.smashed:
 		if state == State.CHASE or state == State.INVESTIGATE:
 			if _attack_cd <= 0.0:

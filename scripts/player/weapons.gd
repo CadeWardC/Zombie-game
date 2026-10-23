@@ -192,7 +192,7 @@ func update(delta: float, moving: bool) -> void:
 		shove()
 	if Input.is_action_just_pressed("throw_quick") and current != "throw":
 		_throw(0.7)
-	if Input.is_action_just_pressed("reload"):
+	if Input.is_action_just_pressed("reload") and player.alt_prompt == "":
 		start_reload()
 	_update_reload(delta)
 
@@ -289,6 +289,8 @@ func melee() -> void:
 		z.takedown()
 		GameState.make_noise(player.global_position, 1.5)
 		GameState.notify("Silent takedown")
+		GameState.practice("stealth", 12.0)
+		GameState.practice("melee", 4.0)
 		_wear(it, d.wear * 2.0)
 		hit_zombie.emit(true)
 		return
@@ -297,6 +299,9 @@ func melee() -> void:
 	var dmg: float = d.dmg * (2.0 if head else 1.0) * lerpf(0.6, 1.0, float(it.get("c", 1.0)))
 	dmg *= ch.mod("melee") * (1.0 + ch.skill("melee") * 0.05) * player.body.arm_factor()
 	z.take_damage(dmg, push, true, true, head)
+	GameState.practice("melee", 4.0)
+	if d.get("heavy", false) or float(ItemDB.get_def(it.get("id", "")).get("kg", 0.0)) >= 2.5:
+		GameState.practice("strength", 2.5)
 	if d.get("heavy", false):
 		z.stagger(push, 0.9)
 	if effects:
@@ -330,6 +335,11 @@ func _hit_structure(d: Dictionary) -> void:
 			PhysicsRayQueryParameters3D.create(from, from - cam.global_basis.z * float(d.reach), 1, [player.get_rid()]))
 	if hit.is_empty():
 		return
+	# An axe on a tree: chop it down for logs.
+	if float(d.get("chop", 0.0)) > 0.0 and not (hit.collider is DoorBody or hit.collider is WindowBody or hit.collider is StructureBody):
+		if player.actions.chop(hit.position, float(d.chop)):
+			_wear(item(), float(d.wear) * 0.5)
+			return
 	if hit.collider is WindowBody:
 		(hit.collider as WindowBody).smash()
 		_wear(item(), float(d.wear))
@@ -467,6 +477,7 @@ func fire() -> void:
 		killed = killed or r == 1
 	if hit_any:
 		hit_zombie.emit(killed)
+		GameState.practice("aiming", 5.0)
 	player.add_recoil(float(d.recoil) * (0.6 if aiming else 1.0))
 	inv().notify()
 

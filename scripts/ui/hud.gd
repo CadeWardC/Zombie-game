@@ -17,9 +17,12 @@ uniform sampler2D screen_tex : hint_screen_texture, filter_linear_mipmap;
 uniform float amount = 0.0;
 uniform float pulse = 0.0;
 uniform float hurt = 0.0;
+uniform float blur = 0.0;
+uniform float chill = 0.0;
 void fragment() {
 	vec2 uv = SCREEN_UV;
-	vec3 col = textureLod(screen_tex, uv, amount * (1.0 + pulse * 2.5)).rgb;
+	vec3 col = textureLod(screen_tex, uv, amount * (1.0 + pulse * 2.5) + blur * 1.8).rgb;
+	col = mix(col, col * vec3(0.8, 0.9, 1.15), chill * 0.5);
 	float grey = dot(col, vec3(0.299, 0.587, 0.114));
 	col = mix(col, vec3(grey) * vec3(1.0, 0.96, 0.9), amount * 0.85);
 	float v = smoothstep(0.3, 0.85, length(uv - 0.5) * (1.0 + pulse * amount * 0.35));
@@ -61,6 +64,8 @@ var _toast_t := 0.0
 var _hit_t := 0.0
 var _hit_kill := false
 var _show_debug := false
+var _sleep: ColorRect
+var _sleep_label: Label
 
 
 func _ready() -> void:
@@ -105,12 +110,12 @@ func _ready() -> void:
 	_clock = _label(root, 20)
 	_clock.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	var clock_y := 80.0 if GameState.uses_touch() else 16.0
-	_place(_clock, Vector2(0.5, 0), Rect2(-150, clock_y, 300, 30))
+	_place(_clock, Vector2(0.5, 0), Rect2(-200, clock_y, 400, 54))
 
 	# Who else is playing (multiplayer), under the clock.
 	_players = _label(root, 15)
 	_players.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	_place(_players, Vector2(0.5, 0), Rect2(-300, clock_y + 30, 600, 24))
+	_place(_players, Vector2(0.5, 0), Rect2(-300, clock_y + 54, 600, 24))
 
 	_toast = _label(root, 22)
 	_toast.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
@@ -174,6 +179,13 @@ func _ready() -> void:
 	_menu_btn.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
 	_menu_btn.pressed.connect(func() -> void: menu_requested.emit())
 	dv.add_child(_menu_btn)
+
+	# Sleeping: the screen fades to black while time flies.
+	_sleep = _fullscreen(root, Color(0.0, 0.0, 0.02, 0.0))
+	_sleep.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_sleep_label = _label(_sleep, 26)
+	_sleep_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	_place(_sleep_label, Vector2(0.5, 0.5), Rect2(-300, -20, 600, 80))
 
 	GameState.message.connect(show_message)
 
@@ -328,6 +340,13 @@ func _process(delta: float) -> void:
 	var hours := int(GameState.time_of_day)
 	var minutes := int((GameState.time_of_day - hours) * 60.0)
 	_clock.text = "Day %d   %02d:%02d%s" % [GameState.day, hours, minutes, "  (night)" if GameState.is_night() else ""]
+	if player:
+		_clock.text += "\n%s - %s - %d°C" % [Weather.season(), Weather.NAMES.get(Weather.kind(), ""), roundi(player.feels_like)]
+	if player:
+		var asleep := player.sleeping
+		_sleep.color.a = move_toward(_sleep.color.a, 0.92 if asleep else 0.0, delta * 1.5)
+		_sleep.visible = _sleep.color.a > 0.01
+		_sleep_label.text = "Sleeping...  %02d:%02d\n(Use to get up)" % [hours, minutes] if asleep else ""
 	_flash.color.a = maxf(0.0, _flash.color.a - delta * 0.8)
 	_hit_t = maxf(0.0, _hit_t - delta)
 	if _toast_t > 0.0:
@@ -387,6 +406,22 @@ static func status_text(p: Player) -> String:
 		out.append("PAIN")
 	if p.craving():
 		out.append("CRAVING")
+	if b.sick > 0.25:
+		out.append("NAUSEOUS")
+	if p.fatigue > 90.0:
+		out.append("EXHAUSTED")
+	elif p.fatigue > 70.0:
+		out.append("TIRED")
+	if p.cold > 85.0:
+		out.append("FREEZING")
+	elif p.cold > 50.0:
+		out.append("COLD")
+	elif p.feels_like > 32.0:
+		out.append("HOT")
+	if p.wet > 60.0:
+		out.append("SOAKED")
+	elif p.wet > 25.0:
+		out.append("WET")
 	if p._grab_t > 0.0:
 		out.append("GRABBED")
 	var uniq: PackedStringArray = []
@@ -401,7 +436,11 @@ static func status_text(p: Player) -> String:
 func _update_sick(delta: float) -> void:
 	var amount := player.body.symptoms() if not player.dead else 0.0
 	var hurt := clampf((35.0 - player.health) / 35.0, 0.0, 1.0) if not player.dead else 0.0
-	_sick.visible = (amount > 0.01 or hurt > 0.01) and player.active
+	var blur := clampf((player.fatigue - 75.0) / 25.0, 0.0, 1.0) + player.body.sick * 0.4
+	var chill := clampf((player.cold - 40.0) / 60.0, 0.0, 1.0)
+	_sick_mat.set_shader_parameter("blur", blur)
+	_sick_mat.set_shader_parameter("chill", chill)
+	_sick.visible = (amount > 0.01 or hurt > 0.01 or blur > 0.01 or chill > 0.01) and player.active
 	if not _sick.visible:
 		return
 	var bpm := lerpf(70.0, 150.0, maxf(amount, hurt))
@@ -599,6 +638,17 @@ func _draw_prompt(ci: Control, c: Vector2, font: Font) -> void:
 		var hw := font.get_string_size(hint, HORIZONTAL_ALIGNMENT_LEFT, -1, 15).x
 		ci.draw_string_outline(font, Vector2(c.x - hw * 0.5, y + 44), hint, HORIZONTAL_ALIGNMENT_LEFT, -1, 15, 4, Color.BLACK)
 		ci.draw_string(font, Vector2(c.x - hw * 0.5, y + 44), hint, HORIZONTAL_ALIGNMENT_LEFT, -1, 15, Color(0.8, 0.85, 0.8))
+	# The second action (reload button), with its own glyph.
+	if player.alt_prompt != "":
+		var ay := y + (66.0 if player.hold_prompt != "" else 44.0)
+		var aw := font.get_string_size(player.alt_prompt, HORIZONTAL_ALIGNMENT_LEFT, -1, 17).x
+		var agw := 0.0 if GameState.uses_touch() and not GameState.using_gamepad() else InputGlyphs.width("reload", font, 24.0)
+		var ax := c.x - (aw + agw + (6.0 if agw > 0.0 else 0.0)) * 0.5
+		if agw > 0.0:
+			InputGlyphs.draw(ci, "reload", Vector2(ax, ay - 4), 24.0, font)
+			ax += agw + 6.0
+		ci.draw_string_outline(font, Vector2(ax, ay + 14), player.alt_prompt, HORIZONTAL_ALIGNMENT_LEFT, -1, 17, 4, Color.BLACK)
+		ci.draw_string(font, Vector2(ax, ay + 14), player.alt_prompt, HORIZONTAL_ALIGNMENT_LEFT, -1, 17, Color(0.9, 0.9, 0.75))
 	var hold := player.hold_progress()
 	if hold > 0.0:
 		ci.draw_arc(Vector2(c.x, y + 14), 26.0, -PI * 0.5, -PI * 0.5 + TAU * hold, 32, Color(0.95, 0.85, 0.3), 4.0)
