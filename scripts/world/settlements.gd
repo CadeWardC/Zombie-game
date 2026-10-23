@@ -9,10 +9,10 @@ const COUNTS := { # map size -> [cities, towns, villages]
 	16384: [4, 18, 40],
 	32768: [9, 50, 120],
 }
-const SITE_COUNTS := { # map size -> [airports, research centers, power plants]
-	8192: [1, 1, 1],
-	16384: [2, 2, 1],
-	32768: [3, 4, 2],
+const SITE_COUNTS := { # map size -> [airports, research centers, power plants, trader camps]
+	8192: [1, 1, 1, 1],
+	16384: [2, 2, 1, 2],
+	32768: [3, 4, 2, 3],
 }
 
 ## {id, kind, center: Vector2, radius, axis (radians), base (height), name}
@@ -42,6 +42,8 @@ func generate(terrain: Terrain, hydro: Hydrology, seed_value: int) -> void:
 		_place_research(rng)
 	for k in sc[2]:
 		_place_power_plant(rng)
+	for k in sc[3]:
+		_place_trader_camp(rng)
 	var names := TownNames.new(seed_value)
 	for s in list:
 		s.name = names.next(s.kind)
@@ -242,6 +244,29 @@ func _place_power_plant(rng: RandomNumberGenerator) -> void:
 			continue
 		sites.append({"id": sites.size(), "type": "power_plant", "center": c, "rot": rot, "half": half,
 				"base": (rel.x + rel.y) * 0.5 + 0.5})
+		return
+
+
+## A trader camp: a small fenced compound out in the country, a short walk
+## from a town (survivors picked somewhere they could defend).
+func _place_trader_camp(rng: RandomNumberGenerator) -> void:
+	var half := Vector2(28.0, 22.0)
+	for attempt in 1000:
+		var c: Vector2
+		var margin := Terrain.BORDER + 150.0
+		if not list.is_empty() and attempt < 800:
+			var s: Dictionary = list[rng.randi() % list.size()]
+			c = s.center + Vector2.from_angle(rng.randf() * TAU) * (s.radius + rng.randf_range(250.0, 900.0))
+		else:
+			c = Vector2(rng.randf_range(margin, _terrain.size - margin), rng.randf_range(margin, _terrain.size - margin))
+		if c.x < margin or c.y < margin or c.x > _terrain.size - margin or c.y > _terrain.size - margin:
+			continue
+		var rot := rng.randf() * PI
+		var rel := _pad_ok(c, rot, half, 12.0)
+		if rel.x == INF or _too_close(c, half.x, 200.0):
+			continue
+		sites.append({"id": sites.size(), "type": "trader", "center": c, "rot": rot, "half": half,
+				"base": (rel.x + rel.y) * 0.5 + 0.3})
 		return
 
 

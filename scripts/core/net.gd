@@ -577,6 +577,9 @@ func pvp_hit(peer: int, dmg: float, from: Vector3) -> void:
 func _pvp_hit(dmg: float, from: Vector3, attacker: String) -> void:
 	if not GameState.world.get("pvp", false) or _game == null or _game.player == null:
 		return
+	# No fighting inside a trader camp.
+	if _game.traders and _game.traders.in_safe_zone(_game.player.global_position):
+		return
 	_game.player.death_cause = "Killed by %s" % attacker
 	_game.player.take_damage(dmg, from)
 	if randf() < 0.4:
@@ -908,6 +911,18 @@ func _tree(id: String) -> void:
 		_game.streamer.fell_tree(id)
 	else:
 		GameState.ws.chopped[id] = 1
+
+
+func trader_stock(camp: String, stock: Array) -> void:
+	if active():
+		_broadcast("_trader", [camp, stock, float(GameState.ws.traders.get(camp, {}).get("restock", 0.0))])
+
+
+@rpc("any_peer", "reliable")
+func _trader(camp: String, stock: Array, restock: float) -> void:
+	if is_host():
+		_relay("_trader", [camp, stock, restock])
+	GameState.ws.traders[camp] = {"stock": stock.map(func(o: Dictionary) -> Dictionary: return Inventory._clean(o)), "restock": restock}
 
 
 func grid_restarted(until: float) -> void:

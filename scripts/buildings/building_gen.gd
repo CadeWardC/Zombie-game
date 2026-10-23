@@ -96,6 +96,8 @@ func _dispatch() -> void:
 			_research_lab()
 		"guard_booth":
 			_small_hut(lot.w, lot.d, Color(0.85, 0.85, 0.82), true)
+		"trader_hut":
+			_small_hut(lot.w, lot.d, Color(0.55, 0.42, 0.3), true)
 		"generator_shed":
 			_small_hut(lot.w, lot.d, Color(0.5, 0.52, 0.5), false)
 		_:

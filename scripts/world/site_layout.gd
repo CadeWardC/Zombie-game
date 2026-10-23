@@ -29,6 +29,8 @@ static func build(s: Dictionary, gen: WorldGen) -> SiteLayout:
 			sl._gas_station()
 		"power_plant":
 			sl._power_plant()
+		"trader":
+			sl._trader_camp()
 	return sl
 
 
@@ -100,6 +102,17 @@ func _power_plant() -> void:
 		_prop("cooling_tower", Vector2(-70.0 + k * 40.0, 60.0), 0.0)
 	_surface("parking", Vector2(60, -60), Vector2(26.0, 14.0))
 	_perimeter(5.0)
+
+
+## A trader's compound: a hut, tents, a fence all round.
+func _trader_camp() -> void:
+	_surface("concrete", Vector2(0, -8), Vector2(6.0, 4.0))
+	_lot("trader_hut", Vector2(0, 8), 8.0, 6.0, Vector2(0, -1))
+	_prop("tent", Vector2(-14, -4), 0.4)
+	_prop("tent", Vector2(14, -2), -0.5)
+	_prop("tent", Vector2(-12, 10), 1.6)
+	_prop("rock", Vector2(18, 12), 0.0)
+	_perimeter(2.0)
 
 
 func _research(rng: RandomNumberGenerator) -> void:

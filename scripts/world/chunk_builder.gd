@@ -394,6 +394,8 @@ func _add_prop(type: String, xf: Transform3D) -> void:
 	elif type in ["bicycle", "motorbike", "prop_plane", "helicopter"]:
 		vehicle_spots.append({"id": vid, "t": type, "m": -1, "xf": xf, "mm": name, "i": prop_counts.get(name, 0),
 			"box": -1, "trunk": ""})
+	elif type == "tent" and lod == 0:
+		boxes.append([xf * Transform3D(Basis.IDENTITY, Vector3(0, 0.7, 0)), Vector3(2.6, 1.4, 2.6)])
 	elif type == "cooling_tower" and lod == 0:
 		boxes.append([xf * Transform3D(Basis.IDENTITY, Vector3(0, 14.0, 0)), Vector3(22.0, 28.0, 22.0)])
 	elif type == "fuel_pump" or type == "jet_pump":

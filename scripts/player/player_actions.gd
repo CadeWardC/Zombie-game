@@ -88,6 +88,47 @@ func _focus_plot(n: StructureBody) -> void:
 		p.alt_prompt = "Water the crop"
 
 
+## A carcass to butcher, or a dog (a stray to win over, or your own).
+func focus_animal(a: Animal) -> bool:
+	if a is Dog:
+		var d := a as Dog
+		if not d.alive():
+			return false
+		p._focus = d
+		var food := _dog_food()
+		if not d.tame():
+			p.prompt = "Stray dog - give it %s" % ItemDB.item_name(food.id).to_lower() if not food.is_empty() else "Stray dog (it's hungry)"
+		elif d.mine():
+			p.prompt = "Tell your dog to %s" % ("follow" if d.rec.get("stay", false) else "stay")
+			if not food.is_empty():
+				p.alt_prompt = "Feed it"
+		else:
+			p.prompt = "A friend's dog"
+		return true
+	if a.alive() or a.butchered:
+		return false
+	p._focus = a
+	p.prompt = "Butcher the %s" % str(a.def.name).to_lower() if Recipes.has_tool("knife") else "%s (you need a knife)" % a.def.name
+	return true
+
+
+func _dog_food() -> Dictionary:
+	for id in ["dog_food", "raw_meat", "cooked_meat"]:
+		var it := GameState.inventory.find(id)
+		if not it.is_empty():
+			return it
+	return {}
+
+
+func _feed_dog(d: Dog) -> void:
+	var food := _dog_food()
+	if food.is_empty():
+		GameState.notify("You have nothing it wants to eat")
+		return
+	GameState.inventory.take(food.id, 1)
+	GameState.notify(d.feed())
+
+
 func focus_window(w: WindowBody) -> void:
 	if w.boarded():
 		p.prompt = "Boarded up"
@@ -153,6 +194,23 @@ func interact(f: Variant) -> bool:
 	if f is StructureBody:
 		_use_structure(f)
 		return true
+	if f is Dog:
+		var d := f as Dog
+		if not d.tame():
+			_feed_dog(d)
+		elif d.mine():
+			d.rec.stay = not bool(d.rec.get("stay", false))
+			GameState.notify("Stay." if d.rec.stay else "Come on, let's go.")
+		return true
+	if f is Animal:
+		if not Recipes.has_tool("knife"):
+			GameState.notify("You need a knife to butcher it")
+			return true
+		var got := (f as Animal).butcher((f as Animal).global_position + Vector3(0, 0.5, 0))
+		GameState.practice("foraging", 6.0)
+		GameState.make_noise(p.global_position, 4.0)
+		GameState.notify("You butcher the %s" % str((f as Animal).def.name).to_lower() if not got.is_empty() else "Nothing worth taking")
+		return true
 	if f is Dictionary and f.has("wpos"):
 		if f.get("far", false):
 			return true
@@ -183,6 +241,9 @@ func hold(f: Variant) -> bool:
 
 ## The second action button (R / X). Returns true if handled.
 func alt(f: Variant) -> bool:
+	if f is Dog:
+		_feed_dog(f)
+		return true
 	if f is StructureBody:
 		var n: StructureBody = f
 		if n.t == "campfire" and GameState.item_count("log") > 0:

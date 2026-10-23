@@ -34,7 +34,7 @@ static var muzzle_flash_mesh: ArrayMesh
 static var _built := false
 
 const PROP_NAMES := ["pine", "pine_far", "broadleaf", "broadleaf_far", "yard_tree", "dead_tree", "bush", "dry_bush",
-	"cactus", "rock", "streetlight", "utility_pole", "hydrant", "mailbox", "fuel_pump", "road_sign", "cooling_tower"]
+	"cactus", "rock", "streetlight", "utility_pole", "hydrant", "mailbox", "fuel_pump", "road_sign", "cooling_tower", "tent"]
 const AIRCRAFT := ["airliner", "prop_plane", "helicopter"]
 const CAR_COUNT := 16 # 14 everyday cars + ambulance + school bus.
 

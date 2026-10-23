@@ -71,8 +71,10 @@ var pending_character: Character
 ##   chopped: tree id -> 1 (cut down); forage: bush id -> hour picked
 ##   fridges: container id -> 1 (fridges keep food fresh while there's power)
 ##   grid: {until: in-game hour the restarted power plant runs until}
+##   dogs: id -> {id, owner (player id or "" for a stray), hp, p, stay}
+##   traders: camp id -> {stock: [items], restock: hour}
 const WS_KEYS := ["doors", "windows", "power", "spawns", "vehicles", "pumps", "structures", "boards", "chopped", "forage",
-	"fridges", "grid"]
+	"fridges", "grid", "dogs", "traders"]
 var ws := {}
 ## Weather (see Weather): {k: kind, i: intensity, until: hour}.
 var weather := {"k": "clear", "i": 0.5, "until": 0.0}

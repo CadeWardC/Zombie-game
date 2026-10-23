@@ -609,6 +609,307 @@ func _test_death_rules(player: Player, zombies: ZombieManager) -> void:
 
 
 ## Is an item with this id in the list (or inside bags and pockets in it)?
+func _give(id: String, n := 1) -> void:
+	GameState.inventory.add(ItemDB.make(id, n))
+
+
+func _test_survival(player: Player, zombies: ZombieManager, gen: WorldGen, arena: Vector3, doors: Array[DoorBody]) -> void:
+	print("Skills")
+	var ch := GameState.character
+	var bag := GameState.inventory.to_dict()
+	GameState.inventory.clear()
+	var lvl := ch.skill("carpentry")
+	for k in 40:
+		GameState.practice("carpentry", 20.0)
+	_check(ch.skill("carpentry") > lvl, "practice raises a skill (carpentry %d -> %d)" % [lvl, ch.skill("carpentry")])
+	var back := Character.from_dict(ch.to_dict())
+	_check(back.skill("carpentry") == ch.skill("carpentry") and is_equal_approx(float(back.xp.get("carpentry", 0.0)), float(ch.xp.get("carpentry", 0.0))),
+			"skills and progress are saved")
+
+	print("Crafting")
+	var plank_recipe: Dictionary = Recipes.LIST.planks
+	_check(not Recipes.missing(plank_recipe, []).is_empty(), "can't saw planks without a log and a saw")
+	_give("log", 2)
+	_give("saw")
+	_check(Recipes.missing(plank_recipe, []).is_empty(), "with a log and a saw, planks can be made")
+	Recipes.craft("planks", [], player.global_position)
+	_check(GameState.item_count("plank") == 3 and GameState.item_count("log") == 1, "sawed a log into 3 planks")
+	_give("plank", 20)
+	_give("nails", 60)
+	_give("hammer")
+	_give("scrap_metal", 5)
+	_give("kitchen_knife")
+	_check("a workbench" in Recipes.missing(Recipes.LIST.bolts, []), "bolts need a workbench")
+	_give("duct_tape")
+	Recipes.craft("spear", [], player.global_position)
+	_check(GameState.item_count("spear") == 1, "made a spear from a plank, a knife and tape")
+
+	print("Building")
+	zombies.clear_all()
+	player.global_position = Vector3(arena.x, gen.height(arena.x, arena.z) + 0.3, arena.z)
+	player.rotation = Vector3.ZERO
+	player.head.rotation = Vector3(-0.35, 0, 0)
+	await _wait(0.5)
+	var bases: BaseManager = _main.bases
+	player.start_build("workbench")
+	_check(player.build.active() and player.build.ghost != null, "build mode shows a preview")
+	player.build.update(0.016)
+	_check(player.build._ok, "the workbench fits in front of you (%s)" % player.build._why)
+	var planks := GameState.item_count("plank")
+	player.build.place()
+	var wb := bases.nearest("workbench", player.global_position, 8.0)
+	_check(wb != null and GameState.item_count("plank") == planks - 5, "built a workbench (materials used)")
+	player.build.stop()
+	await _wait(0.2)
+	_check("workbench" in _main.stations_near(player.global_position) or wb.global_position.distance_to(player.global_position) > 3.2,
+			"standing at it counts as a workbench")
+	if wb:
+		player.global_position = wb.global_position + wb.global_basis.z * 1.2
+		await _wait(0.1)
+	_check("workbench" in _main.stations_near(player.global_position), "the workbench is a crafting station")
+	Recipes.craft("bolts", _main.stations_near(player.global_position), player.global_position)
+	_check(GameState.item_count("bolt") >= 6, "made crossbow bolts at the workbench")
+	# Walls: zombies batter them.
+	var wall := bases.add("wall", player.global_position + Vector3(6, 0, 6), 0.0)
+	var hp := float(wall.rec.hp)
+	bases.hit(wall, 40.0)
+	_check(float(wall.rec.hp) == hp - 40.0, "zombies damage walls")
+	bases.hit(wall, 99999.0)
+	await _wait(0.1)
+	_check(not GameState.ws.structures.has(wall.rec.id), "a wall battered to nothing is gone")
+	# Crates hold things.
+	var crate := bases.add("crate", player.global_position + Vector3(-3, 0, 2), 0.0)
+	var ct := {"pos": crate.global_position, "type": "crate", "bld": "", "id": "crate_" + str(crate.rec.id)}
+	(GameState.container_items(ct) as Array).append(ItemDB.make("canned_beans"))
+	_check(GameState.containers[ct.id].size() == 1, "a storage crate keeps items")
+	# Campfire: light it, cook on it.
+	var fire := bases.add("campfire", player.global_position + Vector3(2, 0, -2), 0.0)
+	_give("matches")
+	player.actions._use_structure(fire)
+	_check(fire.burning(), "lit the campfire with matches")
+	player.global_position = fire.global_position + Vector3(1.2, 0.2, 0)
+	await _wait(0.1)
+	_check("fire" in _main.stations_near(player.global_position), "a lit fire is a cooking station")
+	_give("raw_meat", 1)
+	Recipes.craft("cooked_meat", _main.stations_near(player.global_position), player.global_position)
+	_check(GameState.item_count("cooked_meat") == 1 and GameState.item_count("raw_meat") == 0, "cooked meat on the fire")
+	_check(bases.warmth_at(player.global_position) > 0.5, "the fire gives off warmth")
+
+	print("Fortifying")
+	var win: WindowBody = null
+	for w in WindowBody.by_id.values():
+		if is_instance_valid(w) and not w.boarded():
+			win = w
+			break
+	if win:
+		_give("plank", 4)
+		_give("nails", 8)
+		player.actions.alt(win)
+		_check(win.boarded() and GameState.window_boards(win.id) > 0.0, "boarded up a window")
+		win.smash()
+		_check(win.boarded() and win.collision_layer == 1, "a boarded window still blocks the way")
+		while win.boarded():
+			win.hit_boards(100.0)
+		_check(not win.boarded(), "zombies can batter the boards apart")
+	var door: DoorBody = null
+	for d in doors:
+		if is_instance_valid(d) and d.key == "" and not d.broken():
+			door = d
+			break
+	if door:
+		door.is_open = false
+		door.barricade(0)
+		_check(door.barricaded() and not door.zombie_push(door.global_position + door.global_basis.z), "a barricaded door holds against zombies")
+		door.remove_barricade()
+		_check(not door.barricaded(), "barricades can be pried off")
+
+	print("Food and water")
+	var meat := ItemDB.make("raw_meat")
+	_check(meat.has("exp") and not ItemDB.is_rotten(meat), "fresh meat starts fresh")
+	meat.exp = GameState.hours() - 1.0
+	_check(ItemDB.is_rotten(meat) and Barter.value(meat) == 0, "and rots with time")
+	var shroom := ItemDB.make("mushrooms")
+	shroom.poison = true
+	GameState.inventory.add(shroom)
+	player.body.sick = 0.0
+	player.hunger = 50.0
+	player.consume(GameState.inventory.find("mushrooms"))
+	_check(player.body.sick > 0.3, "poisonous mushrooms make you sick")
+	player.body.sick = 0.0
+	GameState.ws.fridges["test_fridge"] = 1
+	var milk := ItemDB.make("milk")
+	var exp0 := float(milk.exp)
+	GameState.containers["test_fridge"] = [milk]
+	GameState._fridge_hours = GameState.hours() - 10.0
+	GameState._chill_fridges()
+	_check(float(milk.exp) > exp0 + 5.0 if GameState.grid_on() else true, "fridges keep food fresh while there's power")
+	_give("dirty_water")
+	_give("purification_tablets")
+	Recipes.craft("purify_water", [], player.global_position)
+	_check(GameState.item_count("water_bottle") >= 1 and GameState.item_count("dirty_water") == 0, "purified dirty water")
+
+	print("Weather, seasons, temperature")
+	var day0 := GameState.day
+	GameState.day = 1
+	var spring := Weather.season()
+	GameState.day = 1 + Weather.season_days() * 3
+	_check(spring == "Spring" and Weather.season() == "Winter", "seasons turn: spring ... winter")
+	GameState.weather = {"k": "clear", "i": 0.5, "until": GameState.hours() + 10.0}
+	var winter_t := Weather.temperature(gen, player.global_position)
+	GameState.day = 1 + Weather.season_days()
+	var summer_t := Weather.temperature(gen, player.global_position)
+	_check(summer_t > winter_t + 15.0, "summer is warm, winter cold (%d vs %d C)" % [int(summer_t), int(winter_t)])
+	GameState.weather = {"k": "rain", "i": 1.0, "until": GameState.hours() + 10.0}
+	_check(Weather.raining() and Weather.sense_factor() < 1.0, "rain dulls zombies' senses")
+	player.wet = 0.0
+	player.sheltered = false
+	player._update_temperature(5.0)
+	_check(player.wet > 5.0 or player.sheltered, "rain soaks you outdoors")
+	GameState.weather.until = 0.0
+	Weather.update()
+	_check(Weather.kind() in Weather.ODDS[Weather.season()], "the weather changes with the season")
+
+	print("Farming")
+	_give("shovel")
+	_give("seeds_potato", 2)
+	_give("water_bottle", 1)
+	var plot := bases.add("farm_plot", player.global_position + Vector3(-5, 0, -5), 0.0)
+	player.actions._use_plot(plot)
+	var crop: Dictionary = plot.rec.get("crop", {})
+	_check(not crop.is_empty() and crop.k == "potato", "planted potatoes")
+	Farming.water(plot.rec)
+	plot.rec.crop.u = GameState.hours() - 200.0
+	plot.rec.crop.w = GameState.hours()
+	Farming.tick(plot.rec, 0)
+	_check(Farming.ripe(plot.rec.crop), "watered, they grow and ripen")
+	var potatoes := GameState.item_count("potato")
+	player.actions._use_plot(plot)
+	_check(GameState.item_count("potato") > potatoes + 2, "harvested %d potatoes" % (GameState.item_count("potato") - potatoes))
+	var rc := bases.add("rain_collector", player.global_position + Vector3(5, 0, -5), 0.0)
+	for k in 80:
+		bases._tick()
+	_check(float(rc.rec.get("water", 0.0)) > 1.0, "the rain collector fills in the rain (%.1f L)" % float(rc.rec.get("water", 0.0)))
+
+	print("Nature")
+	var tree := _main.streamer.tree_near(player.global_position, 80.0)
+	if tree.is_empty():
+		print("  (no tree nearby)")
+	else:
+		var tp: Vector3 = tree.pos
+		var drops_before := GameState.drops.size()
+		for k in 6:
+			player.actions.chop(tp + Vector3(0, 1.0, 0), 2.0)
+		_check(GameState.ws.chopped.has(tree.id) and GameState.drops.size() > drops_before or tree.mm in ["cactus", "dead_tree"],
+				"chopped a tree down for logs")
+	ch.skills.foraging = 10
+	GameState.day = 1 + Weather.season_days() # Summer: berries.
+	var bush := _main.streamer.bush_near(player.global_position, 200.0)
+	if bush == Vector3.INF:
+		print("  (no bush nearby)")
+	else:
+		var berries := GameState.item_count("berries")
+		player.actions._forage({"bpos": bush, "bid": "test_bush"})
+		_check(GameState.item_count("berries") > berries or GameState.drops.any(func(d: Dictionary) -> bool: return d.it.id == "berries"),
+				"found berries in a bush in summer")
+	var am: AnimalManager = _main.animals
+	var deer := Animal.new()
+	am.add_child(deer)
+	deer.setup("deer", player.global_position + Vector3(4, 0, 0), gen)
+	am.animals.append(deer)
+	deer.scare(player.global_position)
+	await _wait(0.5)
+	_check(deer.state == Animal.State.FLEE and deer.global_position.distance_to(player.global_position) > 4.5, "a startled deer bolts")
+	deer.take_damage(200.0, player.global_position)
+	_check(not deer.alive(), "and can be shot")
+	var raw := GameState.item_count("raw_meat")
+	deer.butcher(player.global_position)
+	_check(GameState.item_count("raw_meat") > raw and (GameState.item_count("animal_hide") > 0 or GameState.drops.any(func(d: Dictionary) -> bool: return d.it.id == "animal_hide")),
+			"butchered it for meat and a hide")
+	# A stray dog.
+	var did := "dog_test"
+	var dp := player.global_position + Vector3(6, 0, 6)
+	GameState.ws.dogs[did] = {"id": did, "owner": "", "hp": 80.0, "p": [dp.x, dp.y, dp.z], "home": [dp.x, dp.y, dp.z], "stay": false}
+	am._update_dogs(player.global_position)
+	var dog: Dog = am.dogs.get(did)
+	_check(dog != null and not dog.tame(), "a stray dog")
+	if dog:
+		_give("dog_food")
+		player.actions._feed_dog(dog)
+		_check(dog.mine(), "won over with dog food")
+		player.global_position += Vector3(-12, 0, 0)
+		await _wait(4.0)
+		_check(dog.global_position.distance_to(player.global_position) < 6.0, "it follows you")
+
+	print("Sleep")
+	zombies.clear_all()
+	GameState.day = day0
+	player.fatigue = 90.0
+	player.hunger = 100.0
+	player.thirst = 100.0
+	var h0 := GameState.hours()
+	player.start_sleep(null)
+	_check(player.sleeping and GameState.time_mult() > 1.0, "lying down to sleep speeds time up")
+	await _wait_for(func() -> bool: return not player.sleeping, 30000)
+	_check(not player.sleeping and player.fatigue < 30.0, "woke up rested (fatigue %d)" % int(player.fatigue))
+	_check(GameState.hours() - h0 > 3.0, "%.1f hours went by" % (GameState.hours() - h0))
+
+	print("Traders")
+	var tm: TraderManager = _main.traders
+	var camps := tm.camps()
+	_check(not camps.is_empty(), "%d trader camp(s) on the map" % camps.size())
+	if not camps.is_empty():
+		var camp: Dictionary = camps[0]
+		var stock := Barter.stock(camp.id)
+		_check(not stock.is_empty(), "the trader has %d kinds of goods" % stock.size())
+		_check(tm.in_safe_zone(camp.center), "the camp is a safe zone")
+		var tmenu: TradeMenu = _main.trade_menu
+		tmenu.open(camp.id, tm.trader_name(camp.id))
+		var want: Dictionary = stock[0]
+		for it in stock:
+			if Barter.value(it) < Barter.value(want):
+				want = it
+		tmenu._ask.append(want)
+		_give("military_armor") # Worth plenty.
+		tmenu._give.append(GameState.inventory.find("military_armor"))
+		var got := GameState.item_count(want.id)
+		tmenu._deal()
+		_check(GameState.item_count(want.id) > got and GameState.item_count("military_armor") == 0, "bartered for %s" % ItemDB.item_name(want.id))
+		tmenu.close()
+		# Zombies that get inside are shot.
+		var cc: Vector3 = camp.center
+		player.global_position = cc + Vector3(0, 2.0, 0)
+		await _wait(0.3)
+		zombies._spawn(Vector3(cc.x + 2.0, gen.height(cc.x + 2.0, cc.z), cc.z))
+		var tz: Zombie = zombies._active[-1]
+		await _wait(1.2)
+		_check(not tz.alive(), "zombies inside the camp are shot by the guards")
+
+	print("Power plant")
+	var plants := gen.settlements.sites.filter(func(st: Dictionary) -> bool: return st.type == "power_plant")
+	_check(not plants.is_empty(), "%d power plant(s) on the map" % plants.size())
+	var util_was: Variant = GameState.world.get("utilities", 14)
+	GameState.world.utilities = 0
+	GameState.ws.grid = {}
+	_check(not GameState.grid_on(), "with the utilities off there's no power")
+	if not plants.is_empty():
+		var can := ItemDB.make("gas_can")
+		GameState.inventory.add(can)
+		_give("engine_parts")
+		player._restart_grid({"pos": player.global_position})
+		_check(GameState.grid_on(), "restarting the power plant brings the power back")
+	GameState.world.utilities = util_was
+
+	print("Saving stage 6")
+	var n_struct := GameState.ws.structures.size()
+	_main.save_game()
+	GameState.ws.structures.clear()
+	GameState.load_game()
+	_check(GameState.ws.structures.size() == n_struct and GameState.ws.dogs.has(did), "structures and dogs are saved with the world")
+	GameState.inventory.from_dict(bag)
+	GameState.weather = {"k": "clear", "i": 0.5, "until": GameState.hours() + 50.0}
+	player.health = 100.0
+
+
 func _test_vehicles(player: Player, zombies: ZombieManager, gen: WorldGen, arena: Vector3) -> void:
 	print("Vehicles")
 	var vm: VehicleManager = _main.vehicles
@@ -985,6 +1286,7 @@ func _run() -> void:
 	await _test_world_changes(player, zombies, doors)
 	_test_lab(gen)
 	await _test_vehicles(player, zombies, gen, spot)
+	await _test_survival(player, zombies, gen, spot, doors)
 
 	print("Survival")
 	GameState.add_item(ItemDB.make("canned_beans"))

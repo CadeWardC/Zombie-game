@@ -70,6 +70,15 @@ static func build(type: String) -> MeshData:
 			m.box(Transform3D(Basis.IDENTITY, Vector3(0, 1.0, 0)), Vector3(0.8, 1.6, 0.5), Color(0.85, 0.85, 0.85))
 			m.box(Transform3D(Basis.IDENTITY, Vector3(0, 1.85, 0)), Vector3(0.85, 0.25, 0.55), Color(0.75, 0.15, 0.12))
 			m.box(Transform3D(Basis.IDENTITY, Vector3(0, 1.3, 0.26)), Vector3(0.4, 0.3, 0.02), Color(0.1, 0.12, 0.1))
+		"tent":
+			var canvas := Color(0.35, 0.42, 0.3)
+			var h := 1.6
+			var w := 1.5
+			for s: float in [-1.0, 1.0]:
+				m.quad(Vector3(0, h, -1.3), Vector3(0, h, 1.3), Vector3(w * s, 0.0, 1.3), Vector3(w * s, 0.0, -1.3), canvas.darkened(0.08 * (s + 1.0)), Vector3(s, 0.7, 0))
+				m.quad(Vector3(0, h, 1.3), Vector3(0, h, -1.3), Vector3(w * s, 0.0, -1.3), Vector3(w * s, 0.0, 1.3), canvas.darkened(0.2), Vector3(-s, -0.7, 0))
+			m.tri(Vector3(-w, 0, -1.3), Vector3(w, 0, -1.3), Vector3(0, h, -1.3), canvas.darkened(0.12), Vector3(0, 0, -1))
+			m.cylinder(Vector3(0, 0, 1.35), 0.03, 0.03, h, 4, Color(0.4, 0.3, 0.2))
 		"cooling_tower":
 			# A hyperboloid shell in stacked rings, with a lip of concrete.
 			var c := Color(0.68, 0.67, 0.64)

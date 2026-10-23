@@ -53,6 +53,8 @@ static func render(gen: WorldGen, px: int) -> Image:
 		var col := Color(0.72, 0.45, 0.8) if site.type == "research" else (Color(0.6, 0.75, 0.88) if site.type == "airport" else Color(0.85, 0.55, 0.2))
 		if site.type == "power_plant":
 			col = Color(0.95, 0.85, 0.3)
+		elif site.type == "trader":
+			col = Color(0.3, 0.85, 0.4)
 		_disc(img, site.center / scale, maxf(2.0, site.half.y / scale), col)
 	return img
 

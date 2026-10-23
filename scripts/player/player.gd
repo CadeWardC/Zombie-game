@@ -15,6 +15,7 @@ signal died
 signal open_inventory(container: Dictionary)
 ## Ask the game to open the crafting menu (on a tab, or "" for the last one).
 signal open_crafting(tab: String)
+signal open_trade(camp: String, trader_name: String)
 
 const WALK_SPEED := 4.2
 const SPRINT_SPEED := 7.0
@@ -401,6 +402,13 @@ func _update_temperature(delta: float) -> void:
 		thirst = maxf(0.0, thirst - THIRST_RATE * (feels_like - 30.0) * 0.08 * delta)
 
 
+## Start placing a structure (from the crafting menu's Build tab).
+func start_build(t: String) -> void:
+	if vehicle or dead:
+		return
+	build.start(t)
+
+
 func can_sleep() -> bool:
 	return fatigue > 30.0
 
@@ -680,6 +688,13 @@ func _update_focus() -> void:
 		if c is StructureBody:
 			actions.focus_structure(c)
 			return
+		if c is Animal:
+			if actions.focus_animal(c):
+				return
+		if c is TraderNPC:
+			_focus = c
+			prompt = "Trade with %s" % c.trader_name
+			return
 		if c is Zombie and c.subdued:
 			_focus = c
 			prompt = "Give the cure (%s)" % c.turned_name if GameState.item_count("cure_vial") > 0 else "%s needs a cure vial" % c.turned_name
@@ -822,6 +837,9 @@ func _interact() -> void:
 		return
 	if actions.interact(_focus):
 		_prompt_t = 0.0
+		return
+	if _focus is TraderNPC:
+		open_trade.emit(_focus.camp, _focus.trader_name)
 		return
 	if _focus is Vehicle:
 		vehicle_menu.open(_focus)

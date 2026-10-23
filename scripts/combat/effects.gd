@@ -154,6 +154,11 @@ func _land(s: Dictionary, hit: Dictionary) -> bool:
 	var pos: Vector3 = hit.position
 	var normal: Vector3 = hit.normal
 	var mi: MeshInstance3D = s.node
+	if s.kind == "arrow" and hit.collider is Animal:
+		(hit.collider as Animal).take_damage(float(s.dmg), pos - (s.vel as Vector3).normalized())
+		if drops and Net.authority() and randf() < 0.85:
+			drops.drop(ItemDB.make(s.item), (hit.collider as Animal).global_position + Vector3(0, 0.4, 0))
+		return true
 	if s.kind == "arrow":
 		var z := hit.collider as Zombie
 		if z:

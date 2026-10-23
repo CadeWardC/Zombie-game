@@ -37,6 +37,9 @@ var vehicle_menu: VehicleMenu
 var bases: BaseManager
 var craft_menu: CraftMenu
 var weather_fx: WeatherFX
+var animals: AnimalManager
+var traders: TraderManager
+var trade_menu: TradeMenu
 var pings: Array = [] # {pos, kind, name, t}
 var _look_json := ""
 var _spec_cam: Camera3D
@@ -165,6 +168,21 @@ func _setup_world() -> void:
 	craft_menu.player = player
 	craft_menu.game = self
 	add_child(craft_menu)
+	traders = TraderManager.new()
+	traders.gen = gen
+	traders.player = player
+	traders.zombies = zombies
+	add_child(traders)
+	zombies.traders = traders
+	trade_menu = TradeMenu.new()
+	trade_menu.player = player
+	add_child(trade_menu)
+	player.open_trade.connect(trade_menu.open)
+	animals = AnimalManager.new()
+	animals.gen = gen
+	animals.player = player
+	animals.zombies = zombies
+	add_child(animals)
 	weather_fx = WeatherFX.new()
 	weather_fx.camera = player.camera
 	add_child(weather_fx)
@@ -305,7 +323,7 @@ func _process(delta: float) -> void:
 	if not player.active:
 		return
 	if Input.is_action_just_pressed("pause") and not player.dead and not inventory_ui.is_open() and not vehicle_menu.is_open() \
-			and not craft_menu.is_open() and not player.build.active() and not player.sleeping:
+			and not craft_menu.is_open() and not trade_menu.is_open() and not player.build.active() and not player.sleeping:
 		pause_menu.open()
 	if Input.is_action_just_pressed("toggle_fps"):
 		hud.toggle_debug()

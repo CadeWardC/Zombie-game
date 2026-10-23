@@ -36,6 +36,7 @@ var streamer: WorldStreamer
 var drops: DropManager
 var avatars: Avatars
 var bases: BaseManager
+var traders: TraderManager
 var max_zombies := 28
 var shadows := false
 ## 0..1: how close any zombie is to spotting the player (1 = being chased).
@@ -187,6 +188,8 @@ func _try_spawn(ppos: Vector3, night: bool) -> void:
 		if x < 50.0 or z < 50.0 or x > gen.world_size - 50.0 or z > gen.world_size - 50.0:
 			continue
 		if gen.is_inside_building(x, z):
+			continue
+		if traders and traders.in_safe_zone(Vector3(x, 0, z)):
 			continue
 		# Small groups, bigger at night.
 		var group := _rng.randi_range(1, 4 if night else 2)

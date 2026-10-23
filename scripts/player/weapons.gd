@@ -278,6 +278,13 @@ func melee() -> void:
 	GameState.make_noise(player.global_position, 5.0)
 	if _hit_player(d.reach, float(d.dmg) * GameState.character.mod("melee")):
 		return
+	var cam_from := player.camera.global_position
+	var ahit := get_world_3d().direct_space_state.intersect_ray(PhysicsRayQueryParameters3D.create(
+			cam_from, cam_from - player.camera.global_basis.z * float(d.reach), 1 | 4, [player.get_rid()]))
+	if not ahit.is_empty() and ahit.collider is Animal and not (ahit.collider is Dog and (ahit.collider as Dog).mine()):
+		(ahit.collider as Animal).take_damage(float(d.dmg) * GameState.character.mod("melee"), player.global_position)
+		_wear(item(), float(d.wear))
+		return
 	var z := _melee_target(d.reach)
 	if z == null:
 		_hit_structure(d)
@@ -499,6 +506,9 @@ func _shoot_ray(spread_deg: float, reach: float, dmg: float) -> int:
 		Net.pvp_hit((hit.collider as Avatars.RemoteAvatar).peer, dmg, player.global_position)
 		if effects:
 			effects.blood(hit.position, dir)
+		return 0
+	if hit.collider is Animal:
+		(hit.collider as Animal).take_damage(dmg * clampf(1.2 - from.distance_to(hit.position) / reach, 0.4, 1.0), from)
 		return 0
 	var z := hit.collider as Zombie
 	if z == null:
