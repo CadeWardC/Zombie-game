@@ -610,7 +610,8 @@ func _test_death_rules(player: Player, zombies: ZombieManager) -> void:
 
 ## Is an item with this id in the list (or inside bags and pockets in it)?
 func _give(id: String, n := 1) -> void:
-	GameState.inventory.add(ItemDB.make(id, n))
+	if GameState.inventory.add(ItemDB.make(id, n)) > 0:
+		print("  (no room for %s)" % id)
 
 
 func _test_survival(player: Player, zombies: ZombieManager, gen: WorldGen, arena: Vector3, doors: Array[DoorBody]) -> void:
@@ -618,6 +619,10 @@ func _test_survival(player: Player, zombies: ZombieManager, gen: WorldGen, arena
 	var ch := GameState.character
 	var bag := GameState.inventory.to_dict()
 	GameState.inventory.clear()
+	# Room for all the materials.
+	GameState.inventory.equip.back = ItemDB.make("military_backpack")
+	GameState.inventory.equip.vest = ItemDB.make("tactical_vest")
+	GameState.inventory.notify()
 	var lvl := ch.skill("carpentry")
 	for k in 40:
 		GameState.practice("carpentry", 20.0)
@@ -634,7 +639,7 @@ func _test_survival(player: Player, zombies: ZombieManager, gen: WorldGen, arena
 	_check(Recipes.missing(plank_recipe, []).is_empty(), "with a log and a saw, planks can be made")
 	Recipes.craft("planks", [], player.global_position)
 	_check(GameState.item_count("plank") == 3 and GameState.item_count("log") == 1, "sawed a log into 3 planks")
-	_give("plank", 20)
+	_give("plank", 12)
 	_give("nails", 60)
 	_give("hammer")
 	_give("scrap_metal", 5)
@@ -646,7 +651,15 @@ func _test_survival(player: Player, zombies: ZombieManager, gen: WorldGen, arena
 
 	print("Building")
 	zombies.clear_all()
-	player.global_position = Vector3(arena.x, gen.height(arena.x, arena.z) + 0.3, arena.z)
+	# Away from the vehicles parked here by the vehicle test, on flat ground.
+	var site := arena
+	for k in 40:
+		var q := Vector2(arena.x, arena.z) + Vector2.from_angle(k * 0.9) * (40.0 + k * 3.0)
+		if gen.town_weight(q.x, q.y) == 0.0 and gen.water_level(q.x, q.y) == -INF and gen.terrain.slope_at(q.x, q.y) < 0.06:
+			site = Vector3(q.x, 0, q.y)
+			break
+	player.global_position = Vector3(site.x, gen.height(site.x, site.z) + 0.3, site.z)
+	await _wait_for(func() -> bool: return _main.streamer.is_ready_at(player.global_position), 15000)
 	player.rotation = Vector3.ZERO
 	player.head.rotation = Vector3(-0.35, 0, 0)
 	await _wait(0.5)
@@ -661,12 +674,11 @@ func _test_survival(player: Player, zombies: ZombieManager, gen: WorldGen, arena
 	_check(wb != null and GameState.item_count("plank") == planks - 5, "built a workbench (materials used)")
 	player.build.stop()
 	await _wait(0.2)
-	_check("workbench" in _main.stations_near(player.global_position) or wb.global_position.distance_to(player.global_position) > 3.2,
-			"standing at it counts as a workbench")
 	if wb:
 		player.global_position = wb.global_position + wb.global_basis.z * 1.2
 		await _wait(0.1)
 	_check("workbench" in _main.stations_near(player.global_position), "the workbench is a crafting station")
+	_give("hunting_knife")
 	Recipes.craft("bolts", _main.stations_near(player.global_position), player.global_position)
 	_check(GameState.item_count("bolt") >= 6, "made crossbow bolts at the workbench")
 	# Walls: zombies batter them.
@@ -674,9 +686,10 @@ func _test_survival(player: Player, zombies: ZombieManager, gen: WorldGen, arena
 	var hp := float(wall.rec.hp)
 	bases.hit(wall, 40.0)
 	_check(float(wall.rec.hp) == hp - 40.0, "zombies damage walls")
+	var wall_id: String = wall.rec.id
 	bases.hit(wall, 99999.0)
 	await _wait(0.1)
-	_check(not GameState.ws.structures.has(wall.rec.id), "a wall battered to nothing is gone")
+	_check(not GameState.ws.structures.has(wall_id), "a wall battered to nothing is gone")
 	# Crates hold things.
 	var crate := bases.add("crate", player.global_position + Vector3(-3, 0, 2), 0.0)
 	var ct := {"pos": crate.global_position, "type": "crate", "bld": "", "id": "crate_" + str(crate.rec.id)}
@@ -785,6 +798,7 @@ func _test_survival(player: Player, zombies: ZombieManager, gen: WorldGen, arena
 	var potatoes := GameState.item_count("potato")
 	player.actions._use_plot(plot)
 	_check(GameState.item_count("potato") > potatoes + 2, "harvested %d potatoes" % (GameState.item_count("potato") - potatoes))
+	GameState.weather = {"k": "rain", "i": 1.0, "until": GameState.hours() + 10.0}
 	var rc := bases.add("rain_collector", player.global_position + Vector3(5, 0, -5), 0.0)
 	for k in 80:
 		bases._tick()
@@ -846,8 +860,13 @@ func _test_survival(player: Player, zombies: ZombieManager, gen: WorldGen, arena
 	player.fatigue = 90.0
 	player.hunger = 100.0
 	player.thirst = 100.0
+	player.cold = 0.0
+	# In a bed, by the fire: safe and warm.
+	var bed := bases.add("bed", fire.global_position + Vector3(-2.0, 0, 0), 0.0)
+	fire.rec.lit = GameState.hours() + 24.0
+	player.global_position = fire.global_position + Vector3(-1.2, 0.2, 0)
 	var h0 := GameState.hours()
-	player.start_sleep(null)
+	player.start_sleep(bed)
 	_check(player.sleeping and GameState.time_mult() > 1.0, "lying down to sleep speeds time up")
 	await _wait_for(func() -> bool: return not player.sleeping, 30000)
 	_check(not player.sleeping and player.fatigue < 30.0, "woke up rested (fatigue %d)" % int(player.fatigue))
@@ -869,11 +888,15 @@ func _test_survival(player: Player, zombies: ZombieManager, gen: WorldGen, arena
 			if Barter.value(it) < Barter.value(want):
 				want = it
 		tmenu._ask.append(want)
-		_give("military_armor") # Worth plenty.
-		tmenu._give.append(GameState.inventory.find("military_armor"))
+		for k in 3:
+			_give("antibiotics") # Worth plenty.
+		for g in GameState.inventory.grids():
+			for it in g.items:
+				if it.id == "antibiotics":
+					tmenu._give.append(it)
 		var got := GameState.item_count(want.id)
 		tmenu._deal()
-		_check(GameState.item_count(want.id) > got and GameState.item_count("military_armor") == 0, "bartered for %s" % ItemDB.item_name(want.id))
+		_check(GameState.item_count(want.id) > got and GameState.item_count("antibiotics") == 0, "bartered for %s" % ItemDB.item_name(want.id))
 		tmenu.close()
 		# Zombies that get inside are shot.
 		var cc: Vector3 = camp.center

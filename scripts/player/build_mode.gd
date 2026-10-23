@@ -111,15 +111,20 @@ func _check(d: Dictionary, space: PhysicsDirectSpaceState3D) -> void:
 	# Uneven ground: compare the corners.
 	var lo := INF
 	var hi := -INF
+	var sum := 0.0
 	for c: Vector3 in [Vector3(-1, 0, -1), Vector3(1, 0, -1), Vector3(-1, 0, 1), Vector3(1, 0, 1)]:
 		var w := _xf * Vector3(c.x * s.x * 0.5, 0, c.z * s.z * 0.5)
 		var down := space.intersect_ray(PhysicsRayQueryParameters3D.create(w + Vector3(0, 1.0, 0), w - Vector3(0, 2.0, 0), 1, [p.get_rid()]))
 		var y: float = down.position.y if not down.is_empty() else (p.gen.height(w.x, w.z) if p.gen else pos.y)
 		lo = minf(lo, y)
 		hi = maxf(hi, y)
-	if hi - lo > 0.7:
+		sum += y
+	# Natural ground is bumpy; legs and posts sink in a little.
+	if hi - lo > 1.1:
 		_why = "The ground is too uneven"
 		return
+	pos.y = sum * 0.25
+	_xf.origin = pos
 	# Something in the way (a wall, a car, another structure, a person).
 	var q := PhysicsShapeQueryParameters3D.new()
 	var box := BoxShape3D.new()
