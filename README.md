@@ -268,6 +268,12 @@ godot --headless --import
 godot --headless res://tests/smoke_test.tscn
 ```
 
+**Compile check** (loads every script; seconds instead of minutes):
+
+```
+godot --headless res://tests/compile_check.tscn
+```
+
 **Multiplayer test** (starts a host and a guest and plays them together):
 
 ```

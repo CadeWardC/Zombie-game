@@ -40,6 +40,7 @@ var _model: Node3D
 var _gait := 0.0
 var _speed := 0.0
 var dead_t := 0.0
+var _parts := {} # Part node -> MeshData (merged into one mesh per part: few draw calls).
 
 
 func setup(k: String, pos: Vector3, g: WorldGen) -> void:
@@ -108,20 +109,18 @@ func _build_model() -> void:
 		_box(pivot, Vector3(0, -leg_h * 0.5, 0), Vector3(maxf(0.035, s.x * 0.16), leg_h, maxf(0.035, s.x * 0.16)),
 			col.darkened(0.15) if kind != "turkey" else Color(0.6, 0.45, 0.3))
 		_legs.append(pivot)
+	for node: Node3D in _parts:
+		var mi := MeshInstance3D.new()
+		mi.mesh = (_parts[node] as MeshData).to_mesh(Assets.material)
+		mi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+		node.add_child(mi)
+	_parts.clear()
 
 
 func _box(parent: Node3D, pos: Vector3, size: Vector3, col: Color) -> void:
-	var mi := MeshInstance3D.new()
-	var bm := BoxMesh.new()
-	bm.size = size
-	var mat := StandardMaterial3D.new()
-	mat.albedo_color = col
-	mat.roughness = 0.95
-	bm.material = mat
-	mi.mesh = bm
-	mi.position = pos
-	mi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
-	parent.add_child(mi)
+	if not _parts.has(parent):
+		_parts[parent] = MeshData.new()
+	(_parts[parent] as MeshData).box(Transform3D(Basis.IDENTITY, pos), size, col, false)
 
 
 func alive() -> bool:

@@ -794,6 +794,8 @@ Simplified or moved:
   sleeping alone in co-op rests faster instead.
 - **Taps and running water** aren't separate: rain collectors, rivers and
   bottles are the water sources.
+- **Snow on the ground** isn't drawn: winter shows as falling snow, cold
+  and dead crops, but the land stays green.
 
 ## 25. Open questions
 

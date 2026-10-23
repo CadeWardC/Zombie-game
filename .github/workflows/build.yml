@@ -23,8 +23,10 @@ jobs:
       - name: Import project
         run: timeout 300 "$HOME/godot" --headless --import || true
 
+      - name: Compile check (every script loads)
+        run: timeout 120 "$HOME/godot" --headless res://tests/compile_check.tscn
       - name: Smoke test
-        run: timeout 300 "$HOME/godot" --headless res://tests/smoke_test.tscn
+        run: timeout 600 "$HOME/godot" --headless res://tests/smoke_test.tscn
 
       - name: Multiplayer test (host and guest on one machine)
         run: timeout 400 tests/run_net_test.sh "$HOME/godot"

@@ -626,6 +626,8 @@ func _stage6_shots() -> void:
 	await get_tree().create_timer(0.3).timeout
 	await _shot("54_base_day")
 	GameState.time_of_day = 20.8
+	fire.rec.lit = GameState.hours() + 5.0
+	fire.refresh()
 	await get_tree().create_timer(0.5).timeout
 	_cam.global_position = c + Vector3(3.0, 2.2, 5.0)
 	_cam.look_at(c + Vector3(-1.0, 0.5, 0.5))
@@ -637,6 +639,7 @@ func _stage6_shots() -> void:
 	player.global_position = c + Vector3(0, 0.3, 4.0)
 	player.rotation.y = 0.0
 	player.head.rotation.x = deg_to_rad(-15.0)
+	GameState.inventory.equip.back = ItemDB.make("military_backpack")
 	for id in ["plank", "nails", "hammer", "log", "saw", "rag", "scrap_metal"]:
 		GameState.inventory.add(ItemDB.make(id, 10 if id in ["plank", "nails", "rag"] else 2))
 	_main.craft_menu.open("Weapons")
@@ -657,9 +660,9 @@ func _stage6_shots() -> void:
 	player.build.stop()
 	# Weather.
 	for w in [["rain", "59_rain"], ["snow", "60_snow"], ["fog", "61_fog"], ["storm", "62_storm"]]:
-		GameState.weather = {"k": w[0], "i": 1.0, "until": GameState.hours() + 50.0}
 		if w[0] == "snow":
 			GameState.day = 1 + Weather.season_days() * 3
+		GameState.weather = {"k": w[0], "i": 1.0, "until": GameState.hours() + 50.0}
 		player.global_position = c + Vector3(8.0, 0.3, 14.0)
 		player.rotation.y = 0.5
 		player.head.rotation.x = deg_to_rad(-6.0)
@@ -667,6 +670,7 @@ func _stage6_shots() -> void:
 		await _shot(w[1])
 	GameState.day = 1
 	GameState.weather = {"k": "clear", "i": 0.5, "until": GameState.hours() + 50.0}
+	await get_tree().create_timer(0.2).timeout
 	# Wildlife and a dog.
 	var am: AnimalManager = _main.animals
 	var wild := _open_ground(c + Vector3(150, 0, 0))

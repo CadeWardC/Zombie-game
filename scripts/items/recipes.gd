@@ -117,6 +117,27 @@ static func uses_of(id: String) -> int:
 	return n
 
 
+## How many of an item you carry, counting what's in your hands and slots
+## (an equipped knife can go into a spear).
+static func carried(id: String) -> int:
+	var n := GameState.item_count(id)
+	for s in GameState.inventory.equip:
+		var it: Dictionary = GameState.inventory.equip[s]
+		if s != "throw" and not it.is_empty() and it.id == id:
+			n += int(it.get("n", 1))
+	return n
+
+
+## Takes `n` of an item: from the bags first, then from equipment slots.
+static func take(id: String, n: int) -> void:
+	var left := n - GameState.inventory.take(id, n)
+	for s in GameState.inventory.equip:
+		var it: Dictionary = GameState.inventory.equip[s]
+		if left > 0 and s != "throw" and not it.is_empty() and it.id == id:
+			GameState.inventory.equip[s] = {}
+			left -= 1
+
+
 ## What's missing to craft this here, or [] if it can be made.
 ## `stations`: the stations within reach ("workbench", "fire").
 static func missing(r: Dictionary, stations: Array) -> Array[String]:
@@ -125,7 +146,7 @@ static func missing(r: Dictionary, stations: Array) -> Array[String]:
 		if e.size() > 2:
 			if uses_of(e[0]) < int(e[1]):
 				out.append(ItemDB.item_name(e[0]))
-		elif GameState.item_count(e[0]) < int(e[1]):
+		elif carried(e[0]) < int(e[1]):
 			out.append("%s x%d" % [ItemDB.item_name(e[0]), int(e[1])])
 	for t in r.tools:
 		if not has_tool(t):
@@ -176,7 +197,7 @@ static func craft(id: String, stations: Array, drop_pos: Vector3) -> Dictionary:
 						if it.id == e[0] and int(it.get("u", 0)) <= 0:
 							g.remove(it)
 		else:
-			GameState.inventory.take(e[0], int(e[1]))
+			take(e[0], int(e[1]))
 	var out := ItemDB.make(r.out[0], int(r.out[1]))
 	# Good cooks make more filling meals.
 	if r.skill == "cooking":

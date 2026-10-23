@@ -135,8 +135,8 @@ func _rebuild(focus: bool) -> void:
 			for id in Structures.LIST:
 				var d: Dictionary = Structures.LIST[id]
 				var miss := Structures.missing(d)
-				var row := _row(d.name, Structures.needs_text(d) + ("\n" + d.desc if d.has("desc") else ""),
-					"Build" if miss.is_empty() else "Need: " + ", ".join(miss), _build.bind(id), miss.is_empty())
+				var row := _row(d.name, Structures.needs_text(d) + ("\n" + d.desc if d.has("desc") else "") + _missing_line(miss),
+					"Build", _build.bind(id), miss.is_empty())
 				row.name = id
 				first = first if first else row
 		_:
@@ -146,8 +146,8 @@ func _rebuild(focus: bool) -> void:
 					continue
 				var miss := Recipes.missing(r, st)
 				var out_name := ItemDB.item_name(r.out[0]) + (" x%d" % int(r.out[1]) if int(r.out[1]) > 1 else "")
-				var row := _row("%s  ->  %s" % [r.name, out_name], Recipes.needs_text(r),
-					"Craft" if miss.is_empty() else "Need: " + ", ".join(miss), _craft.bind(id), miss.is_empty())
+				var row := _row("%s  ->  %s" % [r.name, out_name], Recipes.needs_text(r) + _missing_line(miss),
+					"Craft", _craft.bind(id), miss.is_empty())
 				row.name = id
 				first = first if first else row
 	if focus or focus_name != "":
@@ -155,6 +155,10 @@ func _rebuild(focus: bool) -> void:
 		var btn := _row_button(target if target else first)
 		if btn:
 			btn.grab_focus.call_deferred()
+
+
+func _missing_line(miss: Array[String]) -> String:
+	return "" if miss.is_empty() else "\nMissing: " + ", ".join(miss)
 
 
 func _row_button(row: Control) -> Button:
@@ -213,10 +217,9 @@ func _row(title: String, details: String, action: String, cb: Callable, ok: bool
 		b.flat = true
 		h.add_child(b)
 	elif action != "":
-		var b := _button(action, cb, 200)
+		var b := _button(action, cb, 160)
 		b.disabled = not ok
 		b.focus_mode = Control.FOCUS_ALL # Missing things still get focus, to read what's needed.
-		b.clip_text = true
 		h.add_child(b)
 	return panel
 
