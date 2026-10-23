@@ -6,7 +6,7 @@ extends Node
 
 func _ready() -> void:
 	var bad := 0
-	for path in _scripts("res://scripts"):
+	for path in _scripts("res://scripts") + _scripts("res://tests"):
 		var s: Script = load(path)
 		if s == null or not s.can_instantiate():
 			print("  FAIL  ", path)

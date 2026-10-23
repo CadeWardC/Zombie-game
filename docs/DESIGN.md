@@ -491,8 +491,8 @@ Each stage ends with a playable build on the Tab S6 Lite and iPhone.
 | **3. Character and health** ✅ | Character creation with traits, injuries, clothing protection, infection with symptoms, cure vials, the three death rules, curing zombified friends, memorial worlds, all zombie types and abilities |
 | **4. Multiplayer** ✅ (Wi-Fi) | 2–4 player hosting, join codes, Wi-Fi discovery, pings, PvP setting, sync of zombies, loot and vehicles |
 | **5. Vehicles** ✅ | Cars, bikes, fuel, boats, then helicopters and planes at airports |
-| **6. Survival depth** ← next | Crafting, base building, skills, farming, cooking, spoilage, sleep, temperature, weather and seasons, utilities and power plant, traders, hunting, fishing, foraging, water purification, dog companion |
-| **7. Polish** | Audio, hordes and migration, tutorial and hints, aim assist and remapping, HUD options, settings, performance pass |
+| **6. Survival depth** ✅ | Crafting, base building, skills, farming, cooking, spoilage, sleep, temperature, weather and seasons, utilities and power plant, traders, hunting, fishing, foraging, water purification, dog companion |
+| **7. Polish** ← next | Audio, hordes and migration, tutorial and hints, aim assist and remapping, HUD options, settings, performance pass |
 
 Multiplayer comes at stage 4 by request, after the map. To avoid rework,
 stages 1–3 are written **multiplayer-ready**: world state lives in data
@@ -708,7 +708,94 @@ Simplified or moved:
 - **Car parts from wrecks** (stripping a broken car for its battery or
   tires) are left for stage 6, with crafting.
 
-## 24. Open questions
+## 24. Stage 6 notes
+
+Done:
+- **Skills grow by doing**: shooting (aiming), hitting (melee), heavy
+  weapons and loads (strength), sprinting (fitness), sneaking and takedowns
+  (stealth), treating wounds (first aid), repairs and hotwiring
+  (mechanics), building and woodwork (carpentry), planting and harvesting
+  (farming), cooking, foraging and fishing (foraging), flying (piloting).
+  Medium speed: the first levels come in a session. A Skills page shows
+  progress. Fast Learner speeds it up.
+- **Crafting**: a menu (from the inventory, K, or R3 there) with every
+  recipe known from the start, greyed out until you have the materials and
+  tools: planks from logs (saw), spears, nail bats, arrows and bolts,
+  molotovs, splints, boiled bandages, rope, fishing rods, hatchets,
+  shovels, cooking pots, sleeping bags, scrap armour, hide jackets and
+  cooked food. Workbenches unlock the bigger recipes; cooking needs a lit
+  fire. New materials and tools in the loot: logs (chop trees with an axe
+  or hatchet), planks, nails, scrap metal, rope, duct tape, feathers,
+  hides, saws, pots, matches, lighters, watering cans.
+- **Building**: walls, gates, spike barricades, watchtowers (climb the
+  ladder; zombies can't), storage crates, beds, workbenches, campfires,
+  rain collectors and farm plots. A preview shows where it goes (green
+  fits, red doesn't) and snaps to a grid; rotate in 45° steps. Carpentry
+  makes them sturdier. Zombies batter what's in their way (brutes much
+  faster); repair with a plank and nails, or take apart for half the
+  materials back. **Fortifying**: board up windows and barricade doors
+  from the inside (planks, nails, a hammer); zombies have to break through
+  first.
+- **Food**: fresh food spoils (bread, milk, meat, fish, vegetables, stews);
+  fridges keep it while the power is on. Rotten or raw food, river water
+  and some mushrooms cause food poisoning (vomiting, weakness). Boil water
+  in a pot on a fire or use purification tablets; rain collectors give
+  clean water. Good cooks make more filling meals.
+- **Sleep and fatigue**: tiredness builds while awake (blurred vision, less
+  stamina) and you may pass out. Sleep in a bed (best), a sleeping bag, or
+  on the ground (out in the open, a zombie may find you). Time speeds up
+  while you sleep; in co-op only when everyone sleeps.
+- **Temperature and wetness**: seasons, time of day, weather, altitude and
+  deserts set the air temperature; shelter, fires and the warmth of your
+  clothes help; rain and swimming soak you (raincoats help) and being wet
+  chills you. Cold drains stamina and, at its worst, health. Heat makes you
+  thirsty. The HUD shows season, weather and how warm it feels.
+- **Weather and seasons**: clear, overcast, rain, thunderstorms (lightning
+  and thunder), fog and snow, changing every few hours with odds that
+  depend on the season. Rain and storms dull zombies' hearing and sight;
+  fog closes in. Seasons last 1, 2 or 4 weeks (a world setting); winter
+  snows, is cold and kills crops.
+- **Utilities**: power and water work for about two weeks (a world setting:
+  off from day 1, ~2 weeks, never). Each map has a **power plant** by the
+  water (turbine hall, control room, cooling towers): restarting it takes
+  20 litres of fuel and engine parts, is very loud, and brings the grid
+  back for a week.
+- **Farming**: dig a farm plot (shovel), plant seeds (potato, carrot,
+  tomato, corn) from spring to autumn, keep it watered (watering can,
+  bottles, or rain), harvest for food and seeds.
+- **Nature**: search bushes for berries (summer, autumn) and mushrooms
+  (spring, autumn; some are poisonous; foraging skill tells), fish with a
+  rod in rivers, lakes and the sea, hunt deer, rabbits and wild turkeys
+  (they bolt when they see or hear you; crouch and approach slowly) and
+  butcher them with a knife for meat, hides and feathers. Chop trees for
+  logs.
+- **Traders**: one to three fenced trader camps per map. Barter only (a
+  value for every item; the trader takes a cut), stock restocked every
+  three days, with rare goods: engine parts, antibiotics, military ammo,
+  seeds, the occasional cure vial. Safe zones: guards shoot zombies that
+  get in, and there's no PvP.
+- **Dog companion**: strays turn up in towns. Win one over with dog food or
+  meat; it follows you, growls when zombies are near, fights the ones that
+  come for you, can be told to stay, and can be hurt and killed.
+- Multiplayer: structures, boards and barricades, felled trees, picked
+  bushes, trader stock, the restarted grid, the weather and sleeping are
+  shared through the host and saved with the world.
+
+Simplified or moved:
+- **Wildlife and dogs** run on each player's own device (not shared in
+  co-op): everyone hunts their own animals, and a dog follows only its
+  owner's game.
+- **Base power** (solar panels, generators wired to a base) isn't built:
+  the grid (early weeks or a restarted plant) is the only power, and it
+  only matters for fridges and lab doors for now.
+- **Free-form fishing nets, snares and traps for animals** are left out;
+  the rod, the bow and the gun cover it.
+- **Sleeping speeds up time in co-op** only when everyone sleeps; a player
+  sleeping alone in co-op rests faster instead.
+- **Taps and running water** aren't separate: rain collectors, rivers and
+  bottles are the water sources.
+
+## 25. Open questions
 
 - Which free relay service to use for internet join codes.
 - Exact asset packs (checked for license and Tab S6 Lite performance).

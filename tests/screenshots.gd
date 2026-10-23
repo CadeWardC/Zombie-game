@@ -4,7 +4,8 @@ extends Node
 ##   xvfb-run godot res://tests/screenshots.tscn -- --touch
 ## Add --items for just the stage 2 shots (inventory, weapons, stealth), or
 ## --stage3 for the stage 3 ones (character, health, zombie types, the lab),
-## or --stage5 for vehicles.
+## --stage5 for vehicles, or --stage6 for survival (crafting, bases,
+## weather, animals, traders).
 
 var _main: Node3D
 var _cam: Camera3D
@@ -72,6 +73,11 @@ func _run() -> void:
 	var gen: WorldGen = _main.gen
 	if "--items" in OS.get_cmdline_user_args():
 		await _items_shots()
+		GameState.delete_world("screenshots")
+		get_tree().quit()
+		return
+	if "--stage6" in OS.get_cmdline_user_args():
+		await _stage6_shots()
 		GameState.delete_world("screenshots")
 		get_tree().quit()
 		return
@@ -571,3 +577,134 @@ func _stage5_shots() -> void:
 			await _drive(boat, 2.5)
 			await _shot("53_boating")
 			player.exit_vehicle(true)
+
+
+## Open ground near a town for a small base.
+func _open_ground(around: Vector3) -> Vector3:
+	var gen: WorldGen = _main.gen
+	for k in 60:
+		var p := Vector2(around.x, around.z) + Vector2.from_angle(k * 0.7) * (120.0 + k * 8.0)
+		if gen.town_weight(p.x, p.y) == 0.0 and gen.water_level(p.x, p.y) == -INF and not gen.is_inside_building(p.x, p.y) \
+				and gen.terrain.slope_at(p.x, p.y) < 0.08:
+			return Vector3(p.x, gen.height(p.x, p.y), p.y)
+	return around
+
+
+func _stage6_shots() -> void:
+	var gen: WorldGen = _main.gen
+	var player: Player = _main.player
+	var spawn: Vector3 = gen.spawn_point()
+	var bases: BaseManager = _main.bases
+	var c := _open_ground(spawn)
+	await _go(Vector2(c.x, c.z + 9.0), 0.0, -12.0)
+	# A small base: walls, a gate, a watchtower, a fire, crafting and a garden.
+	var y := func(x: float, z: float) -> Vector3: return Vector3(x, gen.height(x, z), z)
+	for k in 4:
+		bases.add("wall", y.call(c.x - 5.0 + k * 2.0, c.z - 6.0), 0.0)
+	bases.add("gate", y.call(c.x + 3.0, c.z - 6.0), 0.0)
+	for k in 3:
+		bases.add("wall", y.call(c.x - 6.0, c.z - 5.0 + k * 2.0), PI * 0.5)
+	bases.add("watchtower", y.call(c.x + 6.0, c.z - 3.0), 0.0)
+	var fire := bases.add("campfire", y.call(c.x - 1.0, c.z + 1.0), 0.0)
+	fire.rec.lit = GameState.hours() + 5.0
+	fire.refresh()
+	bases.add("workbench", y.call(c.x - 3.5, c.z - 2.5), 0.0)
+	bases.add("crate", y.call(c.x - 1.5, c.z - 3.0), 0.0)
+	bases.add("bed", y.call(c.x + 2.0, c.z - 3.0), PI * 0.5)
+	bases.add("rain_collector", y.call(c.x - 4.5, c.z + 2.5), 0.0)
+	var plot := bases.add("farm_plot", y.call(c.x + 2.5, c.z + 2.0), 0.0)
+	plot.rec.crop = {"k": "corn", "g": 1.0, "w": GameState.hours(), "u": GameState.hours()}
+	plot.refresh()
+	var plot2 := bases.add("farm_plot", y.call(c.x + 2.5, c.z + 4.5), 0.0)
+	plot2.rec.crop = {"k": "tomato", "g": 0.6, "w": GameState.hours(), "u": GameState.hours()}
+	plot2.refresh()
+	bases.add("spikes", y.call(c.x - 2.0, c.z - 8.0), 0.0)
+	await get_tree().create_timer(0.6).timeout
+	_cam.global_position = c + Vector3(9.0, 7.0, 11.0)
+	_cam.look_at(c + Vector3(0, 1.0, -1.5))
+	_cam.current = true
+	await get_tree().create_timer(0.3).timeout
+	await _shot("54_base_day")
+	GameState.time_of_day = 20.8
+	await get_tree().create_timer(0.5).timeout
+	_cam.global_position = c + Vector3(3.0, 2.2, 5.0)
+	_cam.look_at(c + Vector3(-1.0, 0.5, 0.5))
+	await _shot("55_campfire_dusk")
+	GameState.time_of_day = 10.0
+	# Crafting menu and the build preview.
+	_cam.current = false
+	player.camera.current = true
+	player.global_position = c + Vector3(0, 0.3, 4.0)
+	player.rotation.y = 0.0
+	player.head.rotation.x = deg_to_rad(-15.0)
+	for id in ["plank", "nails", "hammer", "log", "saw", "rag", "scrap_metal"]:
+		GameState.inventory.add(ItemDB.make(id, 10 if id in ["plank", "nails", "rag"] else 2))
+	_main.craft_menu.open("Weapons")
+	await get_tree().create_timer(0.4).timeout
+	await _shot("56_crafting")
+	_main.craft_menu.open("Build")
+	await get_tree().create_timer(0.3).timeout
+	await _shot("57_build_tab")
+	_main.craft_menu.close()
+	player.global_position = c + Vector3(-9.0, 0.3, 6.0)
+	player.rotation.y = 0.4
+	player.head.rotation.x = deg_to_rad(-25.0)
+	player.start_build("wall")
+	for k in 3:
+		player.build.update(0.016)
+		await get_tree().process_frame
+	await _shot("58_build_preview")
+	player.build.stop()
+	# Weather.
+	for w in [["rain", "59_rain"], ["snow", "60_snow"], ["fog", "61_fog"], ["storm", "62_storm"]]:
+		GameState.weather = {"k": w[0], "i": 1.0, "until": GameState.hours() + 50.0}
+		if w[0] == "snow":
+			GameState.day = 1 + Weather.season_days() * 3
+		player.global_position = c + Vector3(8.0, 0.3, 14.0)
+		player.rotation.y = 0.5
+		player.head.rotation.x = deg_to_rad(-6.0)
+		await get_tree().create_timer(1.5).timeout
+		await _shot(w[1])
+	GameState.day = 1
+	GameState.weather = {"k": "clear", "i": 0.5, "until": GameState.hours() + 50.0}
+	# Wildlife and a dog.
+	var am: AnimalManager = _main.animals
+	var wild := _open_ground(c + Vector3(150, 0, 0))
+	await _go(Vector2(wild.x, wild.z + 10.0), 0.0, -5.0)
+	for k in 3:
+		var a := Animal.new()
+		am.add_child(a)
+		var q := wild + Vector3(k * 2.2 - 2.0, 0, -k * 1.5)
+		q.y = gen.height(q.x, q.z)
+		a.setup(["deer", "deer", "turkey"][k], q, gen)
+		a.rotation.y = 1.2 + k * 0.4
+		a.set_physics_process(false)
+		am.animals.append(a)
+	var rab := Animal.new()
+	am.add_child(rab)
+	rab.setup("rabbit", Vector3(wild.x + 2.0, gen.height(wild.x + 2.0, wild.z + 5.0), wild.z + 5.0), gen)
+	rab.set_physics_process(false)
+	var dp := wild + Vector3(-1.5, 0, 6.5)
+	GameState.ws.dogs["shot_dog"] = {"id": "shot_dog", "owner": GameState.player_id, "hp": 80.0, "p": [dp.x, gen.height(dp.x, dp.z), dp.z], "stay": true}
+	am._update_dogs(player.global_position)
+	await get_tree().create_timer(0.6).timeout
+	await _shot("63_wildlife_dog")
+	# A trader camp and the power plant.
+	for site in gen.settlements.sites:
+		if site.type == "trader":
+			var sc: Vector2 = site.center
+			var front := sc + Vector2(0, -16).rotated(float(site.rot))
+			await _go(front, _yaw_to(front, sc), -6.0, 0.3)
+			await get_tree().create_timer(1.0).timeout
+			await _shot("64_trader_camp")
+			_main.trade_menu.open("camp%d" % int(site.id), _main.traders.trader_name("camp%d" % int(site.id)))
+			await get_tree().create_timer(0.3).timeout
+			await _shot("65_trading")
+			_main.trade_menu.close()
+			break
+	for site in gen.settlements.sites:
+		if site.type == "power_plant":
+			var sc: Vector2 = site.center
+			await _fly(Vector3(sc.x + 160, site.base + 90, sc.y + 140), Vector3(sc.x, site.base, sc.y))
+			await _shot("66_power_plant")
+			break

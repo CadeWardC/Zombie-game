@@ -191,6 +191,24 @@ func _host() -> void:
 	await get_tree().create_timer(1.0).timeout
 	_check(hv != null and hv.seats.is_empty() and not hv.remote, "the guest got out")
 
+	# Bases, weather and sleep are shared.
+	var gp := gav.global_position
+	var wall: StructureBody = _main.bases.add("wall", gp + Vector3(5, 0, 0), 0.0)
+	GameState.weather = {"k": "fog", "i": 0.9, "until": GameState.hours() + 20.0}
+	Net.weather_changed()
+	_flag("host_built")
+	await _wait_flag("guest_built", 30000)
+	await get_tree().create_timer(1.0).timeout
+	var crates: Array = GameState.ws.structures.values().filter(func(r: Dictionary) -> bool: return r.t == "crate")
+	_check(not crates.is_empty(), "the guest's crate is in the host's world")
+	_check(float(wall.rec.hp) < float(wall.rec.mhp), "the guest's damage to the wall reached the host")
+	Net.sleeping(true)
+	await _wait_flag("guest_sleeping", 30000)
+	await get_tree().create_timer(0.5).timeout
+	_check(Net.time_mult > 1.0, "time flies when everyone sleeps")
+	Net.sleeping(false)
+	_flag("host_awake")
+
 	# Saving keeps the guest's survivor for next time.
 	await get_tree().create_timer(1.0).timeout
 	_main.save_game()
@@ -313,6 +331,25 @@ func _client() -> void:
 		gv.speed = 0.0
 		_main.player.exit_vehicle(true)
 	_flag("guest_out")
+
+	await _wait_flag("host_built", 30000)
+	var got_wall := await _wait_for(func() -> bool:
+		return GameState.ws.structures.values().any(func(r: Dictionary) -> bool: return r.t == "wall"), 10000)
+	_check(got_wall, "the host's wall shows up for the guest")
+	var got_fog := await _wait_for(func() -> bool: return Weather.kind() == "fog", 10000)
+	_check(got_fog, "the guest has the host's weather")
+	for id in GameState.ws.structures:
+		var r: Dictionary = GameState.ws.structures[id]
+		if r.t == "wall":
+			r.hp = float(r.hp) - 50.0
+			Net.structure(r)
+	var me: Vector3 = _main.player.global_position
+	_main.bases.add("crate", me + Vector3(-3, 0, 0), 0.0)
+	_flag("guest_built")
+	Net.sleeping(true)
+	_flag("guest_sleeping")
+	await _wait_flag("host_awake", 30000)
+	Net.sleeping(false)
 
 	# The host closes the game: back to the menu.
 	var gone := []

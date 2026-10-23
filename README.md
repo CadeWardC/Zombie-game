@@ -5,7 +5,7 @@ built with **Godot 4.7** and designed to run well on phones and tablets
 (minimum target: Samsung Galaxy Tab S6 Lite). The full plan is in
 [docs/DESIGN.md](docs/DESIGN.md).
 
-**What's in the game now (stages 1 to 5):**
+**What's in the game now (stages 1 to 6):**
 
 - **Random worlds of 8, 16 or 32 km**: coastlines, mountains, forests,
   farmland, deserts, beaches, and river networks with lakes from a drainage
@@ -110,6 +110,23 @@ built with **Godot 4.7** and designed to run well on phones and tablets
   closed cars keep them out until they batter their way in. Trunks travel
   with their car. Friends ride along in multiplayer.
 
+- **Survival depth**:
+  - skills that grow as you use them;
+  - crafting from materials and tools (all recipes known; a workbench for
+    the bigger ones, a fire for cooking);
+  - building walls, gates, spikes, watchtowers, crates, beds, workbenches,
+    campfires, rain collectors and farm plots, and boarding up windows and
+    barricading doors;
+  - food that spoils, cooking, dirty water to boil or purify, and food
+    poisoning;
+  - sleep and fatigue, body temperature, getting wet;
+  - weather (rain, storms, fog, snow) and seasons;
+  - power that fails after a couple of weeks, and a power plant to restart;
+  - farming, foraging, fishing, hunting deer, rabbits and turkeys, chopping
+    trees;
+  - trader camps to barter at (safe zones);
+  - a dog to tame that follows you and fights for you.
+
 All art (terrain, buildings, furniture, cars, aircraft, zombies, items and
 their inventory icons) is generated in code as realistic low-poly geometry,
 so the app stays small and needs no art files.
@@ -136,6 +153,8 @@ so the app stays small and needs no art files.
 | Flashlight   | LIGHT                     | F                | Y             |
 | Pause (map, invite friends) | II         | Esc / P          | Start         |
 | Ping (tap: mark what you look at; hold: call for help) | PING (multiplayer) | Q | Share / Capture |
+| Crafting, building, skills | Inventory → CRAFT | K | R3 in the inventory |
+| Second action (board up, add a log, water, feed the dog...) | the reload button (relabelled) | R | X |
 | Debug stats  | –                         | F3               | –             |
 
 **Driving** (walk up to a vehicle and press Use for its menu):
@@ -216,13 +235,18 @@ scripts/
                               character (traits, backgrounds), health
                               (injuries, infection) and other players'
                               avatars
+  base/                       Buildable structures (data, models, the
+                              in-world body), base manager, farming
+  animals/                    Wildlife (deer, rabbits, turkeys) and dogs
+  traders/                    Trader camps and the trader
   vehicles/                   Vehicle types and condition (vehicle_db),
                               bike and boat models, the vehicle node
                               (driving, flying, boating), manager
                               (parked props to vehicles, boats, trunks)
   ui/                         HUD, inventory screen, item icons, button
                               glyphs, touch controls, menus, character
-                              creator, map, vehicle menu
+                              creator, map, vehicle menu, crafting and
+                              trade menus
 tests/smoke_test.tscn         Automated gameplay test (runs in CI)
 tests/net_test.tscn           Two-device multiplayer test: a host and a
                               guest on one machine (run_net_test.sh, in CI)

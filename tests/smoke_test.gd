@@ -791,7 +791,7 @@ func _test_survival(player: Player, zombies: ZombieManager, gen: WorldGen, arena
 	_check(float(rc.rec.get("water", 0.0)) > 1.0, "the rain collector fills in the rain (%.1f L)" % float(rc.rec.get("water", 0.0)))
 
 	print("Nature")
-	var tree := _main.streamer.tree_near(player.global_position, 80.0)
+	var tree: Dictionary = _main.streamer.tree_near(player.global_position, 80.0)
 	if tree.is_empty():
 		print("  (no tree nearby)")
 	else:
@@ -803,7 +803,7 @@ func _test_survival(player: Player, zombies: ZombieManager, gen: WorldGen, arena
 				"chopped a tree down for logs")
 	ch.skills.foraging = 10
 	GameState.day = 1 + Weather.season_days() # Summer: berries.
-	var bush := _main.streamer.bush_near(player.global_position, 200.0)
+	var bush: Vector3 = _main.streamer.bush_near(player.global_position, 200.0)
 	if bush == Vector3.INF:
 		print("  (no bush nearby)")
 	else:
@@ -900,7 +900,7 @@ func _test_survival(player: Player, zombies: ZombieManager, gen: WorldGen, arena
 	GameState.world.utilities = util_was
 
 	print("Saving stage 6")
-	var n_struct := GameState.ws.structures.size()
+	var n_struct: int = GameState.ws.structures.size()
 	_main.save_game()
 	GameState.ws.structures.clear()
 	GameState.load_game()
