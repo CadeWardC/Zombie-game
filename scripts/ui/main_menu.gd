@@ -140,7 +140,14 @@ func _build_home() -> void:
 	_button(box, "Join Game (Wi-Fi)", func() -> void:
 		Net.start_discovery()
 		_show("join"))
-	_button(box, "Settings", func() -> void: _show("settings"))
+	_button(box, "Tutorial", _start_tutorial)
+	_button(box, "Settings", func() -> void:
+		var sp := SettingsPanel.new()
+		add_child(sp)
+		sp.closed.connect(func() -> void:
+			sp.queue_free()
+			_show("home"))
+		sp.open())
 	if not OS.has_feature("ios"):
 		_button(box, "Quit", func() -> void: get_tree().quit())
 
@@ -431,6 +438,15 @@ func _build_settings() -> void:
 
 func _update_quality() -> void:
 	_quality_btn.text = "Graphics: %s" % GameState.preset().name
+
+
+## A small guided start: a fixed world, a ready-made survivor, a checklist.
+func _start_tutorial() -> void:
+	GameState.delete_world("tutorial") # Always a fresh start.
+	var meta := GameState.create_world("Tutorial", 8192.0, 777, 0, 0, "tutorial", {"tutorial": true})
+	GameState.pending_character = Character.random(777)
+	GameState.pending_character.name = "Rookie"
+	_play(meta)
 
 
 func _play(meta: Dictionary) -> void:

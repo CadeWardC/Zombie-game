@@ -43,6 +43,7 @@ var awareness := 0.0
 var last_sight_check := 0
 var mgr: ZombieManager
 var spawn_id := "" # Interior spawn point it came from ("" if none).
+var horde_id := "" # The roaming horde it walks with ("" if none).
 ## A turned player: their id, name, owner, and the gear they carried.
 var turned_id := ""
 var turned_name := ""
@@ -333,7 +334,13 @@ func update_ai(dt: float, player: Node3D, dist: float, use_physics: bool, night:
 	match state:
 		State.WANDER:
 			speed = float(ty.walk) * 0.6
-			if _think_t <= 0.0 or _flat_dist(target) < 1.0:
+			if horde_id != "" and mgr and mgr.hordes:
+				# Walking with the horde toward its goal.
+				var g: Vector3 = mgr.hordes.goal_for(horde_id, slot * 7 + variant)
+				if g != Vector3.INF:
+					target = g
+					speed = float(ty.walk) * 0.85
+			elif _think_t <= 0.0 or _flat_dist(target) < 1.0:
 				_think_t = randf_range(4.0, 9.0)
 				# Zombies waiting indoors (and crawlers) don't stray far.
 				var r := 3.0 if spawn_id != "" or type == "crawler" else 12.0

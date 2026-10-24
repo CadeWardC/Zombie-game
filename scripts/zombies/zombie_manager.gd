@@ -37,6 +37,7 @@ var drops: DropManager
 var avatars: Avatars
 var bases: BaseManager
 var traders: TraderManager
+var hordes: Hordes
 var max_zombies := 28
 var shadows := false
 ## 0..1: how close any zombie is to spotting the player (1 = being chased).
@@ -113,6 +114,8 @@ func _physics_process(delta: float) -> void:
 	var night := GameState.is_night()
 	var tgts := targets()
 
+	if hordes:
+		hordes.update(delta, tgts)
 	_spawn_t -= delta
 	if _spawn_t <= 0.0:
 		_spawn_t = 0.7 / tgts.size()
@@ -136,7 +139,8 @@ func _physics_process(delta: float) -> void:
 			if d < dist and not (t != player and t.dead):
 				dist = d
 				tgt = t
-		if dist > DESPAWN_DIST or (z.state == Zombie.State.DEAD and z.dead_timer <= 0.0):
+		var far: bool = dist > (Hordes.SLEEP if z.horde_id != "" else DESPAWN_DIST)
+		if far or (z.state == Zombie.State.DEAD and z.dead_timer <= 0.0):
 			_recycle(i)
 			i -= 1
 			continue
@@ -170,7 +174,7 @@ func _physics_process(delta: float) -> void:
 
 func _try_spawn(ppos: Vector3, night: bool) -> void:
 	var in_town := gen.town_weight(ppos.x, ppos.z) > 0.5
-	var wanted := int((8 + (10 if night else 0) + (12 if in_town else 0)) * GameState.difficulty().zombies)
+	var wanted := int((8 + (10 if night else 0) + (12 if in_town else 0)) * GameState.difficulty().zombies * (hordes.density(ppos) if hordes else 1.0))
 	wanted = mini(wanted, max_zombies)
 	# Count the zombies around this player; the overall cap grows a little
 	# with each extra player.
@@ -229,6 +233,21 @@ func cap() -> int:
 	return int(max_zombies * (1.0 + 0.6 * (targets().size() - 1)))
 
 
+## One zombie of a horde (allowed past the normal cap a little: hordes are
+## meant to be overwhelming). Null if there's no room at all.
+func spawn_horde_zombie(pos: Vector3) -> Zombie:
+	if _active.size() >= cap() + 25:
+		return null
+	return _spawn(pos, pick_type(GameState.is_night(), pos))
+
+
+## Sends a zombie back to the pool (a horde folding away).
+func despawn(z: Zombie) -> void:
+	var i := _active.find(z)
+	if i >= 0:
+		_recycle(i)
+
+
 ## A zombie shambling in from `dist` metres away, already onto the player
 ## (e.g. finding someone asleep in the open). Host only.
 func spawn_near(pos: Vector3, dist: float) -> void:
@@ -251,6 +270,7 @@ func _spawn(pos: Vector3, type := "walker", mesh: Mesh = null) -> Zombie:
 	z.slot = _rng.randi() % 10
 	z.mgr = self
 	z.reset(pos, type, _rng.randi() % 8, _rng.randf_range(0.85, 1.15), mesh)
+	z.horde_id = ""
 	z.set_shadows(shadows)
 	z.net_id = _next_net_id
 	_next_net_id += 1
@@ -304,6 +324,10 @@ func _spawn_turned(ppos: Vector3) -> void:
 
 ## Called by a zombie as it dies: loot, spawn timers, turned players' gear.
 func zombie_died(z: Zombie) -> void:
+	if hordes and Net.authority():
+		hordes.record_kill(z.position)
+		if z.horde_id != "":
+			hordes.died(z)
 	if z.spawn_id != "":
 		GameState.spawn_killed(z.spawn_id)
 	if z.turned_id != "":
@@ -325,6 +349,7 @@ func zombie_died(z: Zombie) -> void:
 func _recycle(index: int) -> void:
 	var z := _active[index]
 	_active.remove_at(index)
+	z.horde_id = ""
 	if _by_net.get(z.net_id) == z:
 		_by_net.erase(z.net_id)
 	if z.spawn_id != "" and _by_spawn.get(z.spawn_id) == z:
@@ -347,6 +372,8 @@ func _recycle(index: int) -> void:
 func _on_noise(pos: Vector3, radius: float) -> void:
 	# Rain and storms drown sounds out.
 	radius *= Weather.sense_factor()
+	if hordes and Net.authority():
+		hordes.hear(pos, radius)
 	var r2 := radius * radius
 	for z in _active:
 		if z.position.distance_squared_to(pos) < r2:

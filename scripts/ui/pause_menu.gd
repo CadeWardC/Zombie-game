@@ -63,6 +63,16 @@ func _ready() -> void:
 	_players_label.add_theme_font_size_override("font_size", 16)
 	box.add_child(_players_label)
 	_quality_btn = _button(box, "", _cycle_quality)
+	_button(box, "Settings", func() -> void:
+		var sp := SettingsPanel.new()
+		add_child(sp)
+		_box.visible = false
+		sp.closed.connect(func() -> void:
+			sp.queue_free()
+			_box.visible = true
+			_update_quality_text()
+			_first_btn.grab_focus())
+		sp.open())
 	_save_btn = _button(box, "Save Game", func() -> void:
 		save_requested.emit()
 		GameState.notify("Game saved"))

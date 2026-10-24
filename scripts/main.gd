@@ -38,6 +38,7 @@ var bases: BaseManager
 var craft_menu: CraftMenu
 var weather_fx: WeatherFX
 var animals: AnimalManager
+var hints: Hints
 var traders: TraderManager
 var trade_menu: TradeMenu
 var pings: Array = [] # {pos, kind, name, t}
@@ -128,6 +129,9 @@ func _setup_world() -> void:
 	zombies.streamer = streamer
 	zombies.avatars = avatars
 	zombies.turned_cured.connect(_on_turned_cured)
+	zombies.hordes = Hordes.new(zombies, gen)
+	if Net.authority():
+		zombies.hordes.ensure()
 	add_child(zombies)
 	player.zombies = zombies
 	hud.connect_player(player)
@@ -185,6 +189,15 @@ func _setup_world() -> void:
 	animals.player = player
 	animals.zombies = zombies
 	add_child(animals)
+	hints = Hints.new()
+	hints.game = self
+	hints.player = player
+	add_child(hints)
+	hints.show_tip.connect(hud.show_tip)
+	player.open_inventory.connect(func(ct: Dictionary) -> void:
+		if not ct.is_empty():
+			hints.tip("loot"))
+	player.open_crafting.connect(func(_t: String) -> void: hints.tip("crafting"))
 	weather_fx = WeatherFX.new()
 	weather_fx.camera = player.camera
 	add_child(weather_fx)
@@ -296,6 +309,10 @@ func _on_spawn_ready() -> void:
 	if not GameState.uses_touch():
 		Input.mouse_mode = Input.MOUSE_MODE_CAPTURED
 	GameState.notify("Find food, water and shelter. Survive.")
+	if GameState.world.get("tutorial", false) and GameState.item_count("hammer") == 0:
+		for it in [["hammer", 1], ["log", 1], ["matches", 1], ["canned_beans", 1]]:
+			GameState.inventory.add(ItemDB.make(it[0], it[1]), false)
+		GameState.inventory.notify()
 	save_game()
 	if Net.is_client():
 		Net.client_ready()

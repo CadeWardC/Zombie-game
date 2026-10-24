@@ -135,7 +135,10 @@ func _ready() -> void:
 	head.position.y = EYE_HEIGHT
 	add_child(head)
 	camera = Camera3D.new()
-	camera.fov = 75.0
+	camera.fov = float(GameState.settings.get("fov", 75.0))
+	GameState.settings_changed.connect(func() -> void:
+		if not weapons.scoped():
+			camera.fov = float(GameState.settings.get("fov", 75.0)))
 	camera.near = 0.05
 	head.add_child(camera)
 
@@ -164,6 +167,9 @@ func _unhandled_input(event: InputEvent) -> void:
 
 
 func _look(delta: Vector2) -> void:
+	delta *= float(GameState.settings.get("sens", 1.0))
+	if GameState.settings.get("invert_y", false):
+		delta.y = -delta.y
 	if vehicle:
 		_cam_yaw -= delta.x
 		_cam_pitch = clampf(_cam_pitch - delta.y, -1.2, 0.5)
@@ -629,8 +635,17 @@ func _assist_candidate() -> Zombie:
 	return best
 
 
+## How strong aim assist is (Settings): 0 off, 1 normal, 2 strong; always
+## off in PvP worlds.
+func _assist_strength() -> float:
+	if Net.active() and GameState.world.get("pvp", false):
+		return 0.0
+	return float(GameState.settings.get("aim_assist", 1.0))
+
+
 func _aim_assist_slowdown() -> float:
-	return 0.5 if _assist_target != null and GameState.using_gamepad() else 1.0
+	var s := _assist_strength()
+	return lerpf(1.0, 0.5, minf(s, 1.0)) * (0.8 if s > 1.5 else 1.0) if _assist_target != null and GameState.using_gamepad() else 1.0
 
 
 ## Gamepad aim assist: gentle pull toward a zombie near the crosshair while
@@ -648,8 +663,9 @@ func _aim_assist(delta: float, pad_look: Vector2) -> void:
 	var to := z.global_position + Vector3(0, 1.35, 0) - camera.global_position
 	var want_yaw := atan2(-to.x, -to.z)
 	var want_pitch := atan2(to.y, Vector2(to.x, to.z).length())
-	rotation.y = lerp_angle(rotation.y, want_yaw, minf(1.0, delta * 2.5))
-	head.rotation.x = lerpf(head.rotation.x, want_pitch, minf(1.0, delta * 2.5))
+	var k := minf(1.0, delta * 2.5 * _assist_strength())
+	rotation.y = lerp_angle(rotation.y, want_yaw, k)
+	head.rotation.x = lerpf(head.rotation.x, want_pitch, k)
 
 
 # --- Interaction -------------------------------------------------------------

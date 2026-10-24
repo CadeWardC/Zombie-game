@@ -85,8 +85,10 @@ var pending_character: Character
 ##   grid: {until: in-game hour the restarted power plant runs until}
 ##   dogs: id -> {id, owner (player id or "" for a stray), hp, p, stay}
 ##   traders: camp id -> {stock: [items], restock: hour}
+##   hordes: id -> roaming horde {id, p, goal, size}; cleared: map square ->
+##           {n: recent kills, h: hour} (see Hordes)
 const WS_KEYS := ["doors", "windows", "power", "spawns", "vehicles", "pumps", "structures", "boards", "chopped", "forage",
-	"fridges", "grid", "dogs", "traders"]
+	"fridges", "grid", "dogs", "traders", "hordes", "cleared"]
 var ws := {}
 ## Weather (see Weather): {k: kind, i: intensity, until: hour}.
 var weather := {"k": "clear", "i": 0.5, "until": 0.0}

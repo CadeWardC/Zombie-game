@@ -66,6 +66,12 @@ var _hit_kill := false
 var _show_debug := false
 var _sleep: ColorRect
 var _sleep_label: Label
+var _tip: PanelContainer
+var _tip_title: Label
+var _tip_text: Label
+var _tip_t := 0.0
+var _tips: Array = [] # Queued [title, text].
+var _step: Label
 
 
 func _ready() -> void:
@@ -187,6 +193,32 @@ func _ready() -> void:
 	_sleep_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	_place(_sleep_label, Vector2(0.5, 0.5), Rect2(-300, -20, 600, 80))
 
+	# Tips (first-time hints) in a panel on the right; the tutorial's current
+	# step under the clock.
+	_tip = PanelContainer.new()
+	var sb := StyleBoxFlat.new()
+	sb.bg_color = Color(0.05, 0.07, 0.06, 0.85)
+	sb.border_color = Color(0.85, 0.7, 0.3, 0.8)
+	sb.set_border_width_all(2)
+	sb.set_corner_radius_all(6)
+	sb.set_content_margin_all(12)
+	_tip.add_theme_stylebox_override("panel", sb)
+	root.add_child(_tip)
+	_place(_tip, Vector2(1, 0), Rect2(-400, 150, 380, 120))
+	var tv := VBoxContainer.new()
+	_tip.add_child(tv)
+	_tip_title = _label(tv, 19)
+	_tip_title.add_theme_color_override("font_color", Color(0.95, 0.8, 0.4))
+	_tip_text = _label(tv, 15)
+	_tip_text.autowrap_mode = TextServer.AUTOWRAP_WORD
+	_tip_text.custom_minimum_size.x = 356
+	_tip.visible = false
+	_step = _label(root, 17)
+	_step.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	_step.autowrap_mode = TextServer.AUTOWRAP_WORD
+	_step.add_theme_color_override("font_color", Color(0.95, 0.85, 0.5))
+	_place(_step, Vector2(0.5, 0), Rect2(-330, (80.0 if GameState.uses_touch() else 16.0) + 84.0, 660, 50))
+
 	GameState.message.connect(show_message)
 
 
@@ -254,6 +286,25 @@ static func _place(c: Control, anchor: Vector2, rect: Rect2) -> void:
 	c.offset_top = rect.position.y
 	c.offset_right = rect.end.x
 	c.offset_bottom = rect.end.y
+
+
+func show_tip(title: String, text: String) -> void:
+	_tips.append([title, text])
+
+
+func _update_tips(delta: float) -> void:
+	if _tip_t > 0.0:
+		_tip_t -= delta
+		_tip.modulate.a = clampf(_tip_t, 0.0, 1.0)
+		if _tip_t <= 0.0:
+			_tip.visible = false
+	elif not _tips.is_empty():
+		var t: Array = _tips.pop_front()
+		_tip_title.text = "TIP: " + str(t[0])
+		_tip_text.text = str(t[1])
+		_tip.visible = true
+		_tip_t = 9.0
+	_step.text = game.hints.current_step() if game and game.get("hints") else ""
 
 
 func show_message(text: String) -> void:
@@ -330,6 +381,11 @@ func toggle_debug() -> void:
 
 func _process(delta: float) -> void:
 	if player:
+		# Minimal HUD: a bar only shows when it needs attention.
+		var minimal: bool = GameState.settings.get("hud", "bars") == "minimal"
+		for k in ["health", "hunger", "thirst", "stamina"]:
+			var bar: ProgressBar = _bars[k]
+			bar.get_parent().visible = not minimal or bar.value < bar.max_value * 0.5
 		_bars.health.value = player.health
 		_bars.hunger.value = player.hunger
 		_bars.thirst.value = player.thirst
@@ -348,6 +404,7 @@ func _process(delta: float) -> void:
 		_sleep.visible = _sleep.color.a > 0.01
 		_sleep_label.text = "Sleeping...  %02d:%02d\n(Use to get up)" % [hours, minutes] if asleep else ""
 	_flash.color.a = maxf(0.0, _flash.color.a - delta * 0.8)
+	_update_tips(delta)
 	_hit_t = maxf(0.0, _hit_t - delta)
 	if _toast_t > 0.0:
 		_toast_t -= delta
