@@ -622,6 +622,7 @@ func _shot(id: int, pos: Vector3) -> void:
 		_relay("_shot", [id, pos])
 	if _game and _game.avatars:
 		_game.avatars.flash(id, pos)
+	Sound.play_at("pistol", pos, 0.0, 1.0, 250.0)
 
 
 # --- World state: drops, containers, doors, windows, power, turned, clock ---------------------------

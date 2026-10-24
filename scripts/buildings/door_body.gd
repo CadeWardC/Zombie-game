@@ -206,6 +206,7 @@ func toggle_lock(from: Vector3) -> void:
 
 ## Opens away from `from`.
 func _open_from(from: Vector3) -> void:
+	Sound.play_at("door", global_position + Vector3(0, 1.0, 0), -6.0, 1.0, 30.0)
 	var local := _local(from)
 	_swing = -1.0 if local.z > 0.0 else 1.0
 	is_open = true

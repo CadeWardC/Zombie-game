@@ -11,6 +11,7 @@ signal quality_changed
 signal device_changed
 signal drops_changed
 signal containers_changed(id: String)
+signal settings_changed
 
 enum Quality { LOW, MEDIUM, HIGH }
 
@@ -48,6 +49,17 @@ const DIFFICULTIES := [
 ]
 
 var quality: int = Quality.MEDIUM
+## Player options (Settings menu), saved in the settings file:
+##   vol_*: volumes 0..1; sens: look sensitivity multiplier; invert_y;
+##   fov: field of view; aim_assist: 0 off .. 1 normal .. 2 strong (gamepads);
+##   hud: "bars" (always on) or "minimal" (only when something's wrong);
+##   hints: first-time tips on/off; binds: remapped controls
+##   {action: [keycode or -1, joypad button or -1]}.
+const DEFAULT_SETTINGS := {"vol_master": 0.8, "vol_sfx": 0.9, "vol_ambience": 0.7, "vol_music": 0.5, "sens": 1.0,
+	"invert_y": false, "fov": 75.0, "aim_assist": 1.0, "hud": "bars", "hints": true, "binds": {}}
+var settings := DEFAULT_SETTINGS.duplicate(true)
+## Tips already shown (so each appears once per device).
+var hints_seen := {}
 var world_seed := 20261021
 var world_size := 8192.0
 var time_of_day := 8.0
@@ -109,6 +121,7 @@ func _ready() -> void:
 	_load_settings()
 	_parse_args()
 	_setup_input()
+	apply_binds()
 	inventory.changed.connect(func() -> void: inventory_changed.emit())
 	if OS.has_feature("mobile"):
 		device = "touch"
@@ -660,6 +673,11 @@ func _load_settings() -> void:
 	if cfg.load(SETTINGS_PATH) == OK:
 		quality = clampi(int(cfg.get_value("graphics", "quality", quality)), Quality.LOW, Quality.HIGH)
 		player_id = str(cfg.get_value("player", "id", ""))
+		var opts: Dictionary = cfg.get_value("options", "values", {})
+		for k in opts:
+			if DEFAULT_SETTINGS.has(k):
+				settings[k] = opts[k]
+		hints_seen = cfg.get_value("options", "hints_seen", {})
 	if player_id == "" or player_id == "p1":
 		player_id = "p%08x" % (randi() ^ int(Time.get_unix_time_from_system()))
 		_save_settings()
@@ -669,7 +687,16 @@ func _save_settings() -> void:
 	var cfg := ConfigFile.new()
 	cfg.set_value("graphics", "quality", quality)
 	cfg.set_value("player", "id", player_id)
+	cfg.set_value("options", "values", settings)
+	cfg.set_value("options", "hints_seen", hints_seen)
 	cfg.save(SETTINGS_PATH)
+
+
+## Saves the options and applies what can change live.
+func save_settings() -> void:
+	_save_settings()
+	apply_binds()
+	settings_changed.emit()
 
 
 # --- Multiplayer worlds -----------------------------------------------------------
@@ -785,6 +812,53 @@ func _setup_input() -> void:
 	# Inventory screen (gamepad face buttons are read directly there).
 	_action("ui_rotate", [_key(KEY_R)])
 	_action("toggle_fps", [_key(KEY_F3)])
+
+
+## Actions players can remap (Settings → Controls), with readable names.
+const REMAPPABLE := {"move_forward": "Move forward", "move_back": "Move back", "move_left": "Move left",
+	"move_right": "Move right", "jump": "Jump", "sprint": "Sprint", "crouch": "Crouch", "attack": "Attack",
+	"aim": "Aim", "reload": "Reload / second action", "shove": "Shove", "interact": "Use", "inventory": "Inventory",
+	"flashlight": "Flashlight", "quick_eat": "Eat / drink", "quick_heal": "Heal", "throw_quick": "Quick throw",
+	"craft": "Crafting", "ping": "Ping", "weapon_next": "Next weapon", "weapon_prev": "Previous weapon"}
+
+
+## Default controls, then the player's remapped keys and buttons on top.
+func apply_binds() -> void:
+	for a in REMAPPABLE:
+		if InputMap.has_action(a):
+			InputMap.action_erase_events(a)
+	_setup_input()
+	var binds: Dictionary = settings.get("binds", {})
+	for a in binds:
+		if not InputMap.has_action(a):
+			continue
+		var b: Array = binds[a]
+		var key := int(b[0]) if b.size() > 0 else -1
+		var joy := int(b[1]) if b.size() > 1 else -1
+		for e in InputMap.action_get_events(a):
+			if (key >= 0 and (e is InputEventKey or e is InputEventMouseButton)) or (joy >= 0 and e is InputEventJoypadButton):
+				InputMap.action_erase_event(a, e)
+		if key >= 0:
+			InputMap.action_add_event(a, _key(key as Key))
+		if joy >= 0:
+			InputMap.action_add_event(a, _button(joy as JoyButton))
+
+
+## Remaps one action (from the Settings screen): a key, or a gamepad button.
+func bind(action: String, event: InputEvent) -> void:
+	var binds: Dictionary = settings.binds
+	var b: Array = binds.get(action, [-1, -1])
+	if event is InputEventKey:
+		b[0] = int((event as InputEventKey).physical_keycode if (event as InputEventKey).keycode == 0 else (event as InputEventKey).keycode)
+	elif event is InputEventJoypadButton:
+		b[1] = int((event as InputEventJoypadButton).button_index)
+	binds[action] = b
+	save_settings()
+
+
+func reset_binds() -> void:
+	settings.binds = {}
+	save_settings()
 
 
 func _action(action_name: String, events: Array) -> void:

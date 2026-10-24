@@ -287,6 +287,7 @@ func _update_alarms(delta: float) -> void:
 func _explode(pos: Vector3) -> void:
 	const RADIUS := 7.0
 	_noise(pos, 160.0)
+	Sound.play_at("boom", pos, 6.0, 1.0, 400.0)
 	burst(pos, Vector3.UP, Color(1.0, 0.6, 0.2), 24, 8.0)
 	burst(pos, Vector3.UP, Color(0.25, 0.23, 0.2), 20, 5.0)
 	var flash := MeshInstance3D.new()

@@ -30,6 +30,8 @@ var _quality_btn: Button
 
 
 func _ready() -> void:
+	Sound.game = null
+	Sound.music(true)
 	set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	theme = MenuTheme.make()
 	var bg := ColorRect.new()

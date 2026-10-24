@@ -539,6 +539,7 @@ func _update_noise(delta: float, moving: bool) -> void:
 		var ch := GameState.character
 		var loud := ch.mod("noise") * (1.0 - ch.skill("stealth") * 0.05)
 		GameState.make_noise(global_position, (16.0 if sprinting else (1.2 if crouching else 6.0)) * loud)
+		Sound.play("step", -8.0 if sprinting else (-24.0 if crouching else -15.0), randf_range(0.85, 1.15))
 		# Sneaking past zombies that haven't noticed you trains stealth.
 		if crouching and zombies:
 			for z in zombies.in_radius(global_position, 12.0):

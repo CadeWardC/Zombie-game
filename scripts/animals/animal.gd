@@ -113,6 +113,7 @@ func _build_model() -> void:
 		var mi := MeshInstance3D.new()
 		mi.mesh = (_parts[node] as MeshData).to_mesh(Assets.material)
 		mi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+		mi.visibility_range_end = 120.0
 		node.add_child(mi)
 	_parts.clear()
 

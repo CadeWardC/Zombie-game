@@ -66,6 +66,8 @@ func _ready() -> void:
 	else:
 		_saved_player = GameState.load_game()
 	Net.attach_game(self)
+	Sound.game = self
+	Sound.music(false)
 	Net.disconnected.connect(_on_disconnected)
 	Net.ping_received.connect(func(pg: Dictionary) -> void:
 		pg.t = Time.get_ticks_msec()

@@ -112,6 +112,7 @@ func smash() -> void:
 		return
 	GameState.smash_window(id)
 	GameState.make_noise(global_position, 28.0)
+	Sound.play_at("glass", global_position, 0.0, 1.0, 60.0)
 	if Effects.current:
 		Effects.current.burst(global_position, global_basis.z, Color(0.7, 0.8, 0.85), 22, 3.0)
 		Effects.current.burst(global_position, -global_basis.z, Color(0.7, 0.8, 0.85), 14, 2.0)

@@ -40,6 +40,7 @@ var remote := false # Multiplayer: someone else drives it; follow their updates.
 var lights_on := false
 
 var _model: Node3D
+var _engine: AudioStreamPlayer3D
 var _mesh: MeshInstance3D
 var _spinner: MeshInstance3D # Rotor or propeller.
 var _spin := 0.0
@@ -199,6 +200,7 @@ func zombie_bang(dmg: float) -> void:
 func honk() -> void:
 	if def.fuel != "" and kind == "ground":
 		GameState.make_noise(global_position, 60.0)
+		Sound.play_at("horn", global_position, 0.0, 1.0, 120.0)
 
 
 # --- Simulation -------------------------------------------------------------------------
@@ -521,12 +523,32 @@ func _alarm(dt: float) -> void:
 	_alarm_t -= dt
 	if int(before / 1.5) != int(_alarm_t / 1.5):
 		GameState.make_noise(global_position, 70.0)
+		Sound.play_at("alarm", global_position, 0.0, 1.0, 150.0)
 	var flash := int(_alarm_t * 3.0) % 2 == 0
 	for l in _lights:
 		l.visible = flash or (lights_on and running)
 
 
+## Engine hum: pitch rises with speed (and rotor or propeller speed).
+func _update_engine_sound() -> void:
+	var on: bool = running and def.fuel != ""
+	if on and _engine == null and DisplayServer.get_name() != "headless":
+		_engine = AudioStreamPlayer3D.new()
+		_engine.stream = Sound.stream("engine")
+		_engine.bus = "SFX"
+		_engine.max_distance = float(def.noise) * 1.5
+		_engine.unit_size = 5.0
+		add_child(_engine)
+		_engine.play()
+	if _engine:
+		_engine.stream_paused = not on
+		var top: float = def.speed
+		_engine.pitch_scale = 0.7 + clampf(absf(speed) / maxf(top, 1.0), 0.0, 1.0) * 1.1 + (0.5 if kind in ["heli", "plane"] else 0.0)
+		_engine.volume_db = -6.0 + absf(ctl_move.y) * 4.0
+
+
 func _animate(dt: float) -> void:
+	_update_engine_sound()
 	if _spinner:
 		var target := 28.0 if running else 0.0
 		_spin = move_toward(_spin, target, dt * 6.0)

@@ -12,6 +12,9 @@ var _cam: Camera3D
 
 
 func _ready() -> void:
+	# --low: render at the Low preset (the Tab S6 Lite budget) to check draw calls.
+	if "--low" in OS.get_cmdline_user_args():
+		GameState.quality = GameState.Quality.LOW
 	GameState.start_world(GameState.create_world("Screenshots", 8192.0, 12345, 1, 0, "screenshots"))
 	_main = load("res://scenes/main.tscn").instantiate()
 	add_child(_main)

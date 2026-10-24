@@ -19,8 +19,10 @@ var lightning := 0.0
 
 
 func _ready() -> void:
-	_rain = _particles(Color(0.7, 0.75, 0.85, 0.55), Vector3(0.012, 0.45, 0.012), Vector3(0, -24.0, 0), 700)
-	_snow = _particles(Color(0.95, 0.95, 1.0, 0.9), Vector3(0.05, 0.05, 0.05), Vector3(0, -1.6, 0), 600)
+	# Fewer drops on the Low preset (CPU particles cost the tablet).
+	var low := GameState.quality == GameState.Quality.LOW
+	_rain = _particles(Color(0.7, 0.75, 0.85, 0.55), Vector3(0.012, 0.45, 0.012), Vector3(0, -24.0, 0), 300 if low else 700)
+	_snow = _particles(Color(0.95, 0.95, 1.0, 0.9), Vector3(0.05, 0.05, 0.05), Vector3(0, -1.6, 0), 250 if low else 600)
 	_snow.direction = Vector3(0.3, -1, 0.1)
 	_snow.spread = 25.0
 	_snow.initial_velocity_min = 0.6
@@ -96,5 +98,5 @@ func update(delta: float, sheltered: bool) -> void:
 	if _thunder_at > 0.0:
 		_thunder_at -= delta
 		if _thunder_at <= 0.0:
-			GameState.notify("*thunder*")
+			Sound.play("thunder", -4.0, randf_range(0.8, 1.1))
 	lightning = _flash

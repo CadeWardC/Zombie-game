@@ -289,6 +289,7 @@ func _scream() -> void:
 	_scream_cd = 9.0
 	GameState.make_noise(position, SCREAM_RADIUS)
 	_play_once("scream", 1.4)
+	Sound.play_at("scream", position + Vector3(0, 1.6, 0), 4.0, 1.0, 200.0)
 	_stagger_t = maxf(_stagger_t, 1.3)
 	if mgr:
 		mgr.screamed.emit(position)
@@ -687,6 +688,7 @@ func _try_attack(player: Node3D) -> void:
 			player.grab(1.2)
 	player.zombie_hit(float(t().dmg), position, kind)
 	_play_once("attack", 0.85)
+	Sound.play_at("snarl", position + Vector3(0, 1.5, 0), 0.0, 0.7 if type == "brute" else 1.0, 40.0)
 
 
 ## `head`: the hit was to the head (helmets and armour aside, soldiers only

@@ -30,6 +30,8 @@ func setup(r: Dictionary) -> void:
 	collision_mask = 0
 	_mesh = MeshInstance3D.new()
 	_mesh.mesh = Assets.structure_meshes[t]
+	# Small things vanish with distance (draw calls on low-end tablets).
+	_mesh.visibility_range_end = 220.0 if t in ["wall", "gate", "watchtower", "spikes"] else 90.0
 	add_child(_mesh)
 	var s: Vector3 = def.size
 	if t == "watchtower":

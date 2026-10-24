@@ -275,6 +275,7 @@ func melee() -> void:
 	_cd = d.cd
 	_swing_t = 0.3
 	player.use_stamina(d.stam)
+	Sound.play("swing", -10.0, 1.2 if float(d.get("kg", 1.0)) < 0.5 else 0.9)
 	GameState.make_noise(player.global_position, 5.0)
 	if _hit_player(d.reach, float(d.dmg) * GameState.character.mod("melee")):
 		return
@@ -306,6 +307,7 @@ func melee() -> void:
 	var dmg: float = d.dmg * (2.0 if head else 1.0) * lerpf(0.6, 1.0, float(it.get("c", 1.0)))
 	dmg *= ch.mod("melee") * (1.0 + ch.skill("melee") * 0.05) * player.body.arm_factor()
 	z.take_damage(dmg, push, true, true, head)
+	Sound.play_at("hit", z.global_position + Vector3(0, 1.2, 0), -4.0)
 	GameState.practice("melee", 4.0)
 	if d.get("heavy", false) or float(ItemDB.get_def(it.get("id", "")).get("kg", 0.0)) >= 2.5:
 		GameState.practice("strength", 2.5)
@@ -468,6 +470,7 @@ func fire() -> void:
 	_flash.scale = Vector3.ONE * (0.4 if suppressed else 1.0)
 	_flash_light.light_energy = 1.0 if suppressed else 3.0
 	GameState.make_noise(player.global_position, float(d.noise) * (0.3 if suppressed else 1.0))
+	Sound.play("suppressed" if suppressed else ({"pump_shotgun": "shotgun", "hunting_rifle": "rifle", "assault_rifle": "rifle"}.get(it.id, "pistol") as String), -2.0)
 	if Net.active():
 		Net.shot(player.global_position)
 	var spread := lerpf(float(d.spread), float(d.ads_spread), aim_blend)
@@ -607,6 +610,7 @@ func _update_bow(delta: float, d: Dictionary) -> void:
 
 
 func _release_arrow(d: Dictionary, power: float) -> void:
+	Sound.play("bow", -6.0)
 	var cam := player.camera
 	var spread := deg_to_rad(lerpf(2.5, 0.3, aim_blend))
 	var dir := (-cam.global_basis.z).rotated(cam.global_basis.x, randf_range(-spread, spread) * 0.5) \
