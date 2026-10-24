@@ -492,7 +492,7 @@ Each stage ends with a playable build on the Tab S6 Lite and iPhone.
 | **4. Multiplayer** ✅ (Wi-Fi) | 2–4 player hosting, join codes, Wi-Fi discovery, pings, PvP setting, sync of zombies, loot and vehicles |
 | **5. Vehicles** ✅ | Cars, bikes, fuel, boats, then helicopters and planes at airports |
 | **6. Survival depth** ✅ | Crafting, base building, skills, farming, cooking, spoilage, sleep, temperature, weather and seasons, utilities and power plant, traders, hunting, fishing, foraging, water purification, dog companion |
-| **7. Polish** ← next | Audio, hordes and migration, tutorial and hints, aim assist and remapping, HUD options, settings, performance pass |
+| **7. Polish** ✅ | Audio, hordes and migration, tutorial and hints, aim assist and remapping, HUD options, settings, performance pass |
 
 Multiplayer comes at stage 4 by request, after the map. To avoid rework,
 stages 1–3 are written **multiplayer-ready**: world state lives in data
@@ -797,7 +797,54 @@ Simplified or moved:
 - **Snow on the ground** isn't drawn: winter shows as falling snow, cold
   and dead crops, but the land stays green.
 
-## 25. Open questions
+## 25. Stage 7 notes
+
+Done:
+- **Audio, made in code** like the art: gunshots (pistol, rifle, shotgun,
+  suppressed), bows, swings and hits, footsteps (quieter crouching),
+  zombie groans, snarls and the screamer's shriek, doors, breaking glass,
+  explosions, thunder, car horns and alarms, engine hum that rises with
+  speed, a heartbeat when badly hurt or turning, and button clicks. Zombies
+  near you groan now and then, positionally, so you hear where they are.
+  Ambience: wind (stronger in storms), birds by day, crickets on summer and
+  autumn nights, rain, a crackling fire; quieter indoors. A slow, uneasy
+  pad plays on the menus only. Sounds are synthesized the first time
+  they're needed (all of them together take under half a second).
+- **Hordes**: a few large groups per map (3 / 6 / 12 by size) drift from
+  town to town; loud noises (gunfire, generators, alarms, explosions) pull
+  them off course. Near a player they appear and walk together (allowed
+  past the normal zombie cap); away from everyone they fold back into the
+  map. Killing zombies thins an area out; it fills back up over about four
+  in-game days, or at once when a horde passes through.
+- **Tips**: short hints the first time something matters (zombies nearby,
+  night, a bite, bleeding, hunger, thirst, tiredness, cold, rain, guns,
+  vehicles, looting, crafting, hordes, traders, dogs, infected wounds,
+  turning), once per device; off in Settings, or show them all again.
+- **Tutorial** (main menu): a fixed world with a ready-made survivor and a
+  checklist: walk and look, search a container, equip a hammer, kill a
+  zombie, eat, build a campfire.
+- **Settings** (main menu and pause menu): graphics, field of view,
+  master / effects / ambience / music volume, look sensitivity, invert
+  look, aim assist (off, normal, strong; always off in PvP worlds), HUD
+  (always-on bars, or minimal: bars only when they need attention), tips,
+  and remapping every control (a key and a gamepad button each, with
+  reset).
+- **Performance**: measured at the Low preset (the Tab S6 Lite budget).
+  Ground-level views draw 67–146 calls (budget 150); only high aerial
+  camera views go over. Structures and animals vanish with distance,
+  animals are a handful of merged meshes, rain and snow use fewer
+  particles on Low. A frame-time benchmark (tests/bench.tscn) runs a busy
+  scene uncapped: on a desktop CPU about 3.5 ms of script and 2.8 ms of
+  physics with 20 zombies chasing, a base, animals and a storm.
+
+Simplified or moved:
+- **Music** is one generated pad on the menus; there are no "tense moment"
+  stings in play yet.
+- **Hordes** aren't drawn on the map; you hear them coming.
+- **Performance on the real Tab S6 Lite** hasn't been measured (no device
+  here); the numbers above are from a desktop at the Low preset.
+
+## 26. Open questions
 
 - Which free relay service to use for internet join codes.
 - Exact asset packs (checked for license and Tab S6 Lite performance).

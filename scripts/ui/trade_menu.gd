@@ -172,7 +172,7 @@ func _rebuild() -> void:
 	if target == null and _theirs.get_child_count() > 0:
 		target = _theirs.get_child(0)
 	if target:
-		target.grab_focus.call_deferred()
+		MenuTheme.focus_later(target)
 
 
 func _item_button(it: Dictionary, chosen: bool) -> Button:

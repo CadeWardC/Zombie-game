@@ -933,6 +933,119 @@ func _test_survival(player: Player, zombies: ZombieManager, gen: WorldGen, arena
 	player.health = 100.0
 
 
+func _test_polish(player: Player, zombies: ZombieManager, gen: WorldGen) -> void:
+	print("Audio")
+	var ok := true
+	for n in ["pistol", "groan", "step", "wind", "rain", "engine", "thunder", "music", "click"]:
+		var w: AudioStreamWAV = Synth.make(n)
+		ok = ok and w.data.size() > 100
+	_check(ok, "sounds are synthesized in code")
+	_check(AudioServer.get_bus_index("SFX") >= 0 and AudioServer.get_bus_index("Ambience") >= 0 and AudioServer.get_bus_index("Music") >= 0,
+			"audio buses for effects, ambience and music")
+	var vol_was := float(GameState.settings.vol_music)
+	GameState.settings.vol_music = 0.25
+	Sound.apply_volumes()
+	_check(absf(AudioServer.get_bus_volume_db(AudioServer.get_bus_index("Music")) - linear_to_db(0.25)) < 0.1, "the music volume setting applies")
+	GameState.settings.vol_music = vol_was
+	Sound.apply_volumes()
+
+	print("Settings")
+	GameState.bind("jump", _key_event(KEY_J))
+	var has_j := InputMap.action_get_events("jump").any(func(e: InputEvent) -> bool: return e is InputEventKey and (e as InputEventKey).physical_keycode == KEY_J)
+	var has_space := InputMap.action_get_events("jump").any(func(e: InputEvent) -> bool: return e is InputEventKey and (e as InputEventKey).physical_keycode == KEY_SPACE)
+	_check(has_j and not has_space, "jump remapped to J")
+	var cfg := ConfigFile.new()
+	cfg.load(GameState.SETTINGS_PATH)
+	_check(cfg.get_value("options", "values", {}).get("binds", {}).has("jump"), "remapped controls are saved")
+	GameState.reset_binds()
+	_check(InputMap.action_get_events("jump").any(func(e: InputEvent) -> bool: return e is InputEventKey and (e as InputEventKey).physical_keycode == KEY_SPACE),
+			"reset brings the defaults back")
+	GameState.settings.fov = 90.0
+	GameState.save_settings()
+	_check(is_equal_approx(player.camera.fov, 90.0), "field of view applies at once")
+	GameState.settings.fov = 75.0
+	GameState.save_settings()
+	var sp := SettingsPanel.new()
+	add_child(sp)
+	for t in ["Game", "Video", "Audio", "Controls"]:
+		sp._tab = t
+		sp._rebuild()
+	_check(sp._list.get_child_count() > 10, "the settings screen lists every control")
+	sp.queue_free()
+	GameState.settings.hud = "minimal"
+	player.health = 100.0
+	await _wait(0.1)
+	var bar: ProgressBar = _main.hud._bars.health
+	_check(not bar.get_parent().visible, "minimal HUD hides a full health bar")
+	player.health = 30.0
+	await _wait(0.1)
+	_check(bar.get_parent().visible, "and shows it when you're hurt")
+	GameState.settings.hud = "bars"
+	player.health = 100.0
+
+	print("Tips and tutorial")
+	var hints: Hints = _main.hints
+	var shown := []
+	var on_tip := func(t: String, _x: String) -> void: shown.append(t)
+	hints.show_tip.connect(on_tip)
+	GameState.settings.hints = true
+	GameState.hints_seen.erase("night")
+	hints.tip("night")
+	hints.tip("night")
+	_check(shown.size() == 1, "a tip shows once")
+	GameState.settings.hints = false
+	GameState.hints_seen.erase("rain")
+	hints.tip("rain")
+	_check(shown.size() == 1, "tips can be turned off")
+	GameState.settings.hints = true
+	hints.show_tip.disconnect(on_tip)
+	hints.tutorial = true
+	hints.step = 0
+	hints._start = Vector3.ZERO
+	hints._tutorial()
+	player.global_position += Vector3(6, 0, 0)
+	hints._tutorial()
+	_check(hints.step == 1, "the tutorial moves on when you do the step")
+	hints.tutorial = false
+
+	print("Hordes")
+	var hz := zombies.hordes
+	_check(hz != null and not GameState.ws.hordes.is_empty(), "%d roaming hordes in the world" % GameState.ws.hordes.size())
+	if hz and not GameState.ws.hordes.is_empty():
+		zombies.clear_all()
+		var id: String = GameState.ws.hordes.keys()[0]
+		var h: Dictionary = GameState.ws.hordes[id]
+		var pp := player.global_position
+		h.p = [pp.x + 60.0, pp.z + 60.0]
+		h.size = 20
+		hz._tick_t = 0.0
+		hz.update(0.1, [player])
+		var members := zombies._active.filter(func(z: Zombie) -> bool: return z.horde_id == id)
+		_check(members.size() >= 10, "a horde near you appears (%d zombies)" % members.size())
+		hz.hear(pp + Vector3(100, 0, 0), 120.0)
+		_check(hz.goal(h).distance_to(Vector2(pp.x + 100.0, pp.z)) < 1.0, "loud noises draw hordes")
+		var size0 := int(h.size)
+		(members[0] as Zombie).take_damage(9999.0, Vector3.ZERO, false, false, true)
+		_check(int(h.size) == size0 - 1, "kills shrink the horde")
+		player.global_position = pp + Vector3(800, 0, 800)
+		hz._tick_t = 0.0
+		hz.update(0.1, [player])
+		_check(not hz.active.has(id) and zombies._active.filter(func(z: Zombie) -> bool: return z.horde_id == id and z.alive()).is_empty(),
+				"when you leave, it folds back into the map")
+		player.global_position = pp
+		var d0 := hz.density(pp)
+		for k in 30:
+			hz.record_kill(pp)
+		_check(hz.density(pp) < d0, "killing zombies thins an area out (%.2f -> %.2f)" % [d0, hz.density(pp)])
+
+
+func _key_event(code: Key) -> InputEventKey:
+	var e := InputEventKey.new()
+	e.keycode = code
+	e.pressed = true
+	return e
+
+
 func _test_vehicles(player: Player, zombies: ZombieManager, gen: WorldGen, arena: Vector3) -> void:
 	print("Vehicles")
 	var vm: VehicleManager = _main.vehicles
@@ -1310,6 +1423,7 @@ func _run() -> void:
 	_test_lab(gen)
 	await _test_vehicles(player, zombies, gen, spot)
 	await _test_survival(player, zombies, gen, spot, doors)
+	await _test_polish(player, zombies, gen)
 
 	print("Survival")
 	GameState.add_item(ItemDB.make("canned_beans"))

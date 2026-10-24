@@ -123,7 +123,7 @@ func _rebuild() -> void:
 		if first == null:
 			first = b
 	var back := _button("Back", close)
-	(first if first else back).grab_focus.call_deferred()
+	MenuTheme.focus_later(first if first else back)
 
 
 func _button(text: String, cb: Callable) -> Button:

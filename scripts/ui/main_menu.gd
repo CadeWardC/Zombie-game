@@ -154,7 +154,7 @@ func _build_home() -> void:
 
 func _latest_playable() -> Dictionary:
 	for w in GameState.list_worlds():
-		if not w.get("lost", false) and w.id != "quickplay":
+		if not w.get("lost", false) and not w.id in ["quickplay", "tutorial"]:
 			return w
 	return {}
 

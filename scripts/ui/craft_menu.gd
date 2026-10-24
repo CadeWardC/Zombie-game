@@ -154,7 +154,7 @@ func _rebuild(focus: bool) -> void:
 		var target: Control = _list.get_node_or_null(NodePath(focus_name)) if focus_name != "" else null
 		var btn := _row_button(target if target else first)
 		if btn:
-			btn.grab_focus.call_deferred()
+			MenuTheme.focus_later(btn)
 
 
 func _missing_line(miss: Array[String]) -> String:

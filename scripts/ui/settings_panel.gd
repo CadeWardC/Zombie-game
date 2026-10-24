@@ -109,7 +109,7 @@ func _rebuild() -> void:
 				_rebuild(), 320))
 	var first := _first_button(_list)
 	if first:
-		first.grab_focus.call_deferred()
+		MenuTheme.focus_later(first)
 
 
 func _first_button(n: Node) -> Control:
@@ -179,7 +179,9 @@ func _bind_row(action: String) -> void:
 		elif e is InputEventMouseButton and key == "":
 			key = "Mouse %d" % (e as InputEventMouseButton).button_index
 		elif e is InputEventJoypadButton and pad == "":
-			pad = "Button %d" % (e as InputEventJoypadButton).button_index
+			var bi := (e as InputEventJoypadButton).button_index
+			pad = ["A", "B", "X", "Y", "View / Back", "Guide", "Start / Menu", "L3", "R3", "LB", "RB", "D-pad up", "D-pad down",
+				"D-pad left", "D-pad right", "Share"][bi] if bi < 16 else "Button %d" % bi
 		elif e is InputEventJoypadMotion and pad == "":
 			pad = "Stick / trigger"
 	var b := _button(key if key != "" else "-", func() -> void: _start_wait(action, "key"), 200)

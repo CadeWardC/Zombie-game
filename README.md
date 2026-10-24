@@ -5,7 +5,7 @@ built with **Godot 4.7** and designed to run well on phones and tablets
 (minimum target: Samsung Galaxy Tab S6 Lite). The full plan is in
 [docs/DESIGN.md](docs/DESIGN.md).
 
-**What's in the game now (stages 1 to 6):**
+**What's in the game now (stages 1 to 7):**
 
 - **Random worlds of 8, 16 or 32 km**: coastlines, mountains, forests,
   farmland, deserts, beaches, and river networks with lakes from a drainage
@@ -127,9 +127,18 @@ built with **Godot 4.7** and designed to run well on phones and tablets
   - trader camps to barter at (safe zones);
   - a dog to tame that follows you and fights for you.
 
+- **Polish**: sound everywhere (synthesized in code: guns, footsteps,
+  zombies you can locate by their groans, doors, glass, weather, engines,
+  wind, birds and crickets, menu music); roaming hordes drawn to noise,
+  and cleared areas that slowly fill back up; first-time tips and a short
+  tutorial; a settings screen (graphics, field of view, volumes,
+  sensitivity, invert look, aim assist, minimal HUD, tips, remappable
+  keys and gamepad buttons).
+
 All art (terrain, buildings, furniture, cars, aircraft, zombies, items and
 their inventory icons) is generated in code as realistic low-poly geometry,
-so the app stays small and needs no art files.
+so the app stays small and needs no art files. Every sound is synthesized in
+code too.
 
 ## Controls
 
@@ -266,6 +275,12 @@ tools/map_preview.gd          Renders a world map PNG
 ```
 godot --headless --import
 godot --headless res://tests/smoke_test.tscn
+```
+
+**Frame-time benchmark** (a busy scene, frame cap off; add `-- --low` for the Low preset):
+
+```
+godot --headless res://tests/bench.tscn
 ```
 
 **Compile check** (loads every script; seconds instead of minutes):

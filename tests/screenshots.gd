@@ -79,6 +79,11 @@ func _run() -> void:
 		GameState.delete_world("screenshots")
 		get_tree().quit()
 		return
+	if "--stage7" in OS.get_cmdline_user_args():
+		await _stage7_shots()
+		GameState.delete_world("screenshots")
+		get_tree().quit()
+		return
 	if "--stage6" in OS.get_cmdline_user_args():
 		await _stage6_shots()
 		GameState.delete_world("screenshots")
@@ -715,3 +720,43 @@ func _stage6_shots() -> void:
 			await _fly(Vector3(sc.x + 160, site.base + 90, sc.y + 140), Vector3(sc.x, site.base, sc.y))
 			await _shot("66_power_plant")
 			break
+
+
+func _stage7_shots() -> void:
+	var gen: WorldGen = _main.gen
+	var player: Player = _main.player
+	var spawn: Vector3 = gen.spawn_point()
+	await _go(Vector2(spawn.x, spawn.z), player.rotation.y, -4.0)
+	# A tip, and the tutorial's step line.
+	GameState.hints_seen.erase("zombie_near")
+	GameState.settings.hints = true
+	_main.hints.tip("zombie_near")
+	_main.hints.tutorial = true
+	_main.hints.step = 2
+	await get_tree().create_timer(0.6).timeout
+	await _shot("67_tip_tutorial")
+	_main.hints.tutorial = false
+	# Settings.
+	var sp := SettingsPanel.new()
+	add_child(sp)
+	sp.open()
+	for t in ["Game", "Audio", "Controls"]:
+		sp._tab = t
+		sp._rebuild()
+		await get_tree().create_timer(0.3).timeout
+		await _shot("68_settings_%s" % t.to_lower())
+	sp.close()
+	sp.queue_free()
+	# A horde coming over the field.
+	var c := _open_ground(spawn)
+	await _go(Vector2(c.x, c.z), 0.0, -3.0)
+	var hz: Hordes = _main.zombies.hordes
+	var id: String = GameState.ws.hordes.keys()[0]
+	var h: Dictionary = GameState.ws.hordes[id]
+	h.p = [c.x, c.z - 30.0]
+	h.goal = [c.x, c.z]
+	h.size = 30
+	hz._tick_t = 0.0
+	hz.update(0.1, [player])
+	await get_tree().create_timer(2.0).timeout
+	await _shot("69_horde")

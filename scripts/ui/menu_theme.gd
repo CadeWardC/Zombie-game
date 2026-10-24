@@ -41,3 +41,13 @@ static func make(font_size := 24) -> Theme:
 	panel.set_content_margin_all(14)
 	t.set_stylebox("panel", "PanelContainer", panel)
 	return t
+
+
+## Focus a control on the next frame, if it's still there (menus that
+## rebuild their lists quickly free the old buttons).
+static func focus_later(c: Control) -> void:
+	if c == null:
+		return
+	(func() -> void:
+		if is_instance_valid(c) and c.is_inside_tree():
+			c.grab_focus()).call_deferred()

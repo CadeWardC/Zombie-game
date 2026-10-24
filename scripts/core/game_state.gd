@@ -851,7 +851,8 @@ func bind(action: String, event: InputEvent) -> void:
 	var binds: Dictionary = settings.binds
 	var b: Array = binds.get(action, [-1, -1])
 	if event is InputEventKey:
-		b[0] = int((event as InputEventKey).physical_keycode if (event as InputEventKey).keycode == 0 else (event as InputEventKey).keycode)
+		var k := event as InputEventKey
+		b[0] = int(k.physical_keycode if k.physical_keycode != 0 else k.keycode)
 	elif event is InputEventJoypadButton:
 		b[1] = int((event as InputEventJoypadButton).button_index)
 	binds[action] = b
