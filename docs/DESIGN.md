@@ -885,6 +885,36 @@ From playing the build on a phone:
     crafting rows with the item's picture and what's missing in red;
     styled death and loading screens.
 
+### Filling the world
+
+The houses and streets felt empty: rooms had three or four pieces of
+furniture against the walls, every floor was the same brown, and outside
+there was nothing between the buildings but mown grass. Now:
+- **Rooms** get a floor to match (tiles in kitchens and bathrooms, carpet
+  in bedrooms), skirting boards, a ceiling light (some hang loose),
+  curtains at the windows, pictures, clocks and shelves on clear walls,
+  and fuller plans: side tables, lamps, plants, a second armchair, a
+  laundry basket, a toy box, washers and dryers in garages, coat racks in
+  halls. Counters, tables, desks and dressers have things left on them.
+- **Mess**: every room has clutter on the floor that suits it (papers,
+  clothes, books, broken plates, knocked-over chairs, boxes, toys,
+  tyres), and now and then blood, a drag trail or a body.
+- **Yards**: bins by the drive (some knocked over), grills and lawn
+  chairs out back, toys, dog houses, pallets, overgrown grass, and the
+  odd dropped bag, blood trail or body out front. A quarter of houses
+  have their upper windows boarded up; some have spray paint by the door
+  ("HELP", "STAY OUT", "GONE TO SHELTER"...). Shops have a dumpster and
+  bags of trash out back.
+- **Streets**: bags of trash at the curb, litter, blood on the road,
+  bodies, tipped bins, benches, broken glass, and now and then a police
+  roadblock across the street (barriers, cones, sandbags). Out of town:
+  burnt-out wrecks, tyres and debris. Tall grass and weeds in the open.
+- **Cost**: all of it is plain geometry merged into each chunk's building
+  mesh, so it adds no draw calls (only vertices, and only near the
+  player). The touch buttons, which had cost ~80 draw calls a frame since
+  the redesign, are now drawn once into a texture and redrawn only when
+  one changes. At Low, ground views with the HUD draw 80–155 calls.
+
 ## 27. Open questions
 
 - Which free relay service to use for internet join codes.

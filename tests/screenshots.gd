@@ -74,8 +74,18 @@ func _run() -> void:
 	add_child(_cam)
 	GameState.time_of_day = 10.0
 	var gen: WorldGen = _main.gen
+	if "--nohud" in OS.get_cmdline_user_args():
+		_main.hud.visible = false
+		_main.touch.visible = false
+	if "--notouch" in OS.get_cmdline_user_args():
+		_main.touch.visible = false
 	if "--items" in OS.get_cmdline_user_args():
 		await _items_shots()
+		GameState.delete_world("screenshots")
+		get_tree().quit()
+		return
+	if "--interiors" in OS.get_cmdline_user_args():
+		await _interior_shots()
 		GameState.delete_world("screenshots")
 		get_tree().quit()
 		return
@@ -869,3 +879,56 @@ func _shot_inside(shot_name: String) -> void:
 	await _shot(shot_name)
 	_main.hud.visible = true
 	_main.touch.visible = GameState.uses_touch()
+
+
+## Inside houses: a top-down cutaway (the roof and upper floor clipped off)
+## and eye-level views from the middle of the ground floor.
+func _interior_shots() -> void:
+	var gen: WorldGen = _main.gen
+	var player: Player = _main.player
+	_main.zombies.max_zombies = 0
+	_main.zombies.clear_all()
+	_main.hud.visible = false
+	_main.touch.visible = false
+	var n := 0
+	for t in gen.towns:
+		for lot in t.lots:
+			if n >= 3 or not lot.type in ["colonial", "ranch", "bungalow"]:
+				continue
+			n += 1
+			var bd := BuildingGen.build(gen, lot, true)
+			var lxf := Transform3D(Basis(Vector3.UP, lot.yaw), Vector3(lot.center.x, lot.floor, lot.center.y))
+			var mid := Vector3.ZERO
+			var cnt := 0
+			for ct in bd.containers:
+				if (ct.pos as Vector3).y < 2.0:
+					mid += ct.pos
+					cnt += 1
+			mid = lxf * (mid / maxf(1.0, cnt))
+			var c := Vector2(mid.x, mid.z)
+			await _go(c, 0.0, 0.0)
+			player.global_position = Vector3(c.x, lot.floor + 0.2, c.y)
+			await get_tree().create_timer(0.6).timeout
+			_cam.projection = Camera3D.PROJECTION_ORTHOGONAL
+			_cam.size = 18.0
+			_cam.near = 30.0 - 2.3
+			_cam.far = 60.0
+			_cam.global_position = Vector3(c.x, lot.floor + 30.0, c.y)
+			_cam.look_at(Vector3(c.x, lot.floor, c.y), Vector3(-sin(lot.yaw), 0, -cos(lot.yaw)))
+			_cam.current = true
+			await get_tree().create_timer(0.3).timeout
+			await _shot("int_%d_%s_top" % [n, lot.type])
+			_cam.projection = Camera3D.PROJECTION_PERSPECTIVE
+			_cam.near = 0.05
+			_cam.far = 1500.0
+			_cam.fov = 80.0
+			# Eye level, from inside a few rooms.
+			var spots: Array = bd.containers.filter(func(ct: Dictionary) -> bool: return (ct.pos as Vector3).y < 2.0)
+			for k in mini(3, spots.size()):
+				var sp: Vector3 = lxf * (spots[(k * 5) % spots.size()].pos as Vector3)
+				var from := mid.lerp(sp, 0.35)
+				_cam.global_position = Vector3(from.x, lot.floor + 1.6, from.z)
+				_cam.look_at(Vector3(sp.x, lot.floor + 0.9, sp.z))
+				await get_tree().create_timer(0.2).timeout
+				await _shot("int_%d_%s_eye%d" % [n, lot.type, k])
+			_cam.fov = 75.0

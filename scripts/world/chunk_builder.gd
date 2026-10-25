@@ -69,6 +69,7 @@ func _build() -> void:
 	_docks()
 	_buildings()
 	_nature()
+	_grass()
 	_street_props()
 
 
@@ -486,6 +487,44 @@ func _nature() -> void:
 		_add_prop(type, Transform3D(basis, Vector3(lx, h - 0.25, lz)))
 
 
+## Tall grass and weeds out in the open (near chunks only), baked into the
+## building mesh: fields and verges look overgrown instead of mown.
+func _grass() -> void:
+	if lod != 0:
+		return
+	var rng := RandomNumberGenerator.new()
+	rng.seed = WorldGen.hash3(key.x, key.y, gen.seed_value + 99)
+	var size := WorldGen.CHUNK_SIZE
+	var net := gen.roads
+	for k in 220:
+		var lx := rng.randf() * size
+		var lz := rng.randf() * size
+		var h := _sample(lx, lz)
+		if h < 0.6:
+			continue
+		var p := origin + Vector2(lx, lz)
+		var biome := gen.terrain.biome_at(p.x, p.y, h)
+		if biome == Terrain.Biome.DESERT or biome == Terrain.Biome.MOUNTAIN:
+			continue
+		if gen.is_inside_building(p.x, p.y):
+			continue
+		var near_road := false
+		for s in ctx.road_segs:
+			var road_type: int = net.roads[net.index.owner[s]].type
+			if net.index.closest(s, p).x < RoadNetwork.edge_half(road_type) + 0.5:
+				near_road = true
+				break
+		if near_road:
+			continue
+		var col := Color(0.22, 0.34, 0.12).lerp(Color(0.42, 0.44, 0.2), rng.randf() * 0.7)
+		if biome == Terrain.Biome.FARMLAND:
+			col = col.lerp(Color(0.6, 0.55, 0.3), 0.4)
+		var hgt := rng.randf_range(0.35, 0.8)
+		Decor.grass(building, Transform3D(Basis(Vector3.UP, rng.randf() * TAU), Vector3(lx, h - 0.03, lz)), col, hgt)
+		if rng.randf() < 0.4:
+			Decor.grass(building, Transform3D(Basis(Vector3.UP, rng.randf() * TAU), Vector3(lx + 0.4, _sample(minf(lx + 0.4, size - 0.01), lz) - 0.03, lz + 0.3)), col.darkened(0.08), hgt * 0.8)
+
+
 func _street_props() -> void:
 	var rect := Rect2(origin, Vector2.ONE * WorldGen.CHUNK_SIZE)
 	var net := gen.roads
@@ -514,6 +553,8 @@ func _street_props() -> void:
 				if hsh % 9 == 0:
 					var p := pts[k] + side_v * -side * (hw + 0.6) - origin
 					_add_prop("hydrant", Transform3D(Basis.IDENTITY, _v3(p, hs[k] + 0.2)))
+				if lod == 0:
+					_street_mess(pts[k], dir, side_v, hw, hs[k], hsh, yaw)
 				if hsh % 100 < 14:
 					var p := pts[k] + dir * 4.0 + side_v * side * (hw - 1.2) - origin
 					_add_prop("car", Transform3D(Basis(Vector3.UP, yaw + (0.0 if side > 0 else PI)), _v3(p, hs[k] + 0.06)))
@@ -524,12 +565,82 @@ func _street_props() -> void:
 				if k % 5 == 0:
 					var p := pts[k] + side_v * (hw + 2.5) - origin
 					_add_prop("utility_pole", Transform3D(Basis(Vector3.UP, yaw), _v3(p, _sample(clampf(p.x, 0, 63.9), clampf(p.y, 0, 63.9)))))
+				if lod == 0 and (hsh >> 4) % 100 < 2:
+					# A burnt-out wreck, or debris.
+					var lane2 := (hsh >> 9) % 2 * 2 - 1
+					var q := pts[k] + side_v * lane2 * hw * 0.5 - origin
+					var crash2 := float((hsh >> 12) % 100) / 100.0 - 0.5
+					var wx := Transform3D(Basis(Vector3.UP, yaw + crash2 * 2.0), _v3(q, hs[k] + RoadMesher.LIFT))
+					Decor.burnt_car(building, wx)
+					boxes.append([wx * Transform3D(Basis.IDENTITY, Vector3(0, 0.6, 0)), Vector3(1.8, 1.2, 4.3)])
+				elif lod == 0 and (hsh >> 4) % 100 < 6:
+					var drng := RandomNumberGenerator.new()
+					drng.seed = hsh
+					var q := pts[k] + side_v * drng.randf_range(-hw, hw) * 0.8 - origin
+					Decor.tire(building, Transform3D(Basis(Vector3.UP, drng.randf() * TAU), _v3(q, hs[k] + RoadMesher.LIFT)))
+					Decor.papers(building, Transform3D(Basis.IDENTITY, _v3(q + dir * 2.0, hs[k] + RoadMesher.LIFT)), drng, 3)
 				if hsh % 100 < 3:
 					# Abandoned or crashed car on the road.
 					var lane := (hsh >> 8) % 2 * 2 - 1
 					var p := pts[k] + side_v * lane * hw * 0.45 - origin
 					var crash := float((hsh >> 10) % 100) / 100.0 - 0.5
 					_add_prop("car", Transform3D(Basis(Vector3.UP, yaw + crash * 1.5), _v3(p, hs[k] + 0.06)))
+
+
+## Town streets after the end: litter in the gutters, bags of trash, blood
+## on the road, the odd body, tipped bins, benches, and now and then a
+## police roadblock across the street. Baked into the chunk's building mesh
+## (no extra draw calls). `p` is a point on the centre line (world).
+func _street_mess(p: Vector2, dir: Vector2, side_v: Vector2, hw: float, h: float, hsh: int, yaw: float) -> void:
+	var rng := RandomNumberGenerator.new()
+	rng.seed = hsh * 31 + 7
+	var road_y := h + RoadMesher.LIFT
+	var walk_y := road_y + RoadMesher.CURB
+	var m := building
+	var local := func(q: Vector2) -> Vector2: return q - origin
+	var on_walk := func(side: float, across: float, along: float) -> Vector3:
+		var q: Vector2 = local.call(p + dir * along + side_v * side * (hw + across))
+		return _v3(q, walk_y)
+	var on_road := func(across: float, along: float) -> Vector3:
+		var q: Vector2 = local.call(p + dir * along + side_v * across)
+		return _v3(q, road_y)
+	var side := 1.0 if rng.randf() < 0.5 else -1.0
+	if rng.randf() < 0.35:
+		# Bags piled at the curb.
+		var c: Vector3 = on_walk.call(side, 0.5, rng.randf_range(0.0, 6.0))
+		for k in rng.randi_range(1, 4):
+			Decor.trash_bag(m, Transform3D(Basis(Vector3.UP, rng.randf() * TAU), c + Vector3(rng.randf_range(-0.6, 0.6), 0, rng.randf_range(-0.6, 0.6))), rng)
+	if rng.randf() < 0.4:
+		Decor.papers(m, Transform3D(Basis(Vector3.UP, rng.randf() * TAU), on_walk.call(-side, rng.randf_range(0.3, 1.8), rng.randf_range(0.0, 8.0))), rng, rng.randi_range(2, 6))
+	if rng.randf() < 0.3:
+		Decor.papers(m, Transform3D(Basis(Vector3.UP, rng.randf() * TAU), on_road.call(rng.randf_range(-hw, hw) * 0.8, rng.randf_range(0.0, 8.0))), rng, rng.randi_range(2, 4))
+	if rng.randf() < 0.12:
+		var c: Vector3 = on_road.call(rng.randf_range(-hw, hw) * 0.7, rng.randf_range(0.0, 8.0))
+		var xf := Transform3D(Basis(Vector3.UP, rng.randf() * TAU), c)
+		Decor.blood(m, xf, rng.randf_range(0.4, 0.9), rng)
+		if rng.randf() < 0.4:
+			Decor.corpse(m, xf, rng, false)
+		elif rng.randf() < 0.5:
+			Decor.blood_trail(m, xf, rng.randf_range(2.0, 4.0), rng)
+	if rng.randf() < 0.07:
+		Decor.bin(m, Transform3D(Basis(Vector3.UP, yaw + rng.randf_range(-1.5, 1.5)), on_walk.call(side, 1.0, rng.randf_range(0.0, 6.0))),
+			Color(0.2, 0.3, 0.2), rng, true)
+	if rng.randf() < 0.06:
+		Decor.bench(m, Transform3D(Basis(Vector3.UP, yaw + (PI * 0.5 if side > 0 else -PI * 0.5)), on_walk.call(side, 1.6, rng.randf_range(1.0, 5.0))))
+	if rng.randf() < 0.05:
+		Decor.shards(m, Transform3D(Basis.IDENTITY, on_road.call(rng.randf_range(-hw, hw) * 0.6, rng.randf_range(0.0, 8.0))), rng)
+	if hsh % 100 >= 98:
+		# A police roadblock across the street: barriers, cones, sandbags.
+		var basis := Basis(Vector3.UP, yaw + PI * 0.5)
+		for k in 3:
+			var c: Vector3 = on_road.call((k - 1) * 2.6, 2.0)
+			var xf := Transform3D(basis * Basis(Vector3.UP, rng.randf_range(-0.2, 0.2)), c)
+			Decor.barrier(m, xf)
+			boxes.append([xf * Transform3D(Basis.IDENTITY, Vector3(0, 0.5, 0)), Vector3(1.8, 1.0, 0.5)])
+		for k in 4:
+			Decor.cone(m, Transform3D(Basis.IDENTITY, on_road.call(rng.randf_range(-hw, hw) * 0.8, rng.randf_range(3.0, 5.0))))
+		var sb: Vector3 = on_road.call(rng.randf_range(-1.5, 1.5), 0.6)
+		Decor.sandbags(m, Transform3D(basis, sb), 3.0, rng)
 
 
 static func _v3(p: Vector2, y: float) -> Vector3:

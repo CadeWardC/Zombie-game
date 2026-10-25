@@ -550,12 +550,16 @@ func _test_layouts(gen: WorldGen) -> void:
 	var houses := 0
 	var narrow := 0
 	var blocking := 0
+	var dressed := 0
+	var shell := 0
 	for t in gen.towns:
 		for lot in t.lots:
 			if not lot.type in ["ranch", "colonial", "bungalow", "farmhouse", "duplex", "trailer"]:
 				continue
 			var bd := BuildingGen.build(gen, lot, true)
 			houses += 1
+			dressed += bd.ext.verts.size()
+			shell += BuildingGen.build(gen, lot, false).ext.verts.size()
 			for d in bd.doors:
 				if float(d.w) < 1.05:
 					narrow += 1
@@ -572,6 +576,7 @@ func _test_layouts(gen: WorldGen) -> void:
 			break
 	_check(houses >= 20 and narrow == 0, "doors are wide enough to walk through (%d houses, %d narrow)" % [houses, narrow])
 	_check(blocking == 0, "no wardrobes or fridges in front of windows (%d)" % blocking)
+	_check(dressed > shell * 3, "houses are furnished and lived in (%d vertices inside vs %d for the shell)" % [dressed / houses, shell / houses])
 
 
 func _test_death_rules(player: Player, zombies: ZombieManager) -> void:

@@ -17,6 +17,10 @@ var _joy_index := -1
 var _joy_origin := Vector2.ZERO
 var _joy_pos := Vector2.ZERO
 var _look_index := -1
+var _texts: Array = [] # Text queued while drawing (see _draw_buttons).
+var _vp: SubViewport
+var _art: Control
+var _key := ""
 var _toggled := {} # action -> bool, for toggle buttons (RUN, AIM).
 # anchor: fraction of the screen size; offset: pixels from that anchor.
 # show: "ranged" = only with a gun or bow.
@@ -47,7 +51,19 @@ func _init() -> void:
 func _ready() -> void:
 	set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	mouse_filter = Control.MOUSE_FILTER_IGNORE
-	GameState.inventory_changed.connect(queue_redraw)
+	# The buttons are drawn into an off-screen texture, redrawn only when
+	# one changes, and shown as a single picture: dozens of shapes and
+	# labels every frame would cost the Tab S6 Lite ~80 draw calls.
+	_vp = SubViewport.new()
+	_vp.transparent_bg = true
+	_vp.disable_3d = true
+	_vp.render_target_update_mode = SubViewport.UPDATE_ONCE
+	add_child(_vp)
+	_art = Control.new()
+	_art.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_art.draw.connect(_draw_buttons)
+	_vp.add_child(_art)
+	GameState.inventory_changed.connect(func() -> void: _key = "")
 
 
 func consume_look() -> Vector2:
@@ -110,7 +126,29 @@ func _process(_delta: float) -> void:
 	# A toggled AIM shouldn't outlive the gun (switching to a bat).
 	if _toggled.get("aim", false) and not _shown(_buttons[1]):
 		_set_toggle("aim", false)
+	# Re-render the buttons only when something about them changed.
+	var k := _state_key()
+	if k != _key:
+		_key = k
+		var sc := get_viewport().get_final_transform().get_scale().x if get_viewport() else 1.0
+		_vp.size = Vector2i(maxi(1, int(size.x * sc)), maxi(1, int(size.y * sc)))
+		_vp.canvas_transform = Transform2D.IDENTITY.scaled(Vector2(sc, sc))
+		_art.size = size
+		_art.queue_redraw()
+		_vp.render_target_update_mode = SubViewport.UPDATE_ONCE
 	queue_redraw()
+
+
+## Everything the buttons' look depends on.
+func _state_key() -> String:
+	var parts: PackedStringArray = [str(size), str(GameState.ui_open), str(player != null and player.dead), str(_joy_index != -1)]
+	for b in _buttons:
+		if not _shown(b):
+			parts.append("-")
+			continue
+		var pressed: bool = b.index != -1 or _toggled.get(b.action, false) or (b.action == "crouch" and player and player.crouching)
+		parts.append("%s%d%s%s%d" % [b.action, int(pressed), _label(b), _icon(b), _count(b) if b.has("item") else 0])
+	return "|".join(parts)
 
 
 func _set_toggle(action: String, on: bool) -> void:
@@ -257,17 +295,25 @@ func _icon(b: Dictionary) -> String:
 func _draw() -> void:
 	if GameState.ui_open or (player and player.dead):
 		return
-	var font := MenuTheme.bold_font()
+	draw_texture_rect(_vp.get_texture(), Rect2(Vector2.ZERO, size), false)
 	if _joy_index != -1:
 		draw_circle(_joy_origin, JOY_RADIUS, Color(0.04, 0.045, 0.05, 0.35))
 		draw_arc(_joy_origin, JOY_RADIUS, 0, TAU, 48, Color(1, 1, 1, 0.3), 2.0)
 		var knob := _joy_origin + move_vector * JOY_RADIUS
 		draw_circle(knob, 36.0, Color(0.9, 0.9, 0.88, 0.35))
 		draw_arc(knob, 36.0, 0, TAU, 32, Color(1, 1, 1, 0.6), 2.0)
-	else:
+
+
+func _draw_buttons() -> void:
+	if GameState.ui_open or (player and player.dead):
+		return
+	var ci := _art
+	_texts.clear()
+	var font := MenuTheme.bold_font()
+	if _joy_index == -1:
 		var hint := Vector2(170, size.y - 170)
-		draw_arc(hint, JOY_RADIUS, 0, TAU, 48, Color(1, 1, 1, 0.14), 2.0)
-		draw_circle(hint, 30.0, Color(1, 1, 1, 0.06))
+		ci.draw_arc(hint, JOY_RADIUS, 0, TAU, 48, Color(1, 1, 1, 0.14), 2.0)
+		ci.draw_circle(hint, 30.0, Color(1, 1, 1, 0.06))
 	for b in _buttons:
 		if not _shown(b):
 			continue
@@ -275,25 +321,30 @@ func _draw() -> void:
 		var r: float = b.radius
 		var pressed: bool = b.index != -1 or _toggled.get(b.action, false) or (b.action == "crouch" and player and player.crouching)
 		var main: bool = b.action == "attack"
-		draw_circle(c, r, Color(MenuTheme.ACCENT, 0.62) if pressed else Color(0.04, 0.045, 0.05, 0.42))
-		draw_arc(c, r - 1.0, 0, TAU, 48, Color(MenuTheme.ACCENT_HI, 0.85) if main or pressed else Color(1, 1, 1, 0.3), 2.5 if main else 2.0)
+		ci.draw_circle(c, r, Color(MenuTheme.ACCENT, 0.62) if pressed else Color(0.04, 0.045, 0.05, 0.42))
+		ci.draw_arc(c, r - 1.0, 0, TAU, 48, Color(MenuTheme.ACCENT_HI, 0.85) if main or pressed else Color(1, 1, 1, 0.3), 2.5 if main else 2.0)
 		var caption := _label(b)
 		var has_caption := caption != "" and r >= 38.0
 		var icon_c := c + Vector2(0, -r * 0.14 if has_caption else 0.0)
-		Icons.draw(self, _icon(b), icon_c, r * (0.62 if has_caption else 0.8), Color(1, 1, 1, 0.92))
+		Icons.draw(ci, _icon(b), icon_c, r * (0.62 if has_caption else 0.8), Color(1, 1, 1, 0.92))
 		if has_caption:
 			var fs := 12 if r > 50.0 else 10
 			var w := font.get_string_size(caption, HORIZONTAL_ALIGNMENT_LEFT, -1, fs).x
-			draw_string(font, Vector2(c.x - w * 0.5, c.y + r * 0.58), caption, HORIZONTAL_ALIGNMENT_LEFT, -1, fs, Color(1, 1, 1, 0.8))
+			_texts.append([false, font, Vector2(c.x - w * 0.5, c.y + r * 0.58), caption, HORIZONTAL_ALIGNMENT_LEFT, -1, fs, Color(1, 1, 1, 0.8)])
 		elif caption != "" and b.anchor.y == 0.0:
 			var fs := 10
 			var w := font.get_string_size(caption, HORIZONTAL_ALIGNMENT_LEFT, -1, fs).x
-			draw_string_outline(font, Vector2(c.x - w * 0.5, c.y + r + 13), caption, HORIZONTAL_ALIGNMENT_LEFT, -1, fs, 3, Color(0, 0, 0, 0.6))
-			draw_string(font, Vector2(c.x - w * 0.5, c.y + r + 13), caption, HORIZONTAL_ALIGNMENT_LEFT, -1, fs, Color(1, 1, 1, 0.75))
+			_texts.append([true, font, Vector2(c.x - w * 0.5, c.y + r + 13), caption, HORIZONTAL_ALIGNMENT_LEFT, -1, fs, 3, Color(0, 0, 0, 0.6)])
+			_texts.append([false, font, Vector2(c.x - w * 0.5, c.y + r + 13), caption, HORIZONTAL_ALIGNMENT_LEFT, -1, fs, Color(1, 1, 1, 0.75)])
 		if b.has("item"):
 			var n := _count(b)
 			var bc := c + Vector2(r * 0.72, -r * 0.72)
-			draw_circle(bc, 11.0, MenuTheme.ACCENT if n > 0 else Color(0.25, 0.25, 0.25, 0.9))
+			ci.draw_circle(bc, 11.0, MenuTheme.ACCENT if n > 0 else Color(0.25, 0.25, 0.25, 0.9))
 			var t := str(n)
 			var tw := font.get_string_size(t, HORIZONTAL_ALIGNMENT_LEFT, -1, 12).x
-			draw_string(font, Vector2(bc.x - tw * 0.5, bc.y + 4.5), t, HORIZONTAL_ALIGNMENT_LEFT, -1, 12, Color.WHITE)
+			_texts.append([false, font, Vector2(bc.x - tw * 0.5, bc.y + 4.5), t, HORIZONTAL_ALIGNMENT_LEFT, -1, 12, Color.WHITE])
+	for t in _texts:
+		if t[0]:
+			ci.draw_string_outline(t[1], t[2], t[3], t[4], t[5], t[6], t[7], t[8])
+		else:
+			ci.draw_string(t[1], t[2], t[3], t[4], t[5], t[6], t[7])

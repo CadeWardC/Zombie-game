@@ -72,6 +72,7 @@ var _step: PanelContainer
 var _step_label: Label
 var _weapon_y := 0.0 # Where the weapon card goes on touch (under the warnings).
 var _time := 0.0
+var _q: Array = [] # Text queued while drawing (see _flush).
 var _hud_box := MenuTheme.box(MenuTheme.HUD_PANEL, 8, Color(1, 1, 1, 0.06), 1, 0.0)
 var _chip_box := MenuTheme.box(Color.BLACK, 13, Color.WHITE, 1, 0.0)
 var _pill_box := MenuTheme.box(Color.BLACK, 19, Color.WHITE, 1, 0.0)
@@ -501,6 +502,23 @@ func _draw_top() -> void:
 	if player == null:
 		return
 	var ci := _top
+	_q.clear()
+	_draw_top_parts(ci)
+	_flush(ci)
+
+
+## Text is queued while drawing and drawn after all the shapes, so the
+## renderer can batch them into a few draw calls.
+func _flush(ci: CanvasItem) -> void:
+	for t in _q:
+		if t[0]:
+			ci.draw_string_outline(t[1], t[2], t[3], t[4], t[5], t[6], t[7], t[8])
+		else:
+			ci.draw_string(t[1], t[2], t[3], t[4], t[5], t[6], t[7])
+	_q.clear()
+
+
+func _draw_top_parts(ci: Control) -> void:
 	var size := ci.size
 	var font := MenuTheme.bold_font()
 	var plain := ci.get_theme_default_font()
@@ -528,7 +546,7 @@ func _draw_top() -> void:
 			for k in range(1, 4):
 				ci.draw_line(bar.position + Vector2(bar.size.x * k / 4.0, 0), bar.position + Vector2(bar.size.x * k / 4.0, bar.size.y), Color(0, 0, 0, 0.45), 1.0)
 			var pct := "%d" % int(round(f * 100.0))
-			ci.draw_string(plain, Vector2(pos.x + 192, ry + 17), pct, HORIZONTAL_ALIGNMENT_RIGHT, 28, 13, Color(MenuTheme.TEXT, 0.85))
+			_q.append([false, plain, Vector2(pos.x + 192, ry + 17), pct, HORIZONTAL_ALIGNMENT_RIGHT, 28, 13, Color(MenuTheme.TEXT, 0.85)])
 			ry += 24
 		y = card.end.y + 8
 	# Warnings as chips.
@@ -548,7 +566,7 @@ func _draw_top() -> void:
 		sb.border_color = Color(col, 0.7)
 		ci.draw_style_box(sb, r)
 		Icons.draw(ci, e[1], Vector2(x + 15, y + chip_h * 0.5), 14.0, col)
-		ci.draw_string(font, Vector2(x + 28, y + 18), t, HORIZONTAL_ALIGNMENT_LEFT, -1, 13, col.lightened(0.35))
+		_q.append([false, font, Vector2(x + 28, y + 18), t, HORIZONTAL_ALIGNMENT_LEFT, -1, 13, col.lightened(0.35)])
 		x += wdt + 6
 	if x > pos.x:
 		y += chip_h + 8
@@ -567,10 +585,10 @@ func _draw_top() -> void:
 	var crect := Rect2(size.x * 0.5 - cw * 0.5, cy, cw, 50)
 	ci.draw_style_box(_hud_box, crect)
 	Icons.draw(ci, "moon" if night else "sun", Vector2(crect.position.x + 22, cy + 17), 16.0, Color(0.75, 0.82, 1.0) if night else MenuTheme.WARN)
-	ci.draw_string(font, Vector2(crect.position.x + 38, cy + 23), line1, HORIZONTAL_ALIGNMENT_LEFT, -1, 18, MenuTheme.TEXT)
+	_q.append([false, font, Vector2(crect.position.x + 38, cy + 23), line1, HORIZONTAL_ALIGNMENT_LEFT, -1, 18, MenuTheme.TEXT])
 	var wicon: String = {"rain": "rain", "storm": "storm", "snow": "snow", "fog": "fog_icon", "cloudy": "cloud"}.get(wk, "sun" if not night else "moon")
 	Icons.draw(ci, wicon, Vector2(crect.position.x + 22, cy + 37), 13.0, MenuTheme.DIM.lightened(0.2))
-	ci.draw_string(plain, Vector2(crect.position.x + 38, cy + 42), line2, HORIZONTAL_ALIGNMENT_LEFT, -1, 13, MenuTheme.DIM.lightened(0.2))
+	_q.append([false, plain, Vector2(crect.position.x + 38, cy + 42), line2, HORIZONTAL_ALIGNMENT_LEFT, -1, 13, MenuTheme.DIM.lightened(0.2)])
 	# The other players.
 	var pt := _players_text()
 	if pt != "":
@@ -578,7 +596,7 @@ func _draw_top() -> void:
 		var prect := Rect2(size.x * 0.5 - pw * 0.5 - 24, crect.end.y + 6, pw + 44, 26)
 		ci.draw_style_box(_hud_box, prect)
 		Icons.draw(ci, "person", Vector2(prect.position.x + 16, prect.position.y + 13), 13.0, MenuTheme.DIM.lightened(0.2))
-		ci.draw_string(plain, Vector2(prect.position.x + 30, prect.position.y + 18), pt, HORIZONTAL_ALIGNMENT_LEFT, -1, 14, MenuTheme.TEXT)
+		_q.append([false, plain, Vector2(prect.position.x + 30, prect.position.y + 18), pt, HORIZONTAL_ALIGNMENT_LEFT, -1, 14, MenuTheme.TEXT])
 	# Messages: a pill near the bottom.
 	if _toast_t > 0.0 and _toast_text != "":
 		var a := clampf(_toast_t * 2.0, 0.0, 1.0)
@@ -588,7 +606,7 @@ func _draw_top() -> void:
 		sb.bg_color = Color(0.04, 0.045, 0.05, 0.8 * a)
 		sb.border_color = Color(1, 1, 1, 0.1 * a)
 		ci.draw_style_box(sb, tr)
-		ci.draw_string(font, Vector2(tr.position.x + 20, tr.position.y + 25), _toast_text, HORIZONTAL_ALIGNMENT_LEFT, -1, 17, Color(MenuTheme.TEXT, a))
+		_q.append([false, font, Vector2(tr.position.x + 20, tr.position.y + 25), _toast_text, HORIZONTAL_ALIGNMENT_LEFT, -1, 17, Color(MenuTheme.TEXT, a)])
 
 
 ## Blur, fading colour and a heartbeat vignette as the infection takes
@@ -617,6 +635,12 @@ func _update_sick(delta: float) -> void:
 func _draw_overlay() -> void:
 	if player == null:
 		return
+	_q.clear()
+	_draw_overlay_parts()
+	_flush(_overlay)
+
+
+func _draw_overlay_parts() -> void:
 	var ci := _overlay
 	var size := ci.size
 	var c := size * 0.5
@@ -717,8 +741,8 @@ func _draw_stealth(ci: Control, c: Vector2, font: Font) -> void:
 	if player.hidden():
 		var t := "HIDDEN"
 		var tw := font.get_string_size(t, HORIZONTAL_ALIGNMENT_LEFT, -1, 14).x
-		ci.draw_string_outline(font, p + Vector2(-tw * 0.5, 30), t, HORIZONTAL_ALIGNMENT_LEFT, -1, 14, 4, Color.BLACK)
-		ci.draw_string(font, p + Vector2(-tw * 0.5, 30), t, HORIZONTAL_ALIGNMENT_LEFT, -1, 14, Color(0.7, 0.9, 0.7))
+		_q.append([true, font, p + Vector2(-tw * 0.5, 30), t, HORIZONTAL_ALIGNMENT_LEFT, -1, 14, 4, Color.BLACK])
+		_q.append([false, font, p + Vector2(-tw * 0.5, 30), t, HORIZONTAL_ALIGNMENT_LEFT, -1, 14, Color(0.7, 0.9, 0.7)])
 
 
 ## Pings from you and your friends: a marker in the world with who sent it
@@ -752,8 +776,8 @@ func _draw_pings(ci: Control, size: Vector2, font: Font) -> void:
 		ci.draw_arc(sp, r, 0, TAU, 20, col, 2.5)
 		ci.draw_line(sp + Vector2(0, r), sp + Vector2(0, r + 10), col, 2.0)
 		var tw := font.get_string_size(text, HORIZONTAL_ALIGNMENT_LEFT, -1, 14).x
-		ci.draw_string_outline(font, sp + Vector2(-tw * 0.5, -r - 6), text, HORIZONTAL_ALIGNMENT_LEFT, -1, 14, 4, Color.BLACK)
-		ci.draw_string(font, sp + Vector2(-tw * 0.5, -r - 6), text, HORIZONTAL_ALIGNMENT_LEFT, -1, 14, col)
+		_q.append([true, font, sp + Vector2(-tw * 0.5, -r - 6), text, HORIZONTAL_ALIGNMENT_LEFT, -1, 14, 4, Color.BLACK])
+		_q.append([false, font, sp + Vector2(-tw * 0.5, -r - 6), text, HORIZONTAL_ALIGNMENT_LEFT, -1, 14, col])
 
 
 ## Zombies you sense but haven't seen (close by, off to the side or
@@ -796,7 +820,7 @@ func _draw_prompt(ci: Control, c: Vector2, font: Font) -> void:
 	if gw > 0.0:
 		InputGlyphs.draw(ci, action, Vector2(x, y + 7), 26.0, font)
 		x += gw + 10.0
-	ci.draw_string(bold, Vector2(x, y + 26), player.prompt, HORIZONTAL_ALIGNMENT_LEFT, -1, fs, Color.WHITE)
+	_q.append([false, bold, Vector2(x, y + 26), player.prompt, HORIZONTAL_ALIGNMENT_LEFT, -1, fs, Color.WHITE])
 	var hold := player.hold_progress()
 	if hold > 0.0:
 		var rr := Rect2(r.position + Vector2(0, r.size.y - 4), Vector2(r.size.x * hold, 4))
@@ -805,8 +829,8 @@ func _draw_prompt(ci: Control, c: Vector2, font: Font) -> void:
 	if player.hold_prompt != "":
 		var hint := "Hold to %s" % player.hold_prompt
 		var hw := font.get_string_size(hint, HORIZONTAL_ALIGNMENT_LEFT, -1, 14).x
-		ci.draw_string_outline(font, Vector2(c.x - hw * 0.5, ny + 14), hint, HORIZONTAL_ALIGNMENT_LEFT, -1, 14, 4, Color(0, 0, 0, 0.7))
-		ci.draw_string(font, Vector2(c.x - hw * 0.5, ny + 14), hint, HORIZONTAL_ALIGNMENT_LEFT, -1, 14, MenuTheme.WARN.lightened(0.3))
+		_q.append([true, font, Vector2(c.x - hw * 0.5, ny + 14), hint, HORIZONTAL_ALIGNMENT_LEFT, -1, 14, 4, Color(0, 0, 0, 0.7)])
+		_q.append([false, font, Vector2(c.x - hw * 0.5, ny + 14), hint, HORIZONTAL_ALIGNMENT_LEFT, -1, 14, MenuTheme.WARN.lightened(0.3)])
 		ny += 22.0
 	# The second action (reload button), with its own glyph.
 	if player.alt_prompt != "":
@@ -819,7 +843,7 @@ func _draw_prompt(ci: Control, c: Vector2, font: Font) -> void:
 		if agw > 0.0:
 			InputGlyphs.draw(ci, "reload", Vector2(ax, ny + 5), 22.0, font)
 			ax += agw + 8.0
-		ci.draw_string(font, Vector2(ax, ny + 21), player.alt_prompt, HORIZONTAL_ALIGNMENT_LEFT, -1, 15, MenuTheme.TEXT)
+		_q.append([false, font, Vector2(ax, ny + 21), player.alt_prompt, HORIZONTAL_ALIGNMENT_LEFT, -1, 15, MenuTheme.TEXT])
 
 
 ## Driving: speed, fuel, condition and warnings (bottom-right, or top-left
@@ -830,12 +854,12 @@ func _draw_vehicle_panel(ci: Control, size: Vector2, font: Font, v: Vehicle) -> 
 	ci.draw_style_box(_hud_box, card)
 	var bold := MenuTheme.bold_font()
 	var pos := card.position
-	ci.draw_string(bold, pos + Vector2(14, 26), str(v.def.name).to_upper(), HORIZONTAL_ALIGNMENT_LEFT, 180, 15, MenuTheme.DIM.lightened(0.3))
+	_q.append([false, bold, pos + Vector2(14, 26), str(v.def.name).to_upper(), HORIZONTAL_ALIGNMENT_LEFT, 180, 15, MenuTheme.DIM.lightened(0.3)])
 	var kmh := int(absf(v.speed) * 3.6)
 	var sp := "%d" % kmh
-	ci.draw_string(bold, pos + Vector2(14, 70), sp, HORIZONTAL_ALIGNMENT_LEFT, -1, 40, Color.WHITE)
+	_q.append([false, bold, pos + Vector2(14, 70), sp, HORIZONTAL_ALIGNMENT_LEFT, -1, 40, Color.WHITE])
 	var spw := bold.get_string_size(sp, HORIZONTAL_ALIGNMENT_LEFT, -1, 40).x
-	ci.draw_string(font, pos + Vector2(20 + spw, 70), "km/h", HORIZONTAL_ALIGNMENT_LEFT, -1, 14, MenuTheme.DIM)
+	_q.append([false, font, pos + Vector2(20 + spw, 70), "km/h", HORIZONTAL_ALIGNMENT_LEFT, -1, 14, MenuTheme.DIM])
 	# Fuel and condition gauges on the right.
 	var gx := pos.x + 160
 	var rows := []
@@ -846,7 +870,7 @@ func _draw_vehicle_panel(ci: Control, size: Vector2, font: Font, v: Vehicle) -> 
 	for r in rows:
 		var f := clampf(float(r[1]), 0.0, 1.0)
 		var col: Color = r[2] if f > 0.15 else MenuTheme.BAD
-		ci.draw_string(font, Vector2(gx, gy), r[0], HORIZONTAL_ALIGNMENT_LEFT, -1, 12, MenuTheme.DIM)
+		_q.append([false, font, Vector2(gx, gy), r[0], HORIZONTAL_ALIGNMENT_LEFT, -1, 12, MenuTheme.DIM])
 		ci.draw_rect(Rect2(gx, gy + 5, 124, 6), Color(0, 0, 0, 0.5))
 		ci.draw_rect(Rect2(gx, gy + 5, 124 * f, 6), col)
 		gy += 30
@@ -862,7 +886,7 @@ func _draw_vehicle_panel(ci: Control, size: Vector2, font: Font, v: Vehicle) -> 
 	elif v.kind == "heli":
 		warn = "Altitude %d m" % int(v.global_position.y - gen_height(v.global_position))
 	if warn != "":
-		ci.draw_string(bold, pos + Vector2(14, 104), warn, HORIZONTAL_ALIGNMENT_LEFT, 280, 13, MenuTheme.WARN)
+		_q.append([false, bold, pos + Vector2(14, 104), warn, HORIZONTAL_ALIGNMENT_LEFT, 280, 13, MenuTheme.WARN])
 
 
 func gen_height(p: Vector3) -> float:
@@ -894,15 +918,15 @@ func _draw_weapon_panel(ci: Control, size: Vector2, font: Font, w: Weapons) -> v
 	else:
 		Icons.draw(ci, {"gun": "gun", "bow": "bow", "throw": "throw"}.get(w.def().get("cat", ""), "fist"), pic.get_center(), 34.0, MenuTheme.DIM)
 	var tx := pos.x + 110
-	ci.draw_string(bold, Vector2(tx, pos.y + 26), str(st.name).to_upper(), HORIZONTAL_ALIGNMENT_LEFT, 160, 14, MenuTheme.TEXT)
+	_q.append([false, bold, Vector2(tx, pos.y + 26), str(st.name).to_upper(), HORIZONTAL_ALIGNMENT_LEFT, 160, 14, MenuTheme.TEXT])
 	if st.ammo != "":
 		var parts := str(st.ammo).split(" / ")
-		ci.draw_string(bold, Vector2(tx, pos.y + 56), parts[0], HORIZONTAL_ALIGNMENT_LEFT, -1, 28, Color.WHITE)
+		_q.append([false, bold, Vector2(tx, pos.y + 56), parts[0], HORIZONTAL_ALIGNMENT_LEFT, -1, 28, Color.WHITE])
 		if parts.size() > 1:
 			var aw := bold.get_string_size(parts[0], HORIZONTAL_ALIGNMENT_LEFT, -1, 28).x
-			ci.draw_string(font, Vector2(tx + aw + 6, pos.y + 56), "/ " + parts[1], HORIZONTAL_ALIGNMENT_LEFT, -1, 15, MenuTheme.DIM)
+			_q.append([false, font, Vector2(tx + aw + 6, pos.y + 56), "/ " + parts[1], HORIZONTAL_ALIGNMENT_LEFT, -1, 15, MenuTheme.DIM])
 	if st.state != "":
-		ci.draw_string(bold, Vector2(tx + 70, pos.y + 54), st.state, HORIZONTAL_ALIGNMENT_LEFT, 100, 12, MenuTheme.BAD.lightened(0.2))
+		_q.append([false, bold, Vector2(tx + 70, pos.y + 54), st.state, HORIZONTAL_ALIGNMENT_LEFT, 100, 12, MenuTheme.BAD.lightened(0.2)])
 	if float(st.cond) >= 0.0:
 		var c := float(st.cond)
 		var bar := Rect2(tx, pos.y + 64, 158, 4)
@@ -913,4 +937,4 @@ func _draw_weapon_panel(ci: Control, size: Vector2, font: Font, w: Weapons) -> v
 		if GameState.using_gamepad():
 			InputGlyphs.draw(ci, "weapon_prev", Vector2(card.end.x - 34, pos.y - 30), 24.0, font)
 		else:
-			ci.draw_string(font, Vector2(card.end.x - 80, pos.y - 8), "1-4 / wheel", HORIZONTAL_ALIGNMENT_LEFT, -1, 12, Color(1, 1, 1, 0.45))
+			_q.append([false, font, Vector2(card.end.x - 80, pos.y - 8), "1-4 / wheel", HORIZONTAL_ALIGNMENT_LEFT, -1, 12, Color(1, 1, 1, 0.45)])

@@ -23,6 +23,9 @@ const SIGNS := {
 	"car_dealer": "AUTO SALES", "motel": "MOTEL", "gas_station": "GAS", "gas_station_store": "GAS & GO",
 	"terminal": "TERMINAL", "research_lab": "NOVAGEN RESEARCH",
 }
+## Spray paint on abandoned houses.
+const GRAFFITI := ["HELP", "STAY OUT", "INFECTED", "GONE TO SHELTER", "ALL DEAD INSIDE", "WE'RE ALIVE", "DON'T OPEN",
+	"NO FOOD HERE", "LOOTERS WILL BE SHOT", "SORRY MOM", "GONE NORTH", "1 DEAD INSIDE", "EVAC AT SCHOOL"]
 const SHOP_NAMES := ["BOOKS", "BAKERY", "LAUNDRY", "BARBER", "THRIFT", "ELECTRONICS", "SHOES", "FLORIST", "PIZZA", "VIDEO", "TOYS", "CAFE"]
 
 var bd := BuildingData.new()
@@ -238,6 +241,31 @@ func _house(style: String) -> void:
 	if has_garage:
 		_garage(Rect2(r.end.x, zf - 7.0, 6.2, 7.0), siding, roof)
 	_yard(r, zf, has_garage)
+	_abandoned(r, zf)
+
+
+## Signs of the outbreak on the outside: boarded-up upper windows, spray
+## paint by the front door.
+func _abandoned(r: Rect2, zf: float) -> void:
+	var h := absi(("%s_ab" % _id()).hash())
+	if h % 100 < 22:
+		for w in bd.window_spots:
+			if float(w.y) < 0.5:
+				continue
+			var out: Vector2 = w.out
+			var p: Vector2 = (w.mid as Vector2) + out * (float(w.t) * 0.5 + 0.03)
+			var basis := Basis(Vector3(-out.y, 0, out.x), Vector3.UP, Vector3(out.x, 0, out.y))
+			var cy: float = float(w.y) + float(w.sill) + float(w.h) * 0.5
+			for k in 3:
+				var tilt := rng.randf_range(-0.25, 0.25)
+				bd.ext.box(Transform3D(basis * Basis(Vector3.BACK, tilt), Vector3(p.x, cy - 0.45 + k * 0.45, p.y)),
+					Vector3(float(w.w) + 0.4, 0.2, 0.03), Color(0.55, 0.42, 0.28).darkened(rng.randf() * 0.25))
+	if bd.interior and h % 100 >= 80:
+		var text: String = GRAFFITI[(h / 100) % GRAFFITI.size()]
+		var col: Color = [Color(0.75, 0.08, 0.06), Color(0.08, 0.08, 0.08), Color(0.92, 0.92, 0.9)][(h / 7) % 3]
+		var x := r.position.x + r.size.x * (0.25 if (h / 3) % 2 == 0 else 0.72)
+		bd.signs.append({"xf": Transform3D(Basis.IDENTITY, Vector3(x, 1.5, zf - 0.08)), "text": text, "size": 0.75,
+			"color": col, "outline": 0, "tilt": float((h / 11) % 20 - 10) * 0.01})
 
 
 func back_door_x(r: Rect2, W: float) -> float:
@@ -304,6 +332,62 @@ func _yard(r: Rect2, zf: float, has_garage: bool) -> void:
 		var fence_col := Color(0.85, 0.84, 0.8) if rng.randf() < 0.6 else Color(0.45, 0.35, 0.25)
 		for seg in [[Vector2(-mx, zb), Vector2(mx, zb)], [Vector2(-mx, zb), Vector2(-mx, r.position.y)], [Vector2(mx, zb), Vector2(mx, r.position.y)]]:
 			_fence(seg[0], seg[1], fence_col)
+	if bd.interior:
+		_yard_dressing(r, zf, has_garage)
+
+
+## Things in the yard (near buildings only): bins, a grill and chairs out
+## back, toys, overgrown grass, and the mess the outbreak left.
+func _yard_dressing(r: Rect2, zf: float, has_garage: bool) -> void:
+	var m := bd.ext
+	var front: float = lot.d * 0.5
+	var mx: float = lot.w * 0.5 - 1.2
+	var at := func(p: Vector2, yaw := 0.0) -> Transform3D:
+		return Transform3D(Basis(Vector3.UP, yaw), Vector3(p.x, ground(p) + 0.01, p.y))
+	var bin_col: Color = [Color(0.15, 0.3, 0.18), Color(0.2, 0.2, 0.22), Color(0.2, 0.3, 0.5)][rng.randi() % 3]
+	var bx := (r.end.x + 1.2) if not has_garage else (r.end.x + 6.2 + 0.8)
+	for k in rng.randi_range(1, 2):
+		var p := Vector2(minf(bx, mx), front - 2.0 - k * 0.8)
+		Decor.bin(m, at.call(p, rng.randf_range(-0.3, 0.3)), bin_col, rng, rng.randf() < 0.3)
+	var back_z0: float = -lot.d * 0.5 + 1.5
+	var back_z1: float = r.position.y - 1.5
+	if back_z1 > back_z0 + 1.0:
+		var back := func() -> Vector2: return Vector2(rng.randf_range(-mx, mx), rng.randf_range(back_z0, back_z1))
+		if rng.randf() < 0.45:
+			Decor.grill(m, at.call(back.call()))
+		var chair_col: Color = [Color(0.85, 0.85, 0.82), Color(0.25, 0.4, 0.3), Color(0.5, 0.3, 0.2)][rng.randi() % 3]
+		var cp: Vector2 = back.call()
+		for k in rng.randi_range(0, 3):
+			Decor.lawn_chair(m, at.call(cp + Vector2(k * 0.8, rng.randf_range(-0.3, 0.3)), rng.randf_range(-0.6, 0.6)), chair_col, rng.randf() < 0.3)
+		if rng.randf() < 0.15:
+			Decor.doghouse(m, at.call(back.call(), rng.randf() * TAU))
+		if rng.randf() < 0.3:
+			Decor.toy(m, at.call(back.call(), rng.randf() * TAU), rng)
+		if rng.randf() < 0.2:
+			Decor.pallet(m, at.call(back.call(), rng.randf() * TAU))
+		if rng.randf() < 0.15:
+			Decor.tire(m, at.call(back.call()))
+	# Out front: litter, dropped bags, the odd body.
+	var yard_front := func() -> Vector2: return Vector2(rng.randf_range(-mx, mx), rng.randf_range(zf + 1.0, front - 1.0))
+	if rng.randf() < 0.35:
+		Decor.papers(m, at.call(yard_front.call(), rng.randf() * TAU), rng, rng.randi_range(2, 5))
+	if rng.randf() < 0.12:
+		var p := Vector2(r.get_center().x + rng.randf_range(-1.5, 1.5), zf + 1.6)
+		Decor.trash_bag(m, at.call(p), rng)
+		Decor.cardboard_box(m, at.call(p + Vector2(0.7, 0.2), 0.3), Vector3(0.5, 0.4, 0.4), true)
+	if rng.randf() < 0.07:
+		var p: Vector2 = yard_front.call()
+		var yaw := rng.randf() * TAU
+		Decor.blood_trail(m, at.call(p, yaw), rng.randf_range(1.5, 3.5), rng)
+		if rng.randf() < 0.6:
+			Decor.corpse(m, at.call(p, yaw + PI), rng)
+	# Overgrown lawn: the grass hasn't been cut in weeks.
+	for k in rng.randi_range(14, 30):
+		var p := Vector2(rng.randf_range(-mx, mx), rng.randf_range(-front + 0.5, front - 0.8))
+		if r.grow(0.6).has_point(p):
+			continue
+		var g := Color(0.22, 0.34, 0.12).lerp(Color(0.42, 0.44, 0.2), rng.randf() * 0.6)
+		Decor.grass(m, at.call(p, rng.randf() * TAU), g, rng.randf_range(0.35, 0.7))
 
 
 func _fence(a: Vector2, b: Vector2, col: Color) -> void:
@@ -405,7 +489,22 @@ func _shop(type: String) -> void:
 		spots.append(Vector2(r.position.x + W * 0.8, r.position.y))
 		var main := Rect2(r.position.x, back_z, W, zf - back_z)
 		_shop_fixtures(type, main, spots)
+		_back_lot(r)
 		Interiors.furnish(bd, Rect2(r.position.x, r.position.y, W, 4.0), "garage", 0.1, spots, rng, id + "_back")
+
+
+## A dumpster and bags of trash behind a shop.
+func _back_lot(r: Rect2) -> void:
+	var p := Vector2(r.end.x - 2.0, r.position.y - 1.6)
+	var xf := Transform3D(Basis(Vector3.UP, rng.randf_range(-0.15, 0.15)), Vector3(p.x, ground(p), p.y))
+	Decor.dumpster(bd.ext, xf, [Color(0.18, 0.32, 0.22), Color(0.2, 0.28, 0.45), Color(0.45, 0.2, 0.15)][rng.randi() % 3])
+	bd.boxes.append([xf * Transform3D(Basis.IDENTITY, Vector3(0, 0.65, 0)), Vector3(1.9, 1.3, 1.1)])
+	for k in rng.randi_range(1, 4):
+		var q := p + Vector2(rng.randf_range(-2.2, -1.0), rng.randf_range(-0.6, 0.6))
+		Decor.trash_bag(bd.ext, Transform3D(Basis(Vector3.UP, rng.randf() * TAU), Vector3(q.x, ground(q), q.y)), rng)
+	if rng.randf() < 0.5:
+		var q := p + Vector2(-3.5, 0.3)
+		Decor.pallet(bd.ext, Transform3D(Basis(Vector3.UP, rng.randf()), Vector3(q.x, ground(q), q.y)))
 
 
 func _shop_fixtures(type: String, room: Rect2, doors: Array[Vector2]) -> void:

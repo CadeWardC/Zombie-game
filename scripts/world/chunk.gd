@@ -233,9 +233,11 @@ func _sign(s: Dictionary) -> void:
 	label.transform = s.xf
 	label.pixel_size = 0.01
 	label.font_size = int(96 * s.size)
-	label.outline_size = 8
+	label.outline_size = int(s.get("outline", 8))
 	label.modulate = s.color
 	label.outline_modulate = Color(0, 0, 0, 0.6)
+	if s.has("tilt"):
+		label.rotate_object_local(Vector3.BACK, float(s.tilt))
 	label.double_sided = false
 	label.position += label.transform.basis.z * 0.12
 	add_child(label)

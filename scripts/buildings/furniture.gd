@@ -16,6 +16,9 @@ const SIZE := {
 	"shop_counter": Vector2(2.4, 0.7), "locker": Vector2(0.9, 0.5), "hospital_bed": Vector2(1.0, 2.1),
 	"medical_cabinet": Vector2(1.0, 0.45), "filing_cabinet": Vector2(0.5, 0.6), "cryo_fridge": Vector2(0.9, 0.7),
 	"lab_bench": Vector2(2.4, 0.8), "generator": Vector2(1.6, 0.9),
+	"floor_lamp": Vector2(0.4, 0.4), "plant": Vector2(0.5, 0.5), "side_table": Vector2(0.5, 0.5), "trash_can": Vector2(0.4, 0.4),
+	"laundry": Vector2(0.5, 0.4), "washer": Vector2(0.65, 0.65), "dryer": Vector2(0.65, 0.65), "coat_rack": Vector2(0.5, 0.5),
+	"shoe_rack": Vector2(0.9, 0.35), "boxes": Vector2(1.0, 0.7), "toy_box": Vector2(0.8, 0.5), "chair": Vector2(0.5, 0.5),
 }
 
 const WOOD := Color(0.45, 0.31, 0.2)
@@ -53,7 +56,10 @@ static func place(bd: BuildingData, kind: String, xf: Transform3D, rng: RandomNu
 			_collide(bd, xf, Vector3(s.x, 0.6, s.y))
 		"nightstand":
 			_b(bd, xf, Vector3(0, 0.28, 0), Vector3(0.5, 0.55, 0.45), WOOD)
-			_b(bd, xf, Vector3(0, 0.62, 0), Vector3(0.12, 0.14, 0.12), Color(0.9, 0.85, 0.6))
+			_b(bd, xf, Vector3(0, 0.62, -0.08), Vector3(0.12, 0.14, 0.12), Color(0.9, 0.85, 0.6))
+			_b(bd, xf, Vector3(0, 0.75, -0.08), Vector3(0.22, 0.14, 0.22), Color(0.92, 0.88, 0.75))
+			if rng.randf() < 0.6:
+				Decor.table_clutter(bd.ext, xf, 0.555, Vector2(0.3, 0.25), rng)
 			_container(bd, xf, "nightstand", id_prefix)
 		"dresser":
 			_b(bd, xf, Vector3(0, 0.45, 0), Vector3(1.2, 0.9, 0.5), WOOD)
@@ -61,6 +67,9 @@ static func place(bd: BuildingData, kind: String, xf: Transform3D, rng: RandomNu
 				_b(bd, xf, Vector3(0, 0.18 + k * 0.27, 0.26), Vector3(1.05, 0.2, 0.02), WOOD.lightened(0.1))
 			_collide(bd, xf, Vector3(1.2, 0.9, 0.5))
 			_container(bd, xf, "dresser", id_prefix)
+			if not under_window:
+				_b(bd, xf, Vector3(0, 1.35, -0.23), Vector3(0.8, 0.8, 0.03), Color(0.65, 0.72, 0.76))
+			Decor.table_clutter(bd.ext, xf, 0.9, Vector2(1.0, 0.4), rng)
 		"wardrobe":
 			_b(bd, xf, Vector3(0, 1.0, 0), Vector3(1.1, 2.0, 0.6), WOOD.darkened(0.1))
 			_b(bd, xf, Vector3(0, 1.0, 0.305), Vector3(0.02, 1.8, 0.01), DARK_WOOD)
@@ -81,6 +90,7 @@ static func place(bd: BuildingData, kind: String, xf: Transform3D, rng: RandomNu
 			for x: float in [-0.5, 0.5]:
 				for z: float in [-0.25, 0.25]:
 					_b(bd, xf, Vector3(x, 0.19, z), Vector3(0.05, 0.38, 0.05), WOOD.darkened(0.2))
+			Decor.table_clutter(bd.ext, xf, 0.43, Vector2(1.0, 0.5), rng)
 		"tv_stand":
 			_b(bd, xf, Vector3(0, 0.25, 0), Vector3(1.6, 0.5, 0.45), DARK_WOOD)
 			_b(bd, xf, Vector3(0, 0.88, -0.05), Vector3(1.2, 0.7, 0.06), Color(0.08, 0.08, 0.09))
@@ -107,6 +117,8 @@ static func place(bd: BuildingData, kind: String, xf: Transform3D, rng: RandomNu
 			_collide(bd, xf, Vector3(w, 0.9, 0.6))
 			if kind == "counter":
 				_container(bd, xf, "kitchen_cabinet", id_prefix)
+				if rng.randf() < 0.7:
+					Decor.table_clutter(bd.ext, xf, 0.9, Vector2(w, 0.5), rng, true)
 		"fridge":
 			_b(bd, xf, Vector3(0, 0.9, 0), Vector3(0.8, 1.8, 0.7), WHITE.lightened(0.05))
 			_b(bd, xf, Vector3(0.3, 1.1, 0.36), Vector3(0.03, 0.5, 0.03), STEEL)
@@ -132,6 +144,8 @@ static func place(bd: BuildingData, kind: String, xf: Transform3D, rng: RandomNu
 			_b(bd, xf, Vector3(0, 0.75, 0.76), Vector3(0.45, 0.55, 0.06), Color(0.15, 0.15, 0.17))
 			_collide(bd, xf, Vector3(1.3, 0.76, 0.65))
 			_container(bd, xf, "desk", id_prefix)
+			_b(bd, xf, Vector3(-0.3, 0.92, -0.18), Vector3(0.45, 0.3, 0.04), Color(0.1, 0.1, 0.11))
+			Decor.table_clutter(bd.ext, xf, 0.765, Vector2(1.1, 0.5), rng)
 		"dining_set":
 			_b(bd, xf, Vector3(0, 0.74, 0), Vector3(1.6, 0.05, 0.9), WOOD)
 			for x: float in [-0.72, 0.72]:
@@ -142,6 +156,7 @@ static func place(bd: BuildingData, kind: String, xf: Transform3D, rng: RandomNu
 					_b(bd, xf, Vector3(x, 0.45, z), Vector3(0.42, 0.05, 0.42), WOOD.darkened(0.1))
 					_b(bd, xf, Vector3(x, 0.75, z + signf(z) * 0.19), Vector3(0.42, 0.55, 0.05), WOOD.darkened(0.1))
 			_collide(bd, xf, Vector3(1.6, 0.76, 0.9))
+			Decor.table_clutter(bd.ext, xf, 0.765, Vector2(1.4, 0.8), rng, true)
 		"rug":
 			var c := Color.from_hsv(rng.randf(), 0.35, 0.45)
 			var p0 := xf * Vector3(-1.1, 0.012, -0.8)
@@ -188,6 +203,56 @@ static func place(bd: BuildingData, kind: String, xf: Transform3D, rng: RandomNu
 			for k in 3:
 				_b(bd, xf, Vector3(-0.7 + k * 0.7, 0.98, 0.1), Vector3(0.08, 0.14 + k * 0.04, 0.08), Color(0.5, 0.75, 0.6).lerp(Color(0.8, 0.3, 0.3), k * 0.4))
 			_collide(bd, xf, Vector3(2.4, 0.9, 0.8))
+		"floor_lamp":
+			_b(bd, xf, Vector3(0, 0.02, 0), Vector3(0.3, 0.04, 0.3), Color(0.15, 0.15, 0.15))
+			_b(bd, xf, Vector3(0, 0.75, 0), Vector3(0.03, 1.45, 0.03), Color(0.2, 0.2, 0.2))
+			bd.ext.cylinder(xf * Vector3(0, 1.38, 0), 0.22, 0.13, 0.3, 8, Color(0.9, 0.85, 0.7))
+		"plant":
+			bd.ext.cylinder(xf * Vector3.ZERO, 0.15, 0.2, 0.32, 8, Color(0.55, 0.32, 0.22))
+			var leaf := Color(0.25, 0.45, 0.2).lerp(Color(0.45, 0.4, 0.2), rng.randf() * 0.6)
+			for k in 5:
+				var a := k * TAU / 5.0 + rng.randf()
+				bd.ext.box(xf * Transform3D(Basis(Vector3.UP, a) * Basis(Vector3.RIGHT, 0.6), Vector3(cos(a) * 0.1, 0.65, sin(a) * 0.1)),
+					Vector3(0.12, 0.6, 0.03), leaf.darkened(k * 0.05))
+		"side_table":
+			_b(bd, xf, Vector3(0, 0.55, 0), Vector3(0.5, 0.04, 0.5), WOOD)
+			_b(bd, xf, Vector3(0, 0.27, 0), Vector3(0.06, 0.54, 0.06), WOOD.darkened(0.2))
+			if rng.randf() < 0.5:
+				_b(bd, xf, Vector3(0.08, 0.65, 0), Vector3(0.12, 0.16, 0.12), Color(0.8, 0.75, 0.6))
+				bd.ext.cylinder(xf * Vector3(0.08, 0.72, 0), 0.14, 0.09, 0.16, 6, Color(0.92, 0.88, 0.75))
+			else:
+				Decor.table_clutter(bd.ext, xf, 0.57, Vector2(0.4, 0.4), rng)
+		"trash_can":
+			bd.ext.cylinder(xf * Vector3.ZERO, 0.15, 0.17, 0.4, 8, Color(0.7, 0.7, 0.68) if rng.randf() < 0.5 else Color(0.2, 0.2, 0.22))
+		"laundry":
+			bd.ext.cylinder(xf * Vector3.ZERO, 0.2, 0.22, 0.45, 8, Color(0.85, 0.82, 0.75))
+			_b(bd, xf, Vector3(0, 0.47, 0), Vector3(0.3, 0.08, 0.3), FABRICS[rng.randi() % FABRICS.size()])
+		"washer", "dryer":
+			_b(bd, xf, Vector3(0, 0.43, 0), Vector3(0.62, 0.86, 0.62), WHITE.lightened(0.05))
+			bd.ext.append(Decor._disc(0.18, Color(0.25, 0.28, 0.3), 0.312), xf * Transform3D(Basis.IDENTITY, Vector3(0, 0.42, 0)))
+			_b(bd, xf, Vector3(0, 0.8, 0.29), Vector3(0.5, 0.08, 0.04), Color(0.7, 0.7, 0.7))
+			_collide(bd, xf, Vector3(0.62, 0.86, 0.62))
+		"coat_rack":
+			_b(bd, xf, Vector3(0, 0.9, 0), Vector3(0.04, 1.8, 0.04), DARK_WOOD)
+			for k in 4:
+				var a := k * PI * 0.5
+				_b(bd, xf, Vector3(cos(a) * 0.12, 1.65, sin(a) * 0.12), Vector3(0.2, 0.03, 0.03), DARK_WOOD)
+			if rng.randf() < 0.7:
+				_b(bd, xf, Vector3(0.1, 1.25, 0), Vector3(0.3, 0.7, 0.18), FABRICS[rng.randi() % FABRICS.size()])
+		"shoe_rack":
+			_b(bd, xf, Vector3(0, 0.25, 0), Vector3(0.9, 0.5, 0.35), WOOD.lightened(0.1))
+			for k in rng.randi_range(1, 3):
+				_b(bd, xf, Vector3(-0.3 + k * 0.2, 0.55, 0.02), Vector3(0.12, 0.08, 0.26), Color(0.15, 0.12, 0.1))
+		"boxes":
+			for k in rng.randi_range(2, 4):
+				var sz := Vector3(rng.randf_range(0.35, 0.55), rng.randf_range(0.25, 0.45), rng.randf_range(0.3, 0.5))
+				Decor.cardboard_box(bd.ext, xf * Transform3D(Basis(Vector3.UP, rng.randf_range(-0.3, 0.3)),
+					Vector3(rng.randf_range(-0.3, 0.3), 0.0 if k < 2 else 0.4, rng.randf_range(-0.15, 0.15))), sz, rng.randf() < 0.3)
+		"toy_box":
+			_b(bd, xf, Vector3(0, 0.25, 0), Vector3(0.8, 0.5, 0.5), Color.from_hsv(rng.randf(), 0.5, 0.75))
+			Decor.toy(bd.ext, xf * Transform3D(Basis.IDENTITY, Vector3(0.6, 0, 0.5)), rng)
+		"chair":
+			Decor.chair(bd.ext, xf, WOOD.darkened(0.1), rng.randf() < 0.3)
 		"generator":
 			_b(bd, xf, Vector3(0, 0.15, 0), Vector3(1.7, 0.3, 1.0), Color(0.2, 0.2, 0.2))
 			_b(bd, xf, Vector3(0, 0.75, 0), Vector3(1.5, 0.9, 0.85), Color(0.75, 0.6, 0.15))

@@ -69,7 +69,8 @@ static func wall(bd: BuildingData, a: Vector2, b: Vector2, y0: float, height: fl
 			"window":
 				_window(bd, mid, basis, y0 + op.bottom, op.w, op.top - op.bottom, t, out3)
 				var half: Vector2 = Vector2(absf(dir.x), absf(dir.y)) * (float(op.w) * 0.5 + 0.2) + Vector2(absf(dir.y), absf(dir.x)) * 0.8
-				bd.window_spots.append({"rect": Rect2(mid - half, half * 2.0), "y": y0, "sill": op.bottom})
+				bd.window_spots.append({"rect": Rect2(mid - half, half * 2.0), "y": y0, "sill": op.bottom, "mid": mid,
+					"out": outside.normalized(), "t": t, "w": float(op.w), "h": float(op.top) - float(op.bottom)})
 			"door":
 				var hinge := a + dir * left
 				bd.doors.append({
