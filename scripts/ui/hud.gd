@@ -34,9 +34,8 @@ void fragment() {
 var player: Player
 var zombies: ZombieManager
 
-var _bars := {}
-var _clock: Label
-var _toast: Label
+var _top: Control
+var _toast_text := ""
 var _debug: Label
 var _overlay: Control
 var _flash: ColorRect
@@ -48,14 +47,12 @@ var _respawn_btn: Button
 var _menu_btn: Button
 var _loading_label: Label
 var _loading_bar: ProgressBar
-var _status: Label
 var _sick: ColorRect
 var _sick_mat: ShaderMaterial
 var _beat_t := 0.0
 var _new_char_btn: Button
 var _watch_btn: Button
-var _players: Label
-var _death_panel: VBoxContainer
+var _death_panel: Control
 var _death_full := true
 ## The running game (pings, spectating), and who you're watching.
 var game: Node
@@ -71,7 +68,14 @@ var _tip_title: Label
 var _tip_text: Label
 var _tip_t := 0.0
 var _tips: Array = [] # Queued [title, text].
-var _step: Label
+var _step: PanelContainer
+var _step_label: Label
+var _weapon_y := 0.0 # Where the weapon card goes on touch (under the warnings).
+var _time := 0.0
+var _hud_box := MenuTheme.box(MenuTheme.HUD_PANEL, 8, Color(1, 1, 1, 0.06), 1, 0.0)
+var _chip_box := MenuTheme.box(Color.BLACK, 13, Color.WHITE, 1, 0.0)
+var _pill_box := MenuTheme.box(Color.BLACK, 19, Color.WHITE, 1, 0.0)
+var _prompt_box := MenuTheme.box(Color(0.04, 0.045, 0.05, 0.78), 20, Color(1, 1, 1, 0.12), 1, 0.0)
 
 
 func _ready() -> void:
@@ -99,80 +103,80 @@ func _ready() -> void:
 	_overlay.draw.connect(_draw_overlay)
 	root.add_child(_overlay)
 
-	var box := VBoxContainer.new()
-	box.position = Vector2(20, 20)
-	box.add_theme_constant_override("separation", 6)
-	root.add_child(box)
-	_add_bar(box, "health", "HP", Color(0.8, 0.15, 0.15))
-	_add_bar(box, "hunger", "FOOD", Color(0.85, 0.55, 0.15))
-	_add_bar(box, "thirst", "WATER", Color(0.2, 0.5, 0.9))
-	_add_bar(box, "stamina", "STAM", Color(0.85, 0.8, 0.25))
-	_status = Label.new()
-	_status.add_theme_font_size_override("font_size", 15)
-	_status.add_theme_color_override("font_color", Color(1.0, 0.55, 0.45))
-	_outline(_status)
-	box.add_child(_status)
-
-	_clock = _label(root, 20)
-	_clock.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	var clock_y := 80.0 if GameState.uses_touch() else 16.0
-	_place(_clock, Vector2(0.5, 0), Rect2(-200, clock_y, 400, 54))
-
-	# Who else is playing (multiplayer), under the clock.
-	_players = _label(root, 15)
-	_players.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	_place(_players, Vector2(0.5, 0), Rect2(-300, clock_y + 54, 600, 24))
-
-	_toast = _label(root, 22)
-	_toast.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	_place(_toast, Vector2(0.5, 1), Rect2(-300, -130, 600, 40))
+	# Vitals, warnings, clock and the other players: drawn in one pass.
+	_top = Control.new()
+	_top.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	_top.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_top.draw.connect(_draw_top)
+	root.add_child(_top)
 
 	_debug = _label(root, 14)
 	_place(_debug, Vector2(0, 1), Rect2(20, -40, 900, 24))
 	_debug.visible = false
 
-	_loading = _fullscreen(root, Color(0.05, 0.06, 0.06, 1.0))
-	_loading_label = _label(_loading, 28)
+	_loading = _fullscreen(root, MenuTheme.BG)
+	_loading.add_child(MenuBackdrop.new())
+	var lshade := ColorRect.new()
+	lshade.color = Color(0, 0, 0, 0.45)
+	_loading.add_child(lshade)
+	lshade.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	var lt := MenuTheme.heading("Zombie survival", 34)
+	lt.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	_loading.add_child(lt)
+	_place(lt, Vector2(0.5, 0.5), Rect2(-300, -90, 600, 50))
+	_loading_label = Label.new()
+	_loading_label.add_theme_font_size_override("font_size", 17)
+	_loading_label.add_theme_color_override("font_color", MenuTheme.DIM.lightened(0.2))
 	_loading_label.text = "Generating world..."
 	_loading_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	_place(_loading_label, Vector2(0.5, 0.5), Rect2(-300, -40, 600, 40))
+	_loading.add_child(_loading_label)
+	_place(_loading_label, Vector2(0.5, 0.5), Rect2(-300, -30, 600, 30))
 	_loading_bar = ProgressBar.new()
 	_loading_bar.max_value = 1.0
 	_loading_bar.show_percentage = false
 	_loading.add_child(_loading_bar)
-	_place(_loading_bar, Vector2(0.5, 0.5), Rect2(-220, 20, 440, 14))
+	_place(_loading_bar, Vector2(0.5, 0.5), Rect2(-220, 12, 440, 6))
 
-	_death = _fullscreen(root, Color(0.15, 0.0, 0.0, 0.75))
+	_death = _fullscreen(root, Color(0.08, 0.0, 0.0, 0.8))
 	_death.visible = false
+	var card := PanelContainer.new()
+	card.add_theme_stylebox_override("panel", MenuTheme.box(Color(0.04, 0.035, 0.035, 0.9), 12, Color(MenuTheme.BAD, 0.35), 1, 26.0))
+	_death.add_child(card)
+	_place(card, Vector2(0.5, 0.5), Rect2(-300, -190, 600, 380))
 	var dv := VBoxContainer.new()
 	dv.alignment = BoxContainer.ALIGNMENT_CENTER
-	dv.add_theme_constant_override("separation", 20)
-	_death.add_child(dv)
-	_place(dv, Vector2(0.5, 0.5), Rect2(-300, -170, 600, 340))
-	_death_panel = dv
-	_death_title = _label(dv, 56)
-	_death_title.text = "YOU DIED"
+	dv.add_theme_constant_override("separation", 12)
+	card.add_child(dv)
+	_death_panel = card
+	_death_title = MenuTheme.heading("You died", 48, MenuTheme.BAD.lightened(0.15))
 	_death_title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	_death_info = _label(dv, 20)
+	dv.add_child(_death_title)
+	_death_info = Label.new()
+	_death_info.add_theme_font_size_override("font_size", 17)
+	_death_info.add_theme_color_override("font_color", MenuTheme.TEXT.darkened(0.1))
+	_death_info.autowrap_mode = TextServer.AUTOWRAP_WORD
 	_death_info.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	dv.add_child(_death_info)
 	_respawn_btn = Button.new()
 	_respawn_btn.text = "Respawn"
-	_respawn_btn.custom_minimum_size = Vector2(260, 70)
-	_respawn_btn.add_theme_font_size_override("font_size", 26)
+	_respawn_btn.custom_minimum_size = Vector2(280, 56)
+	_respawn_btn.add_theme_font_size_override("font_size", 20)
+	MenuTheme.primary(_respawn_btn)
 	_respawn_btn.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
 	_respawn_btn.pressed.connect(func() -> void: respawn_requested.emit())
 	dv.add_child(_respawn_btn)
 	_new_char_btn = Button.new()
 	_new_char_btn.text = "New Character"
-	_new_char_btn.custom_minimum_size = Vector2(260, 70)
-	_new_char_btn.add_theme_font_size_override("font_size", 26)
+	_new_char_btn.custom_minimum_size = Vector2(280, 56)
+	_new_char_btn.add_theme_font_size_override("font_size", 20)
+	MenuTheme.primary(_new_char_btn)
 	_new_char_btn.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
 	_new_char_btn.pressed.connect(func() -> void: new_character_requested.emit())
 	dv.add_child(_new_char_btn)
 	_watch_btn = Button.new()
 	_watch_btn.text = "Watch Next Player"
-	_watch_btn.custom_minimum_size = Vector2(260, 60)
-	_watch_btn.add_theme_font_size_override("font_size", 22)
+	_watch_btn.custom_minimum_size = Vector2(280, 50)
+	_watch_btn.add_theme_font_size_override("font_size", 18)
 	_watch_btn.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
 	_watch_btn.pressed.connect(func() -> void:
 		if game:
@@ -180,8 +184,8 @@ func _ready() -> void:
 	dv.add_child(_watch_btn)
 	_menu_btn = Button.new()
 	_menu_btn.text = "Main Menu"
-	_menu_btn.custom_minimum_size = Vector2(260, 60)
-	_menu_btn.add_theme_font_size_override("font_size", 22)
+	_menu_btn.custom_minimum_size = Vector2(280, 50)
+	_menu_btn.add_theme_font_size_override("font_size", 18)
 	_menu_btn.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
 	_menu_btn.pressed.connect(func() -> void: menu_requested.emit())
 	dv.add_child(_menu_btn)
@@ -196,28 +200,31 @@ func _ready() -> void:
 	# Tips (first-time hints) in a panel on the right; the tutorial's current
 	# step under the clock.
 	_tip = PanelContainer.new()
-	var sb := StyleBoxFlat.new()
-	sb.bg_color = Color(0.05, 0.07, 0.06, 0.85)
-	sb.border_color = Color(0.85, 0.7, 0.3, 0.8)
-	sb.set_border_width_all(2)
-	sb.set_corner_radius_all(6)
-	sb.set_content_margin_all(12)
-	_tip.add_theme_stylebox_override("panel", sb)
+	_tip.add_theme_stylebox_override("panel", MenuTheme.stripe_box(Color(0.05, 0.055, 0.06, 0.88), MenuTheme.WARN))
 	root.add_child(_tip)
-	_place(_tip, Vector2(1, 0), Rect2(-400, 150, 380, 120))
+	_place(_tip, Vector2(1, 0), Rect2(-396, 124 if GameState.uses_touch() else 20, 380, 110))
 	var tv := VBoxContainer.new()
+	tv.add_theme_constant_override("separation", 4)
 	_tip.add_child(tv)
-	_tip_title = _label(tv, 19)
-	_tip_title.add_theme_color_override("font_color", Color(0.95, 0.8, 0.4))
-	_tip_text = _label(tv, 15)
+	_tip_title = MenuTheme.heading("", 15, MenuTheme.WARN)
+	tv.add_child(_tip_title)
+	_tip_text = Label.new()
+	_tip_text.add_theme_font_size_override("font_size", 15)
+	_tip_text.add_theme_color_override("font_color", MenuTheme.TEXT)
 	_tip_text.autowrap_mode = TextServer.AUTOWRAP_WORD
-	_tip_text.custom_minimum_size.x = 356
+	_tip_text.custom_minimum_size.x = 350
+	tv.add_child(_tip_text)
 	_tip.visible = false
-	_step = _label(root, 17)
-	_step.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	_step.autowrap_mode = TextServer.AUTOWRAP_WORD
-	_step.add_theme_color_override("font_color", Color(0.95, 0.85, 0.5))
-	_place(_step, Vector2(0.5, 0), Rect2(-330, (80.0 if GameState.uses_touch() else 16.0) + 84.0, 660, 50))
+	_step = PanelContainer.new()
+	_step.add_theme_stylebox_override("panel", MenuTheme.stripe_box(Color(0.05, 0.055, 0.06, 0.85), MenuTheme.ACCENT))
+	root.add_child(_step)
+	_place(_step, Vector2(0.5, 0), Rect2(-300, 96 if GameState.uses_touch() else 76, 600, 40))
+	_step_label = Label.new()
+	_step_label.add_theme_font_size_override("font_size", 16)
+	_step_label.autowrap_mode = TextServer.AUTOWRAP_WORD
+	_step_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	_step.add_child(_step_label)
+	_step.visible = false
 
 	GameState.message.connect(show_message)
 
@@ -228,29 +235,6 @@ func connect_player(p: Player) -> void:
 	p.weapons.hit_zombie.connect(func(killed: bool) -> void:
 		_hit_t = 0.25
 		_hit_kill = killed)
-
-
-func _add_bar(parent: Node, key: String, text: String, color: Color) -> void:
-	var row := HBoxContainer.new()
-	var l := Label.new()
-	l.text = text
-	l.custom_minimum_size = Vector2(64, 0)
-	l.add_theme_font_size_override("font_size", 14)
-	_outline(l)
-	row.add_child(l)
-	var bar := ProgressBar.new()
-	bar.custom_minimum_size = Vector2(200, 16)
-	bar.show_percentage = false
-	bar.max_value = 100.0
-	var bg := StyleBoxFlat.new()
-	bg.bg_color = Color(0, 0, 0, 0.45)
-	var fill := StyleBoxFlat.new()
-	fill.bg_color = color
-	bar.add_theme_stylebox_override("background", bg)
-	bar.add_theme_stylebox_override("fill", fill)
-	row.add_child(bar)
-	parent.add_child(row)
-	_bars[key] = bar
 
 
 func _label(parent: Node, font_size: int) -> Label:
@@ -300,16 +284,18 @@ func _update_tips(delta: float) -> void:
 			_tip.visible = false
 	elif not _tips.is_empty():
 		var t: Array = _tips.pop_front()
-		_tip_title.text = "TIP: " + str(t[0])
+		_tip_title.text = "TIP  ·  " + str(t[0]).to_upper()
 		_tip_text.text = str(t[1])
 		_tip.visible = true
 		_tip_t = 9.0
-	_step.text = game.hints.current_step() if game and game.get("hints") else ""
+	var step: String = game.hints.current_step() if game and game.get("hints") else ""
+	_step_label.text = step
+	_step.visible = step != "" and not GameState.ui_open
 
 
 func show_message(text: String) -> void:
-	_toast.text = text
-	_toast_t = 2.5
+	_toast_text = text
+	_toast_t = 2.8
 
 
 func set_loading(on: bool) -> void:
@@ -328,11 +314,12 @@ func set_loading_progress(f: float, text: String) -> void:
 func show_death(on: bool, rule := 0, cause := "", turned := false, multi := false) -> void:
 	_death.visible = on
 	_death_full = not multi
-	_death.color.a = 0.25 if multi else 0.75
-	_place(_death_panel, Vector2(0.5, 1.0 if multi else 0.5), Rect2(-300, -360, 600, 340) if multi else Rect2(-300, -170, 600, 340))
+	_death.color.a = 0.25 if multi else 0.8
+	_place(_death_panel, Vector2(0.5, 1.0 if multi else 0.5), Rect2(-300, -400, 600, 380) if multi else Rect2(-300, -190, 600, 380))
 	var lost := rule == GameState.DeathRule.PERMADEATH and not multi
 	var out := multi and rule == GameState.DeathRule.PERMADEATH and not turned
 	_death_title.text = "WORLD LOST" if lost else ("YOU'RE OUT" if out else ("YOU TURNED" if turned else "YOU DIED"))
+	_death_info.custom_minimum_size.x = 540
 	_respawn_btn.visible = rule == GameState.DeathRule.RESPAWN
 	_new_char_btn.visible = rule == GameState.DeathRule.NEW_CHARACTER
 	_watch_btn.visible = multi and (out or turned or rule == GameState.DeathRule.PERMADEATH)
@@ -380,24 +367,11 @@ func toggle_debug() -> void:
 
 
 func _process(delta: float) -> void:
+	_time += delta
 	if player:
-		# Minimal HUD: a bar only shows when it needs attention.
-		var minimal: bool = GameState.settings.get("hud", "bars") == "minimal"
-		for k in ["health", "hunger", "thirst", "stamina"]:
-			var bar: ProgressBar = _bars[k]
-			bar.get_parent().visible = not minimal or bar.value < bar.max_value * 0.5
-		_bars.health.value = player.health
-		_bars.hunger.value = player.hunger
-		_bars.thirst.value = player.thirst
-		_bars.stamina.value = player.stamina
-		_bars.stamina.max_value = maxf(1.0, player.max_stamina())
-		_status.text = status_text(player)
 		_update_sick(delta)
 	var hours := int(GameState.time_of_day)
 	var minutes := int((GameState.time_of_day - hours) * 60.0)
-	_clock.text = "Day %d   %02d:%02d%s" % [GameState.day, hours, minutes, "  (night)" if GameState.is_night() else ""]
-	if player:
-		_clock.text += "\n%s - %s - %d°C" % [Weather.season(), Weather.NAMES.get(Weather.kind(), ""), roundi(player.feels_like)]
 	if player:
 		var asleep := player.sleeping
 		_sleep.color.a = move_toward(_sleep.color.a, 0.92 if asleep else 0.0, delta * 1.5)
@@ -405,10 +379,10 @@ func _process(delta: float) -> void:
 		_sleep_label.text = "Sleeping...  %02d:%02d\n(Use to get up)" % [hours, minutes] if asleep else ""
 	_flash.color.a = maxf(0.0, _flash.color.a - delta * 0.8)
 	_update_tips(delta)
+	if _tip_t > 0.0:
+		_tip.visible = not GameState.ui_open and not (player and player.dead)
 	_hit_t = maxf(0.0, _hit_t - delta)
-	if _toast_t > 0.0:
-		_toast_t -= delta
-		_toast.modulate.a = clampf(_toast_t, 0.0, 1.0)
+	_toast_t = maxf(0.0, _toast_t - delta)
 	if _show_debug:
 		var vp := get_viewport()
 		_debug.text = "FPS %d  |  3D scale %.2f  |  zombies %d  |  draw calls %d  |  pos %s" % [
@@ -418,7 +392,8 @@ func _process(delta: float) -> void:
 			str(Vector3i(player.global_position)) if player else ""]
 	_overlay.visible = player != null and player.active and not GameState.ui_open and (not player.dead or spectating != "")
 	_overlay.queue_redraw()
-	_players.text = _players_text()
+	_top.visible = player != null and player.active and not GameState.ui_open
+	_top.queue_redraw()
 	if spectating != "" and _death.visible:
 		_death_info.text = _death_info.text.get_slice("\n\nWatching", 0) + "\n\nWatching %s" % spectating
 
@@ -446,46 +421,174 @@ func _players_text() -> String:
 
 ## Short warnings under the bars ("BLEEDING  BROKEN LEG  FEVER").
 static func status_text(p: Player) -> String:
+	return "  ".join(status_list(p).map(func(e: Array) -> String: return e[0]))
+
+
+## The same warnings with an icon and a colour each: [text, icon, colour].
+static func status_list(p: Player) -> Array:
 	var b := p.body
-	var out: PackedStringArray = []
+	var out: Array = []
+	var bad := MenuTheme.BAD
+	var warn := MenuTheme.WARN
 	if b.bleeding():
-		out.append("BLEEDING")
+		out.append(["BLEEDING", "blood", bad])
 	for inj in b.injuries:
 		if inj.k == "fracture":
-			out.append("BROKEN %s" % ("LEG" if str(inj.p).begins_with("leg") else "ARM"))
+			out.append(["BROKEN %s" % ("LEG" if str(inj.p).begins_with("leg") else "ARM"), "bone", bad])
 		elif inj.k == "deep_wound" and not inj.s:
-			out.append("DEEP WOUND")
+			out.append(["DEEP WOUND", "blood", bad])
 	if b.fever():
-		out.append("FEVER")
+		out.append(["FEVER", "thermo", bad])
 	if b.symptoms() > 0.0:
-		out.append("SICK" if b.symptoms() < 0.5 else "TURNING")
+		out.append(["SICK" if b.symptoms() < 0.5 else "TURNING", "virus", Color(0.6, 0.85, 0.3)])
 	if b.pain() > 0.4:
-		out.append("PAIN")
+		out.append(["PAIN", "pain", warn])
 	if p.craving():
-		out.append("CRAVING")
+		out.append(["CRAVING", "pain", warn])
 	if b.sick > 0.25:
-		out.append("NAUSEOUS")
+		out.append(["NAUSEOUS", "nausea", Color(0.6, 0.85, 0.3)])
 	if p.fatigue > 90.0:
-		out.append("EXHAUSTED")
+		out.append(["EXHAUSTED", "tired", bad])
 	elif p.fatigue > 70.0:
-		out.append("TIRED")
+		out.append(["TIRED", "tired", warn])
 	if p.cold > 85.0:
-		out.append("FREEZING")
+		out.append(["FREEZING", "snow", bad])
 	elif p.cold > 50.0:
-		out.append("COLD")
+		out.append(["COLD", "snow", MenuTheme.COLD])
 	elif p.feels_like > 32.0:
-		out.append("HOT")
+		out.append(["HOT", "thermo", warn])
 	if p.wet > 60.0:
-		out.append("SOAKED")
+		out.append(["SOAKED", "wet", MenuTheme.COLD])
 	elif p.wet > 25.0:
-		out.append("WET")
+		out.append(["WET", "wet", MenuTheme.COLD])
 	if p._grab_t > 0.0:
-		out.append("GRABBED")
-	var uniq: PackedStringArray = []
-	for st in out:
-		if not st in uniq:
-			uniq.append(st)
-	return "  ".join(uniq)
+		out.append(["GRABBED", "grab", bad])
+	var seen := {}
+	var uniq: Array = []
+	for e in out:
+		if not seen.has(e[0]):
+			seen[e[0]] = true
+			uniq.append(e)
+	return uniq
+
+
+## Which survival bars are on screen (the minimal HUD only shows the ones
+## that need attention).
+func vital_rows() -> Array:
+	if player == null:
+		return []
+	var minimal: bool = GameState.settings.get("hud", "bars") == "minimal"
+	var rows := []
+	for r in _vitals():
+		if not minimal or float(r[1]) < 0.5:
+			rows.append(r[0])
+	return rows
+
+
+## [key, fraction, icon, colour] for each survival bar.
+func _vitals() -> Array:
+	return [
+		["health", player.health / 100.0, "heart", Color(0.86, 0.24, 0.22)],
+		["hunger", player.hunger / 100.0, "food", Color(0.88, 0.6, 0.22)],
+		["thirst", player.thirst / 100.0, "water", Color(0.3, 0.6, 0.95)],
+		["stamina", player.stamina / maxf(1.0, player.max_stamina()), "stamina", Color(0.88, 0.82, 0.32)],
+	]
+
+
+## Top of the screen: survival bars and warnings (top-left), the clock and
+## weather (top-centre), the other players, and messages.
+func _draw_top() -> void:
+	if player == null:
+		return
+	var ci := _top
+	var size := ci.size
+	var font := MenuTheme.bold_font()
+	var plain := ci.get_theme_default_font()
+	var touch := GameState.uses_touch() and not GameState.using_gamepad()
+	var pos := Vector2(16, 16)
+	# Survival bars.
+	var shown := vital_rows()
+	var y := pos.y
+	if not shown.is_empty() and not player.dead:
+		var rows := _vitals().filter(func(r: Array) -> bool: return r[0] in shown)
+		var card := Rect2(pos, Vector2(228, 14 + rows.size() * 24))
+		ci.draw_style_box(_hud_box, card)
+		var ry := pos.y + 7
+		for r in rows:
+			var f := clampf(float(r[1]), 0.0, 1.0)
+			var col: Color = r[3]
+			var low := f < 0.25
+			if low:
+				col = MenuTheme.BAD.lerp(Color.WHITE, 0.25 * (0.5 + 0.5 * sin(_time * 7.0)))
+			Icons.draw(ci, r[2], Vector2(pos.x + 19, ry + 12), 16.0, col if low else Color(col, 0.95))
+			var bar := Rect2(pos.x + 36, ry + 8, 150, 8)
+			ci.draw_rect(bar, Color(0, 0, 0, 0.5))
+			ci.draw_rect(Rect2(bar.position, Vector2(bar.size.x * f, bar.size.y)), col)
+			# Quarter ticks.
+			for k in range(1, 4):
+				ci.draw_line(bar.position + Vector2(bar.size.x * k / 4.0, 0), bar.position + Vector2(bar.size.x * k / 4.0, bar.size.y), Color(0, 0, 0, 0.45), 1.0)
+			var pct := "%d" % int(round(f * 100.0))
+			ci.draw_string(plain, Vector2(pos.x + 192, ry + 17), pct, HORIZONTAL_ALIGNMENT_RIGHT, 28, 13, Color(MenuTheme.TEXT, 0.85))
+			ry += 24
+		y = card.end.y + 8
+	# Warnings as chips.
+	var x := pos.x
+	var chip_h := 26.0
+	for e in status_list(player) if not player.dead else []:
+		var t: String = e[0]
+		var tw := font.get_string_size(t, HORIZONTAL_ALIGNMENT_LEFT, -1, 13).x
+		var wdt := tw + 38.0
+		if x + wdt > pos.x + 380.0:
+			x = pos.x
+			y += chip_h + 6
+		var col: Color = e[2]
+		var r := Rect2(x, y, wdt, chip_h)
+		var sb: StyleBoxFlat = _chip_box
+		sb.bg_color = Color(col.darkened(0.7), 0.82)
+		sb.border_color = Color(col, 0.7)
+		ci.draw_style_box(sb, r)
+		Icons.draw(ci, e[1], Vector2(x + 15, y + chip_h * 0.5), 14.0, col)
+		ci.draw_string(font, Vector2(x + 28, y + 18), t, HORIZONTAL_ALIGNMENT_LEFT, -1, 13, col.lightened(0.35))
+		x += wdt + 6
+	if x > pos.x:
+		y += chip_h + 8
+	_weapon_y = y
+	# Clock and weather.
+	var hours := int(GameState.time_of_day)
+	var minutes := int((GameState.time_of_day - hours) * 60.0)
+	var night := GameState.is_night()
+	var line1 := "DAY %d   %02d:%02d" % [GameState.day, hours, minutes]
+	var wk := Weather.kind()
+	var line2 := "%s  ·  %s  ·  %d°C" % [Weather.NAMES.get(wk, ""), Weather.season(), roundi(player.feels_like)]
+	var w1 := font.get_string_size(line1, HORIZONTAL_ALIGNMENT_LEFT, -1, 18).x
+	var w2 := plain.get_string_size(line2, HORIZONTAL_ALIGNMENT_LEFT, -1, 13).x
+	var cw := maxf(w1 + 34.0, w2 + 34.0) + 20.0
+	var cy := 14.0
+	var crect := Rect2(size.x * 0.5 - cw * 0.5, cy, cw, 50)
+	ci.draw_style_box(_hud_box, crect)
+	Icons.draw(ci, "moon" if night else "sun", Vector2(crect.position.x + 22, cy + 17), 16.0, Color(0.75, 0.82, 1.0) if night else MenuTheme.WARN)
+	ci.draw_string(font, Vector2(crect.position.x + 38, cy + 23), line1, HORIZONTAL_ALIGNMENT_LEFT, -1, 18, MenuTheme.TEXT)
+	var wicon: String = {"rain": "rain", "storm": "storm", "snow": "snow", "fog": "fog_icon", "cloudy": "cloud"}.get(wk, "sun" if not night else "moon")
+	Icons.draw(ci, wicon, Vector2(crect.position.x + 22, cy + 37), 13.0, MenuTheme.DIM.lightened(0.2))
+	ci.draw_string(plain, Vector2(crect.position.x + 38, cy + 42), line2, HORIZONTAL_ALIGNMENT_LEFT, -1, 13, MenuTheme.DIM.lightened(0.2))
+	# The other players.
+	var pt := _players_text()
+	if pt != "":
+		var pw := plain.get_string_size(pt, HORIZONTAL_ALIGNMENT_LEFT, -1, 14).x
+		var prect := Rect2(size.x * 0.5 - pw * 0.5 - 24, crect.end.y + 6, pw + 44, 26)
+		ci.draw_style_box(_hud_box, prect)
+		Icons.draw(ci, "person", Vector2(prect.position.x + 16, prect.position.y + 13), 13.0, MenuTheme.DIM.lightened(0.2))
+		ci.draw_string(plain, Vector2(prect.position.x + 30, prect.position.y + 18), pt, HORIZONTAL_ALIGNMENT_LEFT, -1, 14, MenuTheme.TEXT)
+	# Messages: a pill near the bottom.
+	if _toast_t > 0.0 and _toast_text != "":
+		var a := clampf(_toast_t * 2.0, 0.0, 1.0)
+		var tw := font.get_string_size(_toast_text, HORIZONTAL_ALIGNMENT_LEFT, -1, 17).x
+		var tr := Rect2(size.x * 0.5 - tw * 0.5 - 20, size.y - (200.0 if touch else 150.0), tw + 40, 38)
+		var sb: StyleBoxFlat = _pill_box
+		sb.bg_color = Color(0.04, 0.045, 0.05, 0.8 * a)
+		sb.border_color = Color(1, 1, 1, 0.1 * a)
+		ci.draw_style_box(sb, tr)
+		ci.draw_string(font, Vector2(tr.position.x + 20, tr.position.y + 25), _toast_text, HORIZONTAL_ALIGNMENT_LEFT, -1, 17, Color(MenuTheme.TEXT, a))
 
 
 ## Blur, fading colour and a heartbeat vignette as the infection takes
@@ -524,7 +627,7 @@ func _draw_overlay() -> void:
 		return
 	if player.vehicle:
 		_draw_pings(ci, size, font)
-		_draw_prompt(ci, Vector2(c.x, size.y - 150.0), font)
+		_draw_prompt(ci, Vector2(c.x, size.y - 210.0), font)
 		_draw_vehicle_panel(ci, size, font, player.vehicle)
 		return
 	if w.scoped():
@@ -674,63 +777,84 @@ func _draw_senses(ci: Control, c: Vector2) -> void:
 		ci.draw_arc(c, 70.0, ang - 0.22, ang + 0.22, 12, Color(0.95, 0.15, 0.1, a * 0.8), 5.0)
 
 
-## "[E] Open door" with the right glyph for the device in use; while
-## interact is held on something holdable, a ring fills around the glyph.
+## "[E] Open door" in a pill under the crosshair, with the right glyph for
+## the device in use; while interact is held on something holdable, a ring
+## fills around the glyph.
 func _draw_prompt(ci: Control, c: Vector2, font: Font) -> void:
 	if player.prompt == "":
 		return
-	var fs := 20
+	var bold := MenuTheme.bold_font()
+	var fs := 17
 	var action := player.prompt_action
-	var tw := font.get_string_size(player.prompt, HORIZONTAL_ALIGNMENT_LEFT, -1, fs).x
-	var gw := 0.0 if GameState.uses_touch() and not GameState.using_gamepad() else InputGlyphs.width(action, font, 28.0)
-	var x := c.x - (tw + gw + (8.0 if gw > 0.0 else 0.0)) * 0.5
-	var y := c.y + 44.0
+	var tw := bold.get_string_size(player.prompt, HORIZONTAL_ALIGNMENT_LEFT, -1, fs).x
+	var gw := 0.0 if GameState.uses_touch() and not GameState.using_gamepad() else InputGlyphs.width(action, font, 26.0)
+	var inner := tw + (gw + 10.0 if gw > 0.0 else 0.0)
+	var y := c.y + 54.0
+	var r := Rect2(c.x - inner * 0.5 - 16.0, y, inner + 32.0, 40.0)
+	ci.draw_style_box(_prompt_box, r)
+	var x := r.position.x + 16.0
 	if gw > 0.0:
-		InputGlyphs.draw(ci, action, Vector2(x, y), 28.0, font)
-		x += gw + 8.0
-	ci.draw_string_outline(font, Vector2(x, y + 21), player.prompt, HORIZONTAL_ALIGNMENT_LEFT, -1, fs, 4, Color.BLACK)
-	ci.draw_string(font, Vector2(x, y + 21), player.prompt, HORIZONTAL_ALIGNMENT_LEFT, -1, fs, Color.WHITE)
-	if player.hold_prompt != "":
-		var hint := "Hold to %s" % player.hold_prompt
-		var hw := font.get_string_size(hint, HORIZONTAL_ALIGNMENT_LEFT, -1, 15).x
-		ci.draw_string_outline(font, Vector2(c.x - hw * 0.5, y + 44), hint, HORIZONTAL_ALIGNMENT_LEFT, -1, 15, 4, Color.BLACK)
-		ci.draw_string(font, Vector2(c.x - hw * 0.5, y + 44), hint, HORIZONTAL_ALIGNMENT_LEFT, -1, 15, Color(0.8, 0.85, 0.8))
-	# The second action (reload button), with its own glyph.
-	if player.alt_prompt != "":
-		var ay := y + (66.0 if player.hold_prompt != "" else 44.0)
-		var aw := font.get_string_size(player.alt_prompt, HORIZONTAL_ALIGNMENT_LEFT, -1, 17).x
-		var agw := 0.0 if GameState.uses_touch() and not GameState.using_gamepad() else InputGlyphs.width("reload", font, 24.0)
-		var ax := c.x - (aw + agw + (6.0 if agw > 0.0 else 0.0)) * 0.5
-		if agw > 0.0:
-			InputGlyphs.draw(ci, "reload", Vector2(ax, ay - 4), 24.0, font)
-			ax += agw + 6.0
-		ci.draw_string_outline(font, Vector2(ax, ay + 14), player.alt_prompt, HORIZONTAL_ALIGNMENT_LEFT, -1, 17, 4, Color.BLACK)
-		ci.draw_string(font, Vector2(ax, ay + 14), player.alt_prompt, HORIZONTAL_ALIGNMENT_LEFT, -1, 17, Color(0.9, 0.9, 0.75))
+		InputGlyphs.draw(ci, action, Vector2(x, y + 7), 26.0, font)
+		x += gw + 10.0
+	ci.draw_string(bold, Vector2(x, y + 26), player.prompt, HORIZONTAL_ALIGNMENT_LEFT, -1, fs, Color.WHITE)
 	var hold := player.hold_progress()
 	if hold > 0.0:
-		ci.draw_arc(Vector2(c.x, y + 14), 26.0, -PI * 0.5, -PI * 0.5 + TAU * hold, 32, Color(0.95, 0.85, 0.3), 4.0)
+		var rr := Rect2(r.position + Vector2(0, r.size.y - 4), Vector2(r.size.x * hold, 4))
+		ci.draw_rect(rr, MenuTheme.WARN)
+	var ny := r.end.y + 6.0
+	if player.hold_prompt != "":
+		var hint := "Hold to %s" % player.hold_prompt
+		var hw := font.get_string_size(hint, HORIZONTAL_ALIGNMENT_LEFT, -1, 14).x
+		ci.draw_string_outline(font, Vector2(c.x - hw * 0.5, ny + 14), hint, HORIZONTAL_ALIGNMENT_LEFT, -1, 14, 4, Color(0, 0, 0, 0.7))
+		ci.draw_string(font, Vector2(c.x - hw * 0.5, ny + 14), hint, HORIZONTAL_ALIGNMENT_LEFT, -1, 14, MenuTheme.WARN.lightened(0.3))
+		ny += 22.0
+	# The second action (reload button), with its own glyph.
+	if player.alt_prompt != "":
+		var aw := font.get_string_size(player.alt_prompt, HORIZONTAL_ALIGNMENT_LEFT, -1, 15).x
+		var agw := 0.0 if GameState.uses_touch() and not GameState.using_gamepad() else InputGlyphs.width("reload", font, 22.0)
+		var ainner := aw + (agw + 8.0 if agw > 0.0 else 0.0)
+		var ar := Rect2(c.x - ainner * 0.5 - 12.0, ny, ainner + 24.0, 32.0)
+		ci.draw_style_box(_prompt_box, ar)
+		var ax := ar.position.x + 12.0
+		if agw > 0.0:
+			InputGlyphs.draw(ci, "reload", Vector2(ax, ny + 5), 22.0, font)
+			ax += agw + 8.0
+		ci.draw_string(font, Vector2(ax, ny + 21), player.alt_prompt, HORIZONTAL_ALIGNMENT_LEFT, -1, 15, MenuTheme.TEXT)
 
 
 ## Driving: speed, fuel, condition and warnings (bottom-right, or top-left
 ## on touch like the weapon panel).
 func _draw_vehicle_panel(ci: Control, size: Vector2, font: Font, v: Vehicle) -> void:
 	var touch := GameState.uses_touch() and not GameState.using_gamepad()
-	var pos := Vector2(20, 156) if touch else Vector2(size.x - 300, size.y - 132)
-	ci.draw_rect(Rect2(pos, Vector2(280, 112)), Color(0, 0, 0, 0.45))
-	var white := Color.WHITE
-	var lines: Array = []
+	var card := Rect2(Vector2(16, _weapon_y) if touch else Vector2(size.x - 316, size.y - 136), Vector2(300, 120))
+	ci.draw_style_box(_hud_box, card)
+	var bold := MenuTheme.bold_font()
+	var pos := card.position
+	ci.draw_string(bold, pos + Vector2(14, 26), str(v.def.name).to_upper(), HORIZONTAL_ALIGNMENT_LEFT, 180, 15, MenuTheme.DIM.lightened(0.3))
 	var kmh := int(absf(v.speed) * 3.6)
-	lines.append(["%s   %d km/h" % [v.def.name, kmh], 20, white])
-	var info: PackedStringArray = []
+	var sp := "%d" % kmh
+	ci.draw_string(bold, pos + Vector2(14, 70), sp, HORIZONTAL_ALIGNMENT_LEFT, -1, 40, Color.WHITE)
+	var spw := bold.get_string_size(sp, HORIZONTAL_ALIGNMENT_LEFT, -1, 40).x
+	ci.draw_string(font, pos + Vector2(20 + spw, 70), "km/h", HORIZONTAL_ALIGNMENT_LEFT, -1, 14, MenuTheme.DIM)
+	# Fuel and condition gauges on the right.
+	var gx := pos.x + 160
+	var rows := []
 	if v.def.fuel != "":
-		info.append("Fuel %d / %d L" % [int(v.rec.fuel), int(v.def.tank)])
-	info.append("Condition %d%%" % int(100.0 * float(v.rec.hp) / float(v.def.hp)))
-	lines.append(["   ".join(info), 16, Color(0.85, 0.9, 0.85)])
+		rows.append(["Fuel", float(v.rec.fuel) / maxf(1.0, float(v.def.tank)), MenuTheme.WARN])
+	rows.append(["Condition", float(v.rec.hp) / maxf(1.0, float(v.def.hp)), MenuTheme.GOOD])
+	var gy := pos.y + 44
+	for r in rows:
+		var f := clampf(float(r[1]), 0.0, 1.0)
+		var col: Color = r[2] if f > 0.15 else MenuTheme.BAD
+		ci.draw_string(font, Vector2(gx, gy), r[0], HORIZONTAL_ALIGNMENT_LEFT, -1, 12, MenuTheme.DIM)
+		ci.draw_rect(Rect2(gx, gy + 5, 124, 6), Color(0, 0, 0, 0.5))
+		ci.draw_rect(Rect2(gx, gy + 5, 124 * f, 6), col)
+		gy += 30
 	var warn := ""
 	if float(v.rec.hp) <= 0.0:
 		warn = "Wrecked"
 	elif v.def.fuel != "" and not v.running and player.seat == 0:
-		warn = "Engine off - %s" % ("press reload to start" if not GameState.uses_touch() else "tap RELOAD to start")
+		warn = "Engine off - %s" % ("press reload to start" if not GameState.uses_touch() else "tap START")
 	elif v.def.fuel != "" and float(v.rec.fuel) < float(v.def.tank) * 0.1:
 		warn = "Low fuel"
 	elif v.kind == "plane":
@@ -738,46 +862,55 @@ func _draw_vehicle_panel(ci: Control, size: Vector2, font: Font, v: Vehicle) -> 
 	elif v.kind == "heli":
 		warn = "Altitude %d m" % int(v.global_position.y - gen_height(v.global_position))
 	if warn != "":
-		lines.append([warn, 16, Color(1, 0.75, 0.35)])
-	var y := pos.y + 28
-	for l in lines:
-		ci.draw_string_outline(font, Vector2(pos.x + 12, y), l[0], HORIZONTAL_ALIGNMENT_LEFT, 260, l[1], 4, Color.BLACK)
-		ci.draw_string(font, Vector2(pos.x + 12, y), l[0], HORIZONTAL_ALIGNMENT_LEFT, 260, l[1], l[2])
-		y += 30
+		ci.draw_string(bold, pos + Vector2(14, 104), warn, HORIZONTAL_ALIGNMENT_LEFT, 280, 13, MenuTheme.WARN)
 
 
 func gen_height(p: Vector3) -> float:
 	return player.gen.height(p.x, p.z) if player.gen else 0.0
 
 
-## Current weapon, rounds and condition. Bottom-right on desktop and gamepad;
-## top-left under the bars on touch (the buttons own the bottom-right).
+## Current weapon, rounds and condition, with the item's picture.
+## Bottom-right on desktop and gamepad; top-left under the bars on touch
+## (the buttons own the bottom-right).
 func _draw_weapon_panel(ci: Control, size: Vector2, font: Font, w: Weapons) -> void:
 	var st := w.status()
 	if st.name == "":
 		return
 	var touch := GameState.uses_touch() and not GameState.using_gamepad()
-	var pos := Vector2(20, 156) if touch else Vector2(size.x - 280, size.y - 92)
-	var panel := Rect2(pos, Vector2(260, 72))
-	ci.draw_rect(panel, Color(0, 0, 0, 0.4))
-	var name_text: String = st.name
-	ci.draw_string_outline(font, pos + Vector2(10, 24), name_text, HORIZONTAL_ALIGNMENT_LEFT, 240, 18, 4, Color.BLACK)
-	ci.draw_string(font, pos + Vector2(10, 24), name_text, HORIZONTAL_ALIGNMENT_LEFT, 240, 18, Color.WHITE)
+	var card := Rect2(Vector2(16, _weapon_y) if touch else Vector2(size.x - 296, size.y - 92), Vector2(280, 76))
+	ci.draw_style_box(_hud_box, card)
+	var pos := card.position
+	var bold := MenuTheme.bold_font()
+	# Picture.
+	var pic := Rect2(pos + Vector2(8, 8), Vector2(92, 60))
+	ci.draw_rect(pic, Color(1, 1, 1, 0.04))
+	var it := w.item()
+	var id: String = it.get("id", "")
+	if ItemIcons.texture and ItemIcons.regions.has(id):
+		var reg: Rect2 = ItemIcons.regions[id]
+		var k := minf(pic.size.x / reg.size.x, pic.size.y / reg.size.y) * 0.95
+		var dsz := reg.size * k
+		ci.draw_texture_rect_region(ItemIcons.texture, Rect2(pic.get_center() - dsz * 0.5, dsz), reg)
+	else:
+		Icons.draw(ci, {"gun": "gun", "bow": "bow", "throw": "throw"}.get(w.def().get("cat", ""), "fist"), pic.get_center(), 34.0, MenuTheme.DIM)
+	var tx := pos.x + 110
+	ci.draw_string(bold, Vector2(tx, pos.y + 26), str(st.name).to_upper(), HORIZONTAL_ALIGNMENT_LEFT, 160, 14, MenuTheme.TEXT)
 	if st.ammo != "":
-		ci.draw_string_outline(font, pos + Vector2(10, 52), st.ammo, HORIZONTAL_ALIGNMENT_LEFT, -1, 24, 4, Color.BLACK)
-		ci.draw_string(font, pos + Vector2(10, 52), st.ammo, HORIZONTAL_ALIGNMENT_LEFT, -1, 24, Color(1, 0.95, 0.75))
+		var parts := str(st.ammo).split(" / ")
+		ci.draw_string(bold, Vector2(tx, pos.y + 56), parts[0], HORIZONTAL_ALIGNMENT_LEFT, -1, 28, Color.WHITE)
+		if parts.size() > 1:
+			var aw := bold.get_string_size(parts[0], HORIZONTAL_ALIGNMENT_LEFT, -1, 28).x
+			ci.draw_string(font, Vector2(tx + aw + 6, pos.y + 56), "/ " + parts[1], HORIZONTAL_ALIGNMENT_LEFT, -1, 15, MenuTheme.DIM)
 	if st.state != "":
-		ci.draw_string_outline(font, pos + Vector2(130, 52), st.state, HORIZONTAL_ALIGNMENT_LEFT, -1, 16, 4, Color.BLACK)
-		ci.draw_string(font, pos + Vector2(130, 52), st.state, HORIZONTAL_ALIGNMENT_LEFT, -1, 16, Color(1, 0.5, 0.35))
+		ci.draw_string(bold, Vector2(tx + 70, pos.y + 54), st.state, HORIZONTAL_ALIGNMENT_LEFT, 100, 12, MenuTheme.BAD.lightened(0.2))
 	if float(st.cond) >= 0.0:
 		var c := float(st.cond)
-		ci.draw_rect(Rect2(pos + Vector2(10, 62), Vector2(240, 4)), Color(0, 0, 0, 0.5))
-		ci.draw_rect(Rect2(pos + Vector2(10, 62), Vector2(240 * c, 4)), Color(0.3, 0.8, 0.3) if c > 0.5 else (Color(0.9, 0.7, 0.2) if c > 0.25 else Color(0.9, 0.25, 0.2)))
+		var bar := Rect2(tx, pos.y + 64, 158, 4)
+		ci.draw_rect(bar, Color(0, 0, 0, 0.5))
+		ci.draw_rect(Rect2(bar.position, Vector2(bar.size.x * c, bar.size.y)), MenuTheme.GOOD if c > 0.5 else (MenuTheme.WARN if c > 0.25 else MenuTheme.BAD))
 	# Slot hints for keyboard / gamepad.
 	if not touch:
-		var hint := "1-4 / wheel" if not GameState.using_gamepad() else ""
 		if GameState.using_gamepad():
-			var gx := pos.x + panel.size.x - 60
-			InputGlyphs.draw(ci, "weapon_prev", Vector2(gx - 2, pos.y - 30), 24.0, font)
-		elif hint != "":
-			ci.draw_string(font, pos + Vector2(180, 24), hint, HORIZONTAL_ALIGNMENT_LEFT, -1, 12, Color(1, 1, 1, 0.5))
+			InputGlyphs.draw(ci, "weapon_prev", Vector2(card.end.x - 34, pos.y - 30), 24.0, font)
+		else:
+			ci.draw_string(font, Vector2(card.end.x - 80, pos.y - 8), "1-4 / wheel", HORIZONTAL_ALIGNMENT_LEFT, -1, 12, Color(1, 1, 1, 0.45))

@@ -17,9 +17,11 @@ signal craft_requested
 
 const MARGIN := 24.0
 const GAP := 1.0 # Cells between columns.
-const BG := Color(0.05, 0.06, 0.06, 0.86)
-const FRAME := Color(0.3, 0.32, 0.3, 0.9)
-const CELL_BG := Color(0.12, 0.13, 0.13, 0.85)
+const BG := Color(0.025, 0.028, 0.032, 0.9)
+const FRAME := Color(1, 1, 1, 0.1)
+const CELL_BG := Color(0.1, 0.107, 0.115, 0.95)
+const SLOT_ICONS := {"primary": "gun", "sidearm": "gun", "throw": "throw", "melee": "fist", "back": "bag", "vest": "bag",
+	"head": "person", "torso": "person", "jacket": "person", "legs": "person", "feet": "person"}
 const GOOD := Color(0.35, 0.8, 0.35, 0.5)
 const BAD := Color(0.85, 0.25, 0.2, 0.5)
 ## Equipment slot boxes, in cells (x, y, w, h) inside the equipment column.
@@ -59,6 +61,9 @@ var _opened_frame := -1
 var _tab := "gear" # "gear" or "body".
 var _health_rect := Rect2()
 var _hy := 0.0 # Text cursor while drawing the health panel.
+var _panel_box := MenuTheme.box(Color(0.06, 0.065, 0.07, 0.96), 10, MenuTheme.LINE, 1, 0.0)
+var _slot_box := MenuTheme.box(Color(0.085, 0.09, 0.098, 0.95), 6, Color(1, 1, 1, 0.08), 1, 0.0)
+var _item_box := MenuTheme.box(Color.BLACK, 4, Color.WHITE, 1, 0.0)
 
 
 func _ready() -> void:
@@ -81,12 +86,10 @@ func _ready() -> void:
 	bar.offset_top = -118
 	bar.offset_bottom = -10
 	bar.add_theme_constant_override("separation", 6)
-	bar.theme = _button_theme()
 	add_child(bar)
 	_info = Label.new()
 	_info.add_theme_font_size_override("font_size", 17)
-	_info.add_theme_color_override("font_outline_color", Color.BLACK)
-	_info.add_theme_constant_override("outline_size", 4)
+	_info.add_theme_color_override("font_color", MenuTheme.TEXT)
 	_info.autowrap_mode = TextServer.AUTOWRAP_WORD
 	_info.custom_minimum_size.y = 44
 	bar.add_child(_info)
@@ -122,23 +125,6 @@ func _ready() -> void:
 			_layout()
 			_board.queue_redraw())
 	GameState.device_changed.connect(func() -> void: _board.queue_redraw())
-
-
-func _button_theme() -> Theme:
-	var t := Theme.new()
-	var normal := StyleBoxFlat.new()
-	normal.bg_color = Color(0.16, 0.17, 0.17, 0.95)
-	normal.set_corner_radius_all(6)
-	normal.set_content_margin_all(8)
-	var hover := normal.duplicate()
-	hover.bg_color = Color(0.24, 0.25, 0.25, 0.95)
-	var pressed := normal.duplicate()
-	pressed.bg_color = Color(0.62, 0.12, 0.1)
-	t.set_stylebox("normal", "Button", normal)
-	t.set_stylebox("hover", "Button", hover)
-	t.set_stylebox("pressed", "Button", pressed)
-	t.set_stylebox("focus", "Button", StyleBoxEmpty.new())
-	return t
 
 
 func is_open() -> bool:
@@ -194,15 +180,15 @@ func _layout() -> void:
 		right_w = maxf(right_w, g.w)
 	var need_w := 5.0 + mid_w + right_w + GAP * 2.0
 	var need_h := maxf(maxf(10.4, mid_cells), right_cells) + 1.0
-	_cell = clampf(minf((size.x - MARGIN * 2.0) / need_w, (size.y - 190.0) / need_h), 28.0, 58.0)
+	_cell = clampf(minf((size.x - MARGIN * 2.0 - 48.0) / need_w, (size.y - 228.0) / need_h), 28.0, 58.0)
 	var total_w := need_w * _cell
 	var x0 := (size.x - total_w) * 0.5
-	var y0 := 46.0
+	var y0 := 76.0
 	_areas.clear()
 	var boxes: Dictionary = SLOT_BOXES if _tab == "gear" else BODY_BOXES
 	for s in boxes:
 		var b: Rect2 = boxes[s]
-		_areas.append({"kind": "slot", "key": s, "slot": s, "rect": Rect2(x0 + b.position.x * _cell, y0 + 22 + b.position.y * _cell, b.size.x * _cell, b.size.y * _cell)})
+		_areas.append({"kind": "slot", "key": s, "slot": s, "rect": Rect2(x0 + b.position.x * _cell, y0 + 18 + b.position.y * _cell, b.size.x * _cell, b.size.y * _cell)})
 	var x := x0 + (5.0 + GAP) * _cell
 	var y := y0
 	for g in grids:
@@ -876,36 +862,48 @@ func _draw_board() -> void:
 	var size := _board.size
 	_board.draw_rect(Rect2(Vector2.ZERO, size), BG)
 	var font := _board.get_theme_default_font()
-	# Column titles.
-	if not _areas.is_empty():
-		var first: Rect2 = _areas[0].rect
-		_text(font, Vector2(first.position.x, 34), "EQUIPPED" if _tab == "gear" else "CLOTHES", 18, Color(0.85, 0.82, 0.75))
+	var head := MenuTheme.heading_font()
+	# A panel behind each column, with its heading.
+	var cols := {}
+	for a in _areas:
+		var r: Rect2 = a.rect
+		var key := "slots" if a.kind == "slot" else ("right" if a.key in ["container", "ground"] else "bag")
+		cols[key] = (cols[key] as Rect2).merge(r) if cols.has(key) else r
+	if _tab == "body":
+		cols["right"] = _health_rect
+	var titles := {"slots": "Equipment" if _tab == "gear" else "Clothes", "bag": "Your bag",
+		"right": ("Body" if _tab == "body" else (Loot.label(_container.type) if not _container.is_empty() else "Nearby"))}
+	for key in cols:
+		var pr: Rect2 = (cols[key] as Rect2).grow_individual(14, 58, 14, 14)
+		_board.draw_style_box(_panel_box, pr)
+		_board.draw_string(head, pr.position + Vector2(14, 26), str(titles[key]).to_upper(), HORIZONTAL_ALIGNMENT_LEFT, -1, 15, MenuTheme.TEXT)
+		_board.draw_rect(Rect2(pr.position + Vector2(14, 33), Vector2(28, 2)), MenuTheme.ACCENT)
 	if _tab == "body":
 		_draw_health(font)
 	for a in _areas:
 		var r: Rect2 = a.rect
 		if a.kind == "slot":
-			_board.draw_rect(r, CELL_BG)
-			_board.draw_rect(r, FRAME, false, 1.5)
-			_text(font, r.position + Vector2(6, 15), ItemDB.SLOT_NAMES[a.slot], 12, Color(0.6, 0.6, 0.58))
+			_board.draw_style_box(_slot_box, r)
+			var lbl: String = ItemDB.SLOT_NAMES[a.slot]
+			_board.draw_string(font, r.position + Vector2(2, -5), lbl.to_upper(), HORIZONTAL_ALIGNMENT_LEFT, -1, 11, MenuTheme.DIM)
 			var it: Dictionary = _inv().equip[a.slot]
 			if not it.is_empty():
-				_draw_item(font, it, _fit_rect(it, r.grow(-4)), false)
+				_draw_item(font, it, _fit_rect(it, r.grow(-5)), false)
+			else:
+				Icons.draw(_board, SLOT_ICONS.get(a.slot, ""), r.get_center(), minf(r.size.x, r.size.y) * 0.45, Color(1, 1, 1, 0.07))
 		else:
 			var g: ItemGrid = a.grid
-			var title := g.title
-			if a.key == "ground" and g.items.is_empty():
-				title += " (nothing)"
-			_text(font, r.position + Vector2(0, -6), title.to_upper(), 15, Color(0.85, 0.82, 0.75))
-			_board.draw_rect(r, CELL_BG)
-			for x in g.w + 1:
-				_board.draw_line(r.position + Vector2(x * _cell, 0), r.position + Vector2(x * _cell, g.h * _cell), Color(1, 1, 1, 0.07), 1.0)
-			for y in g.h + 1:
-				_board.draw_line(r.position + Vector2(0, y * _cell), r.position + Vector2(g.w * _cell, y * _cell), Color(1, 1, 1, 0.07), 1.0)
-			_board.draw_rect(r, FRAME, false, 1.5)
+			if g.title.to_upper() != str(titles.get("right", "")).to_upper():
+				var title := g.title
+				if a.key == "ground" and g.items.is_empty():
+					title += "  (nothing)"
+				_board.draw_string(font, r.position + Vector2(0, -6), title.to_upper(), HORIZONTAL_ALIGNMENT_LEFT, -1, 12, MenuTheme.DIM.lightened(0.15))
+			for y in g.h:
+				for x in g.w:
+					_board.draw_rect(Rect2(r.position + Vector2(x, y) * _cell, Vector2(_cell, _cell)).grow(-1.5), CELL_BG)
 			for it in g.items:
-				var s := ItemGrid.dims(it)
-				var ir := Rect2(r.position + Vector2(int(it.x), int(it.y)) * _cell, Vector2(s) * _cell).grow(-2)
+				var sz := ItemGrid.dims(it)
+				var ir := Rect2(r.position + Vector2(int(it.x), int(it.y)) * _cell, Vector2(sz) * _cell).grow(-2)
 				_draw_item(font, it, ir, bool(it.get("r", false)))
 	# Selection / cursor.
 	if _pad_mode and not _areas.is_empty():
@@ -971,8 +969,10 @@ func _fit_rect(it: Dictionary, box: Rect2) -> Rect2:
 func _draw_item(font: Font, it: Dictionary, r: Rect2, rotated: bool) -> void:
 	var d := ItemDB.get_def(it.id)
 	var col: Color = ItemDB.CAT_COLORS.get(d.get("cat", ""), Color(0.4, 0.4, 0.4))
-	_board.draw_rect(r, Color(col, 0.45))
-	_board.draw_rect(r, Color(col.lightened(0.3), 0.8), false, 1.0)
+	var sb: StyleBoxFlat = _item_box
+	sb.bg_color = Color(col.darkened(0.25), 0.55)
+	sb.border_color = Color(col.lightened(0.35), 0.55)
+	_board.draw_style_box(sb, r)
 	var tex := ItemIcons.texture
 	if tex and ItemIcons.regions.has(it.id):
 		var src: Rect2 = ItemIcons.regions[it.id]
@@ -997,8 +997,8 @@ func _draw_item(font: Font, it: Dictionary, r: Rect2, rotated: bool) -> void:
 		_text(font, Vector2(r.position.x + 4, r.end.y - 4), "%d/%d" % [int(it.get("a", 0)), int(d.mag)], fs, Color(1, 0.95, 0.7))
 	if it.has("c"):
 		var c := float(it.c)
-		var bar := Rect2(r.position.x + 3, r.position.y + 3, (r.size.x - 6) * c, 3)
-		_board.draw_rect(Rect2(bar.position, Vector2(r.size.x - 6, 3)), Color(0, 0, 0, 0.5))
+		var bar := Rect2(r.position.x + 4, r.position.y + 4, (r.size.x - 8) * c, 3)
+		_board.draw_rect(Rect2(bar.position, Vector2(r.size.x - 8, 3)), Color(0, 0, 0, 0.5))
 		_board.draw_rect(bar, Color(0.3, 0.8, 0.3) if c > 0.5 else (Color(0.9, 0.7, 0.2) if c > 0.25 else Color(0.9, 0.25, 0.2)))
 	if it.get("j", false):
 		_text(font, r.position + Vector2(4, 28), "JAMMED", 11, Color(1, 0.4, 0.3))
@@ -1031,12 +1031,9 @@ func _draw_health(font: Font) -> void:
 	var r := _health_rect
 	if r.size.x <= 0.0 or player == null:
 		return
-	_board.draw_rect(r, CELL_BG)
-	_board.draw_rect(r, FRAME, false, 1.5)
 	var ch := GameState.character
 	var b := player.body
-	_hy = r.position.y + 26.0
-	_text(font, r.position + Vector2(0, -6), "HEALTH", 15, Color(0.85, 0.82, 0.75))
+	_hy = r.position.y + 10.0
 	_health_line(font, "%s - %s" % [ch.name, Character.BACKGROUNDS[ch.background].name], Color(0.9, 0.88, 0.8), 18)
 	if not ch.traits.is_empty():
 		_health_line(font, ", ".join(ch.traits.map(func(t: String) -> String: return Character.TRAITS[t].name)), Color(0.6, 0.6, 0.58), 13)

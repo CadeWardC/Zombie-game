@@ -118,6 +118,7 @@ var world := {} # Current world's settings and summary (see create_world).
 
 
 func _ready() -> void:
+	MenuTheme.apply_global()
 	quality = Quality.MEDIUM if OS.has_feature("mobile") else Quality.HIGH
 	_reset_ws()
 	_load_settings()

@@ -21,21 +21,21 @@ var _toggled := {} # action -> bool, for toggle buttons (RUN, AIM).
 # anchor: fraction of the screen size; offset: pixels from that anchor.
 # show: "ranged" = only with a gun or bow.
 var _buttons := [
-	{"action": "attack", "label": "HIT", "anchor": Vector2(1, 1), "offset": Vector2(-130, -150), "radius": 70.0},
-	{"action": "aim", "label": "AIM", "anchor": Vector2(1, 1), "offset": Vector2(-125, -295), "radius": 44.0, "toggle": true, "show": "ranged"},
-	{"action": "reload", "label": "RELOAD", "anchor": Vector2(1, 1), "offset": Vector2(-240, -360), "radius": 36.0, "show": "ranged"},
-	{"action": "shove", "label": "SHOVE", "anchor": Vector2(1, 1), "offset": Vector2(-270, -240), "radius": 42.0},
-	{"action": "jump", "label": "JUMP", "anchor": Vector2(1, 1), "offset": Vector2(-280, -90), "radius": 44.0},
-	{"action": "interact", "label": "USE", "anchor": Vector2(1, 1), "offset": Vector2(-410, -150), "radius": 46.0},
-	{"action": "crouch", "label": "CROUCH", "anchor": Vector2(1, 1), "offset": Vector2(-410, -290), "radius": 40.0},
-	{"action": "sprint", "label": "RUN", "anchor": Vector2(1, 1), "offset": Vector2(-55, -400), "radius": 42.0, "toggle": true},
-	{"action": "inventory", "label": "BAG", "anchor": Vector2(1, 0), "offset": Vector2(-70, 60), "radius": 38.0},
-	{"action": "weapon_next", "label": "WEAPON", "anchor": Vector2(1, 0), "offset": Vector2(-165, 60), "radius": 38.0},
-	{"action": "quick_heal", "label": "HEAL", "anchor": Vector2(1, 0), "offset": Vector2(-260, 60), "radius": 38.0, "item": "medical"},
-	{"action": "quick_eat", "label": "EAT", "anchor": Vector2(1, 0), "offset": Vector2(-355, 60), "radius": 38.0, "item": "food"},
-	{"action": "flashlight", "label": "LIGHT", "anchor": Vector2(1, 0), "offset": Vector2(-450, 60), "radius": 38.0},
-	{"action": "pause", "label": "II", "anchor": Vector2(0.5, 0), "offset": Vector2(0, 40), "radius": 30.0},
-	{"action": "ping", "label": "PING", "anchor": Vector2(1, 0), "offset": Vector2(-545, 60), "radius": 38.0, "show": "net"},
+	{"action": "attack", "label": "HIT", "icon": "fist", "anchor": Vector2(1, 1), "offset": Vector2(-130, -150), "radius": 68.0},
+	{"action": "aim", "label": "AIM", "icon": "aim", "anchor": Vector2(1, 1), "offset": Vector2(-120, -292), "radius": 42.0, "toggle": true, "show": "ranged"},
+	{"action": "reload", "label": "RELOAD", "icon": "reload", "anchor": Vector2(1, 1), "offset": Vector2(-238, -350), "radius": 34.0, "show": "ranged"},
+	{"action": "shove", "label": "SHOVE", "icon": "shove", "anchor": Vector2(1, 1), "offset": Vector2(-264, -232), "radius": 40.0},
+	{"action": "jump", "label": "JUMP", "icon": "jump", "anchor": Vector2(1, 1), "offset": Vector2(-270, -92), "radius": 42.0},
+	{"action": "interact", "label": "USE", "icon": "hand", "anchor": Vector2(1, 1), "offset": Vector2(-396, -142), "radius": 46.0},
+	{"action": "crouch", "label": "CROUCH", "icon": "crouch", "anchor": Vector2(1, 1), "offset": Vector2(-398, -278), "radius": 38.0},
+	{"action": "sprint", "label": "RUN", "icon": "run", "anchor": Vector2(1, 1), "offset": Vector2(-56, -396), "radius": 40.0, "toggle": true},
+	{"action": "pause", "label": "", "icon": "pause", "anchor": Vector2(1, 0), "offset": Vector2(-42, 42), "radius": 26.0},
+	{"action": "inventory", "label": "BAG", "icon": "bag", "anchor": Vector2(1, 0), "offset": Vector2(-118, 52), "radius": 34.0},
+	{"action": "weapon_next", "label": "SWAP", "icon": "swap", "anchor": Vector2(1, 0), "offset": Vector2(-198, 52), "radius": 34.0},
+	{"action": "quick_heal", "label": "HEAL", "icon": "heal", "anchor": Vector2(1, 0), "offset": Vector2(-278, 52), "radius": 34.0, "item": "medical"},
+	{"action": "quick_eat", "label": "EAT", "icon": "eat", "anchor": Vector2(1, 0), "offset": Vector2(-358, 52), "radius": 34.0, "item": "food"},
+	{"action": "flashlight", "label": "LIGHT", "icon": "light", "anchor": Vector2(1, 0), "offset": Vector2(-438, 52), "radius": 34.0},
+	{"action": "ping", "label": "PING", "icon": "ping", "anchor": Vector2(1, 0), "offset": Vector2(-518, 52), "radius": 34.0, "show": "net"},
 ]
 
 
@@ -209,38 +209,91 @@ func _label(b: Dictionary) -> String:
 			return {"gun": "FIRE", "bow": "SHOOT", "throw": "THROW"}.get(cat, "HIT")
 		"crouch":
 			return "STAND" if player.crouching else "CROUCH"
-	if b.has("item"):
-		var n := 0
-		for g in GameState.inventory.grids():
-			for it in g.items:
-				var cat: String = ItemDB.get_def(it.id).get("cat", "")
-				if cat == b.item or (b.item == "food" and cat == "drink"):
-					n += int(it.get("n", 1))
-		return "%s\n%d" % [b.label, n]
 	return b.label
 
 
+## How many usable items an EAT / HEAL button has to work with.
+func _count(b: Dictionary) -> int:
+	var n := 0
+	for g in GameState.inventory.grids():
+		for it in g.items:
+			var cat: String = ItemDB.get_def(it.id).get("cat", "")
+			if cat == b.item or (b.item == "food" and cat == "drink"):
+				n += int(it.get("n", 1))
+	return n
+
+
+func _icon(b: Dictionary) -> String:
+	if player == null:
+		return b.icon
+	if player.build.active():
+		match b.action:
+			"attack":
+				return "place"
+			"interact":
+				return "close"
+	elif b.action == "reload" and player.alt_prompt != "" and not player.vehicle:
+		return "hand"
+	if player.vehicle:
+		match b.action:
+			"attack":
+				return "horn"
+			"jump":
+				return "up" if player.vehicle.kind in ["plane", "heli"] else "brake"
+			"crouch":
+				return "down"
+			"interact":
+				return "exit"
+			"reload":
+				return "key"
+	match b.action:
+		"attack":
+			return {"gun": "gun", "bow": "bow", "throw": "throw"}.get(player.weapons.def().get("cat", ""), "fist")
+		"crouch":
+			return "stand" if player.crouching else "crouch"
+	return b.icon
+
+
 func _draw() -> void:
-	if GameState.ui_open:
+	if GameState.ui_open or (player and player.dead):
 		return
-	var font := get_theme_default_font()
+	var font := MenuTheme.bold_font()
 	if _joy_index != -1:
-		draw_circle(_joy_origin, JOY_RADIUS, Color(1, 1, 1, 0.12))
-		draw_arc(_joy_origin, JOY_RADIUS, 0, TAU, 48, Color(1, 1, 1, 0.35), 3.0)
-		draw_circle(_joy_origin + move_vector * JOY_RADIUS, 38.0, Color(1, 1, 1, 0.45))
+		draw_circle(_joy_origin, JOY_RADIUS, Color(0.04, 0.045, 0.05, 0.35))
+		draw_arc(_joy_origin, JOY_RADIUS, 0, TAU, 48, Color(1, 1, 1, 0.3), 2.0)
+		var knob := _joy_origin + move_vector * JOY_RADIUS
+		draw_circle(knob, 36.0, Color(0.9, 0.9, 0.88, 0.35))
+		draw_arc(knob, 36.0, 0, TAU, 32, Color(1, 1, 1, 0.6), 2.0)
 	else:
 		var hint := Vector2(170, size.y - 170)
-		draw_arc(hint, JOY_RADIUS, 0, TAU, 48, Color(1, 1, 1, 0.15), 2.0)
+		draw_arc(hint, JOY_RADIUS, 0, TAU, 48, Color(1, 1, 1, 0.14), 2.0)
+		draw_circle(hint, 30.0, Color(1, 1, 1, 0.06))
 	for b in _buttons:
 		if not _shown(b):
 			continue
 		var c := _button_center(b)
+		var r: float = b.radius
 		var pressed: bool = b.index != -1 or _toggled.get(b.action, false) or (b.action == "crouch" and player and player.crouching)
-		draw_circle(c, b.radius, Color(1, 1, 1, 0.35 if pressed else 0.16))
-		draw_arc(c, b.radius, 0, TAU, 40, Color(1, 1, 1, 0.5), 2.0)
-		var fs := 18 if b.radius > 45.0 else 13
-		var lines := _label(b).split("\n")
-		for l in lines.size():
-			var w := font.get_string_size(lines[l], HORIZONTAL_ALIGNMENT_CENTER, -1, fs).x
-			var y := c.y + fs * 0.35 + (l - (lines.size() - 1) * 0.5) * fs * 1.1
-			draw_string(font, Vector2(c.x - w * 0.5, y), lines[l], HORIZONTAL_ALIGNMENT_LEFT, -1, fs, Color(1, 1, 1, 0.9))
+		var main: bool = b.action == "attack"
+		draw_circle(c, r, Color(MenuTheme.ACCENT, 0.62) if pressed else Color(0.04, 0.045, 0.05, 0.42))
+		draw_arc(c, r - 1.0, 0, TAU, 48, Color(MenuTheme.ACCENT_HI, 0.85) if main or pressed else Color(1, 1, 1, 0.3), 2.5 if main else 2.0)
+		var caption := _label(b)
+		var has_caption := caption != "" and r >= 38.0
+		var icon_c := c + Vector2(0, -r * 0.14 if has_caption else 0.0)
+		Icons.draw(self, _icon(b), icon_c, r * (0.62 if has_caption else 0.8), Color(1, 1, 1, 0.92))
+		if has_caption:
+			var fs := 12 if r > 50.0 else 10
+			var w := font.get_string_size(caption, HORIZONTAL_ALIGNMENT_LEFT, -1, fs).x
+			draw_string(font, Vector2(c.x - w * 0.5, c.y + r * 0.58), caption, HORIZONTAL_ALIGNMENT_LEFT, -1, fs, Color(1, 1, 1, 0.8))
+		elif caption != "" and b.anchor.y == 0.0:
+			var fs := 10
+			var w := font.get_string_size(caption, HORIZONTAL_ALIGNMENT_LEFT, -1, fs).x
+			draw_string_outline(font, Vector2(c.x - w * 0.5, c.y + r + 13), caption, HORIZONTAL_ALIGNMENT_LEFT, -1, fs, 3, Color(0, 0, 0, 0.6))
+			draw_string(font, Vector2(c.x - w * 0.5, c.y + r + 13), caption, HORIZONTAL_ALIGNMENT_LEFT, -1, fs, Color(1, 1, 1, 0.75))
+		if b.has("item"):
+			var n := _count(b)
+			var bc := c + Vector2(r * 0.72, -r * 0.72)
+			draw_circle(bc, 11.0, MenuTheme.ACCENT if n > 0 else Color(0.25, 0.25, 0.25, 0.9))
+			var t := str(n)
+			var tw := font.get_string_size(t, HORIZONTAL_ALIGNMENT_LEFT, -1, 12).x
+			draw_string(font, Vector2(bc.x - tw * 0.5, bc.y + 4.5), t, HORIZONTAL_ALIGNMENT_LEFT, -1, 12, Color.WHITE)

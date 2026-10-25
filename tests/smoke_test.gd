@@ -1031,11 +1031,10 @@ func _test_polish(player: Player, zombies: ZombieManager, gen: WorldGen) -> void
 	GameState.settings.hud = "minimal"
 	player.health = 100.0
 	await _wait(0.1)
-	var bar: ProgressBar = _main.hud._bars.health
-	_check(not bar.get_parent().visible, "minimal HUD hides a full health bar")
+	_check(not "health" in _main.hud.vital_rows(), "minimal HUD hides a full health bar")
 	player.health = 30.0
 	await _wait(0.1)
-	_check(bar.get_parent().visible, "and shows it when you're hurt")
+	_check("health" in _main.hud.vital_rows(), "and shows it when you're hurt")
 	GameState.settings.hud = "bars"
 	player.health = 100.0
 

@@ -27,6 +27,7 @@ var _join_status: Label
 var _home_note: Label
 var _world_list: VBoxContainer
 var _quality_btn: Button
+var _shade: ColorRect
 
 
 func _ready() -> void:
@@ -38,12 +39,15 @@ func _ready() -> void:
 	bg.color = BG
 	add_child(bg)
 	bg.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
-	var stripe := ColorRect.new()
-	stripe.color = ACCENT.darkened(0.5)
-	add_child(stripe)
-	stripe.anchor_right = 1.0
-	stripe.offset_top = 0
-	stripe.offset_bottom = 6
+	add_child(MenuBackdrop.new())
+	# A dark band behind the menu column on the left keeps text readable.
+	var shade := ColorRect.new()
+	shade.color = Color(0.02, 0.022, 0.025, 0.55)
+	shade.anchor_bottom = 1.0
+	shade.offset_right = 500
+	shade.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	add_child(shade)
+	_shade = shade
 	_build_home()
 	_build_new_world()
 	_build_load()
@@ -55,19 +59,45 @@ func _ready() -> void:
 
 
 func _screen(screen_name: String, title: String) -> VBoxContainer:
+	if screen_name == "home":
+		# The title screen: a column on the left over the backdrop.
+		var m := MarginContainer.new()
+		add_child(m)
+		m.anchor_bottom = 1.0
+		m.offset_right = 500
+		m.add_theme_constant_override("margin_left", 64)
+		m.add_theme_constant_override("margin_right", 40)
+		m.add_theme_constant_override("margin_top", 20)
+		m.add_theme_constant_override("margin_bottom", 20)
+		var col := VBoxContainer.new()
+		col.alignment = BoxContainer.ALIGNMENT_CENTER
+		col.add_theme_constant_override("separation", 7)
+		m.add_child(col)
+		col.add_child(MenuTheme.heading("A survival game", 14, MenuTheme.ACCENT_HI))
+		var t1 := MenuTheme.heading("Zombie", 54)
+		col.add_child(t1)
+		var t2 := MenuTheme.heading("Survival", 54, MenuTheme.ACCENT_HI)
+		t2.offset_top = -10
+		col.add_child(t2)
+		_screens[screen_name] = m
+		return col
+	# Other screens: a card in the middle.
 	var center := CenterContainer.new()
 	add_child(center)
 	center.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	var panel := PanelContainer.new()
+	panel.add_theme_stylebox_override("panel", MenuTheme.box(Color(0.06, 0.065, 0.07, 0.94), 12, MenuTheme.LINE, 1, 24.0))
+	center.add_child(panel)
 	var box := VBoxContainer.new()
 	box.custom_minimum_size = Vector2(520, 0)
-	box.add_theme_constant_override("separation", 14)
-	center.add_child(box)
-	var l := Label.new()
-	l.text = title
-	l.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	l.add_theme_font_size_override("font_size", 56 if screen_name == "home" else 38)
-	l.add_theme_color_override("font_color", Color(0.85, 0.82, 0.75))
-	box.add_child(l)
+	box.add_theme_constant_override("separation", 12)
+	panel.add_child(box)
+	box.add_child(MenuTheme.heading(title, 30))
+	var bar := ColorRect.new()
+	bar.color = MenuTheme.ACCENT
+	bar.custom_minimum_size = Vector2(48, 3)
+	bar.size_flags_horizontal = Control.SIZE_SHRINK_BEGIN
+	box.add_child(bar)
 	_screens[screen_name] = center
 	return box
 
@@ -75,9 +105,20 @@ func _screen(screen_name: String, title: String) -> VBoxContainer:
 func _button(parent: Node, text: String, cb: Callable) -> Button:
 	var b := Button.new()
 	b.text = text
-	b.custom_minimum_size = Vector2(0, 66)
+	b.custom_minimum_size = Vector2(0, 56)
+	b.add_theme_font_size_override("font_size", 20)
 	b.pressed.connect(cb)
 	parent.add_child(b)
+	return b
+
+
+## A title-screen button: left-aligned, bold.
+func _home_button(parent: Node, text: String, cb: Callable) -> Button:
+	var b := _button(parent, text, cb)
+	b.alignment = HORIZONTAL_ALIGNMENT_LEFT
+	b.add_theme_font_override("font", MenuTheme.bold_font())
+	b.custom_minimum_size = Vector2(380, 48)
+	b.size_flags_horizontal = Control.SIZE_SHRINK_BEGIN
 	return b
 
 
@@ -86,9 +127,11 @@ func _row(parent: Node, label: String, control: Control) -> void:
 	var l := Label.new()
 	l.text = label
 	l.custom_minimum_size = Vector2(170, 0)
+	l.add_theme_color_override("font_color", MenuTheme.DIM.lightened(0.2))
+	l.add_theme_font_size_override("font_size", 17)
 	h.add_child(l)
 	control.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	control.custom_minimum_size.y = 56
+	control.custom_minimum_size.y = 48
 	h.add_child(control)
 	parent.add_child(h)
 
@@ -96,6 +139,7 @@ func _row(parent: Node, label: String, control: Control) -> void:
 func _show(screen_name: String) -> void:
 	for k in _screens:
 		_screens[k].visible = k == screen_name
+	_shade.visible = screen_name == "home"
 	if screen_name == "load":
 		_refresh_worlds()
 	if screen_name == "join":
@@ -122,26 +166,31 @@ func _build_home() -> void:
 	var box := _screen("home", "ZOMBIE SURVIVAL")
 	var sub := Label.new()
 	sub.text = "How long will you last?"
-	sub.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	sub.add_theme_color_override("font_color", Color(0.6, 0.58, 0.55))
+	sub.add_theme_color_override("font_color", MenuTheme.DIM)
+	sub.add_theme_font_size_override("font_size", 17)
 	box.add_child(sub)
 	_home_note = Label.new()
-	_home_note.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	_home_note.add_theme_color_override("font_color", Color(0.95, 0.55, 0.45))
+	_home_note.autowrap_mode = TextServer.AUTOWRAP_WORD
+	_home_note.custom_minimum_size.x = 380
+	_home_note.add_theme_color_override("font_color", MenuTheme.BAD.lightened(0.2))
 	_home_note.text = GameState.menu_message
 	_home_note.visible = GameState.menu_message != ""
 	GameState.menu_message = ""
 	box.add_child(_home_note)
 	var latest := _latest_playable()
 	if not latest.is_empty():
-		_button(box, "Continue  -  %s (day %d)" % [latest.name, int(latest.get("day", 1))], func() -> void: _play(latest))
-	_button(box, "New World", func() -> void: _show("new"))
-	_button(box, "Load World", func() -> void: _show("load"))
-	_button(box, "Join Game (Wi-Fi)", func() -> void:
+		var c := _home_button(box, "Continue   %s  ·  day %d" % [latest.name, int(latest.get("day", 1))], func() -> void: _play(latest))
+		MenuTheme.primary(c)
+		c.add_theme_font_override("font", MenuTheme.bold_font())
+	var nw := _home_button(box, "New world", func() -> void: _show("new"))
+	if latest.is_empty():
+		MenuTheme.primary(nw)
+	_home_button(box, "Load world", func() -> void: _show("load"))
+	_home_button(box, "Join a game on Wi-Fi", func() -> void:
 		Net.start_discovery()
 		_show("join"))
-	_button(box, "Tutorial", _start_tutorial)
-	_button(box, "Settings", func() -> void:
+	_home_button(box, "Tutorial", _start_tutorial)
+	_home_button(box, "Settings", func() -> void:
 		var sp := SettingsPanel.new()
 		add_child(sp)
 		sp.closed.connect(func() -> void:
@@ -149,7 +198,7 @@ func _build_home() -> void:
 			_show("home"))
 		sp.open())
 	if not OS.has_feature("ios"):
-		_button(box, "Quit", func() -> void: get_tree().quit())
+		_home_button(box, "Quit", func() -> void: get_tree().quit())
 
 
 func _latest_playable() -> Dictionary:
@@ -221,7 +270,7 @@ func _build_new_world() -> void:
 	hint.add_theme_font_size_override("font_size", 16)
 	hint.add_theme_color_override("font_color", Color(0.6, 0.58, 0.55))
 	outer.add_child(hint)
-	_button(outer, "Create World", _create)
+	MenuTheme.primary(_button(outer, "Create world", _create))
 	_button(outer, "Back", func() -> void: _show("home"))
 
 
@@ -275,8 +324,10 @@ func _refresh_worlds() -> void:
 		_world_list.add_child(l)
 		return
 	for w in worlds:
+		var card := MenuTheme.card()
 		var row := HBoxContainer.new()
 		row.add_theme_constant_override("separation", 8)
+		card.add_child(row)
 		var info := Label.new()
 		var lost: bool = w.get("lost", false)
 		info.text = "%s%s\n%s  -  %s  -  %s  -  day %d, %d kills" % [w.name, "  (LOST)" if lost else "",
@@ -303,7 +354,7 @@ func _refresh_worlds() -> void:
 			GameState.delete_world(w.id)
 			_refresh_worlds())
 		row.add_child(del)
-		_world_list.add_child(row)
+		_world_list.add_child(card)
 
 
 # --- Memorial ------------------------------------------------------------------

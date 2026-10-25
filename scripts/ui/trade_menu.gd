@@ -23,7 +23,7 @@ func _ready() -> void:
 	layer = 9
 	visible = false
 	_bg = ColorRect.new()
-	_bg.color = Color(0.03, 0.035, 0.035, 0.95)
+	_bg.color = Color(0.025, 0.028, 0.032, 0.95)
 	add_child(_bg)
 	_bg.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	var root := VBoxContainer.new()
@@ -34,8 +34,7 @@ func _ready() -> void:
 	root.offset_bottom = -16
 	root.add_theme_constant_override("separation", 10)
 	_bg.add_child(root)
-	_title = Label.new()
-	_title.add_theme_font_size_override("font_size", 28)
+	_title = MenuTheme.heading("", 28)
 	root.add_child(_title)
 	var cols := HBoxContainer.new()
 	cols.size_flags_vertical = Control.SIZE_EXPAND_FILL
@@ -52,6 +51,7 @@ func _ready() -> void:
 	_summary.autowrap_mode = TextServer.AUTOWRAP_WORD
 	bottom.add_child(_summary)
 	_deal_btn = _button("Trade", _deal, 180)
+	MenuTheme.primary(_deal_btn)
 	bottom.add_child(_deal_btn)
 	bottom.add_child(_button("Leave", close, 140))
 
@@ -60,11 +60,7 @@ func _column(parent: Node, title: String) -> VBoxContainer:
 	var v := VBoxContainer.new()
 	v.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	parent.add_child(v)
-	var t := Label.new()
-	t.text = title
-	t.add_theme_font_size_override("font_size", 18)
-	t.modulate = Color(0.85, 0.82, 0.75)
-	v.add_child(t)
+	v.add_child(MenuTheme.section(title))
 	var scroll := ScrollContainer.new()
 	scroll.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
@@ -179,7 +175,8 @@ func _item_button(it: Dictionary, chosen: bool) -> Button:
 	var n := int(it.get("n", 1))
 	var b := _button("%s%s%s   (%d)" % ["> " if chosen else "", ItemDB.item_name(it.id), " x%d" % n if n > 1 else "", Barter.value(it)], func() -> void: pass, 0)
 	b.alignment = HORIZONTAL_ALIGNMENT_LEFT
-	b.modulate = Color(1.0, 0.85, 0.45) if chosen else Color.WHITE
+	b.toggle_mode = true
+	b.set_pressed_no_signal(chosen)
 	return b
 
 

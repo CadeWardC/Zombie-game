@@ -79,6 +79,11 @@ func _run() -> void:
 		GameState.delete_world("screenshots")
 		get_tree().quit()
 		return
+	if "--ui" in OS.get_cmdline_user_args():
+		await _ui_shots()
+		GameState.delete_world("screenshots")
+		get_tree().quit()
+		return
 	if "--stage7" in OS.get_cmdline_user_args():
 		await _stage7_shots()
 		GameState.delete_world("screenshots")
@@ -760,3 +765,107 @@ func _stage7_shots() -> void:
 	hz.update(0.1, [player])
 	await get_tree().create_timer(2.0).timeout
 	await _shot("69_horde")
+
+
+## The redesigned HUD and menus (run with and without --touch).
+func _ui_shots() -> void:
+	var gen: WorldGen = _main.gen
+	var player: Player = _main.player
+	var tag := "touch" if GameState.uses_touch() else "desktop"
+	_main.zombies.max_zombies = 0
+	_main.zombies.clear_all()
+	var t0 := Time.get_ticks_msec()
+	while ItemIcons.texture == null and Time.get_ticks_msec() - t0 < 5000:
+		await get_tree().process_frame
+	# Inside a house, hurt, wet and with a pistol out.
+	var house: Dictionary = {}
+	for t in gen.towns:
+		for lot in t.lots:
+			if house.is_empty() and lot.type == "colonial":
+				house = lot
+	var c: Vector2 = house.center
+	var front := Vector2(sin(house.yaw), cos(house.yaw))
+	var view: Vector2 = c + front * (house.d * 0.5 + 6.0) + Vector2(front.y, -front.x) * 6.0
+	await _go(view, _yaw_to(view, c), -6.0)
+	var inside: Vector2 = c + front * (house.d * 0.5 - 10.0)
+	player.global_position = Vector3(inside.x, house.floor + 0.2, inside.y)
+	player.rotation.y = _yaw_to(inside, c - front * 20.0) + 0.6
+	player.head.rotation.x = deg_to_rad(-10.0)
+	_equip("sidearm", "pistol_9mm", 11)
+	GameState.inventory.add(ItemDB.make("ammo_9mm", 24))
+	GameState.inventory.add(ItemDB.make("bandage", 2))
+	GameState.inventory.add(ItemDB.make("canned_beans", 1))
+	player.health = 38.0
+	player.hunger = 18.0
+	player.thirst = 62.0
+	player.body.add("laceration", "arm_l")
+	player.wet = 70.0
+	await get_tree().create_timer(0.8).timeout
+	GameState.notify("Used Bandage")
+	await get_tree().create_timer(0.2).timeout
+	await _shot("ui_hud_%s" % tag)
+	await _shot_inside("ui_house_inside_%s" % tag)
+	player.body.clear()
+	player.wet = 0.0
+	# A tip and the tutorial step.
+	GameState.hints_seen.erase("loot")
+	GameState.settings.hints = true
+	_main.hints.tip("loot")
+	await get_tree().create_timer(0.5).timeout
+	await _shot("ui_tip_%s" % tag)
+	# Inventory with a body to search.
+	var body := {"id": "body_shot", "type": "corpse", "bld": "walker", "pos": player.global_position}
+	GameState.container_items(body)
+	_main.inventory_ui.open(body)
+	await get_tree().create_timer(0.4).timeout
+	await _shot("ui_inventory_%s" % tag)
+	_main.inventory_ui.close()
+	# Crafting.
+	for id in ["plank", "nails", "hammer", "rag"]:
+		GameState.inventory.add(ItemDB.make(id, 6))
+	_main.craft_menu.open("Weapons")
+	await get_tree().create_timer(0.4).timeout
+	await _shot("ui_crafting_%s" % tag)
+	_main.craft_menu.close()
+	# Pause menu.
+	_main.pause_menu.open()
+	await get_tree().create_timer(0.4).timeout
+	await _shot("ui_pause_%s" % tag)
+	_main.pause_menu.close()
+	# Settings.
+	var sp := SettingsPanel.new()
+	add_child(sp)
+	sp.open()
+	await get_tree().create_timer(0.3).timeout
+	await _shot("ui_settings_%s" % tag)
+	sp.queue_free()
+	# Character creator.
+	var layer := CanvasLayer.new()
+	layer.layer = 20
+	add_child(layer)
+	var cc := CharacterCreator.new()
+	layer.add_child(cc)
+	await get_tree().create_timer(0.6).timeout
+	await _shot("ui_creator_%s" % tag)
+	layer.queue_free()
+	# Death screen.
+	_main.hud.show_death(true, GameState.DeathRule.RESPAWN, "Bitten by a walker")
+	await get_tree().create_timer(0.3).timeout
+	await _shot("ui_death_%s" % tag)
+	_main.hud.show_death(false)
+	# Main menu.
+	_main.queue_free()
+	var menu: Control = load("res://scenes/menu.tscn").instantiate()
+	add_child(menu)
+	await get_tree().create_timer(0.6).timeout
+	await _shot("ui_menu_%s" % tag)
+
+
+## The same view without the HUD, to check the room itself.
+func _shot_inside(shot_name: String) -> void:
+	_main.hud.visible = false
+	_main.touch.visible = false
+	await get_tree().create_timer(0.1).timeout
+	await _shot(shot_name)
+	_main.hud.visible = true
+	_main.touch.visible = GameState.uses_touch()

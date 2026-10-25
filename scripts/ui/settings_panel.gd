@@ -20,7 +20,7 @@ func _ready() -> void:
 	process_mode = Node.PROCESS_MODE_ALWAYS
 	visible = false
 	_bg = ColorRect.new()
-	_bg.color = Color(0.03, 0.035, 0.035, 0.97)
+	_bg.color = Color(0.025, 0.028, 0.032, 0.97)
 	add_child(_bg)
 	_bg.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	var root := VBoxContainer.new()
@@ -33,12 +33,12 @@ func _ready() -> void:
 	_bg.add_child(root)
 	var top := HBoxContainer.new()
 	root.add_child(top)
-	var title := Label.new()
-	title.text = "SETTINGS"
-	title.add_theme_font_size_override("font_size", 30)
+	var title := MenuTheme.heading("Settings", 28)
 	title.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	top.add_child(title)
-	top.add_child(_button("Done", close, 140))
+	var done_btn := _button("Done", close, 140)
+	MenuTheme.primary(done_btn)
+	top.add_child(done_btn)
 	_tabs = HBoxContainer.new()
 	_tabs.add_theme_constant_override("separation", 6)
 	root.add_child(_tabs)
@@ -77,7 +77,8 @@ func _rebuild() -> void:
 		_list.remove_child(c)
 		c.queue_free()
 	for b: Button in _tabs.get_children():
-		b.modulate = Color(1, 0.85, 0.5) if b.text == _tab else Color(1, 1, 1, 0.75)
+		b.toggle_mode = true
+		b.set_pressed_no_signal(b.text == _tab)
 	var st := GameState.settings
 	match _tab:
 		"Game":
@@ -133,7 +134,8 @@ func _row(label_text: String) -> HBoxContainer:
 	var l := Label.new()
 	l.text = label_text
 	l.custom_minimum_size.x = 340
-	l.add_theme_font_size_override("font_size", 19)
+	l.add_theme_font_size_override("font_size", 17)
+	l.add_theme_color_override("font_color", MenuTheme.TEXT.darkened(0.08))
 	h.add_child(l)
 	_list.add_child(h)
 	return h
