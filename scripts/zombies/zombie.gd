@@ -24,7 +24,7 @@ const TYPES := {
 }
 const ATTACK_RANGE := 1.5
 const GRAVITY := 14.0
-const CORPSE_TIME := 10.0
+const CORPSE_TIME := 150.0 # Bodies lie around this long (searchable).
 const SCREAM_RADIUS := 90.0
 const SUBDUE_TIME := 45.0
 
@@ -187,6 +187,12 @@ func make_turned(entry: Dictionary) -> void:
 
 func set_shadows(enabled: bool) -> void:
 	_body.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_ON if enabled else GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+
+
+## This zombie's body as a searchable container (what they had on them).
+func corpse() -> Dictionary:
+	return {"pos": position + Vector3(0, 0.35, 0), "type": "corpse", "id": "body_%d" % net_id,
+		"bld": look_kind if look_kind != "" else type}
 
 
 func alive() -> bool:

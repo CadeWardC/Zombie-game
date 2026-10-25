@@ -3,7 +3,10 @@ extends RefCounted
 ## Room planning and furnishing.
 
 const INNER_T := 0.12 # Interior wall thickness.
-const DOOR_CLEAR := 1.5 # Kept free in front of every door.
+const DOOR_CLEAR := 1.7 # Kept free in front of every door.
+## Furniture too tall to stand in front of a window.
+const TALL := ["wardrobe", "bookshelf", "fridge", "store_shelf", "locker", "medical_cabinet", "filing_cabinet",
+	"cryo_fridge", "vanity", "tv_stand", "generator"]
 
 const PLANS := {
 	"living": [["couch", "wall"], ["tv_stand", "wall"], ["armchair", "wall"], ["bookshelf", "wall"], ["rug", "center"], ["coffee_table", "center"]],
@@ -71,7 +74,7 @@ static func build_walls(bd: BuildingData, walls: Array, y0: float, height: float
 			var span := cuts[k + 1] - cuts[k]
 			if span >= 1.4:
 				var at := (cuts[k] + cuts[k + 1]) * 0.5
-				openings.append({"at": at, "w": 0.85, "bottom": 0.0, "top": 2.05, "kind": "door"})
+				openings.append({"at": at, "w": minf(1.1, span - 0.3), "bottom": 0.0, "top": 2.1, "kind": "door"})
 				spots.append(a + dir * at)
 		var nrm := Vector2(-dir.y, dir.x)
 		BuildingParts.wall(bd, a, b, y0, height, col, col, nrm, openings, INNER_T, Color(0.6, 0.5, 0.38), id_prefix)
@@ -88,6 +91,10 @@ static func furnish(bd: BuildingData, room: Rect2, type: String, y0: float, door
 	for d in doors:
 		if inner.grow(0.5).has_point(d):
 			blocked.append(Rect2(d - Vector2.ONE * DOOR_CLEAR * 0.5, Vector2.ONE * DOOR_CLEAR))
+	var windows: Array[Rect2] = []
+	for w in bd.window_spots:
+		if absf(float(w.y) - y0) < 1.0 and inner.grow(0.5).intersects(w.rect):
+			windows.append(w.rect)
 	var plan: Array = PLANS.get(type, [])
 	if type == "bedroom" and inner.get_area() < 9.0:
 		plan = PLANS["kids"]
@@ -96,7 +103,7 @@ static func furnish(bd: BuildingData, room: Rect2, type: String, y0: float, door
 		if item[1] == "center":
 			_center(bd, inner, kind, y0, blocked, rng, id_prefix)
 		else:
-			_against_wall(bd, inner, kind, y0, blocked, rng, id_prefix)
+			_against_wall(bd, inner, kind, y0, blocked, windows, rng, id_prefix)
 
 
 static func _center(bd: BuildingData, inner: Rect2, kind: String, y0: float, blocked: Array[Rect2], rng: RandomNumberGenerator, id_prefix: String) -> void:
@@ -113,7 +120,7 @@ static func _center(bd: BuildingData, inner: Rect2, kind: String, y0: float, blo
 	Furniture.place(bd, kind, Transform3D(Basis.IDENTITY, Vector3(c.x, y0, c.y)), rng, id_prefix)
 
 
-static func _against_wall(bd: BuildingData, inner: Rect2, kind: String, y0: float, blocked: Array[Rect2], rng: RandomNumberGenerator, id_prefix: String) -> void:
+static func _against_wall(bd: BuildingData, inner: Rect2, kind: String, y0: float, blocked: Array[Rect2], windows: Array[Rect2], rng: RandomNumberGenerator, id_prefix: String) -> void:
 	var s: Vector2 = Furniture.SIZE.get(kind, Vector2(1, 0.5))
 	var sides := [0, 1, 2, 3]
 	# Shuffle deterministically so rooms don't all look the same.
@@ -153,8 +160,15 @@ static func _against_wall(bd: BuildingData, inner: Rect2, kind: String, y0: floa
 				if b.intersects(fp):
 					free = false
 					break
+			var under_window := false
+			for w in windows:
+				if w.intersects(fp):
+					under_window = true
+					break
+			if under_window and kind in TALL:
+				free = false
 			if free:
 				blocked.append(fp.grow(0.05))
-				Furniture.place(bd, kind, xf, rng, id_prefix)
+				Furniture.place(bd, kind, xf, rng, id_prefix, under_window)
 				return
 			pos += 0.25

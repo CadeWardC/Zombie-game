@@ -6,7 +6,7 @@ extends Node
 ## falls back to coloured tiles with the item's name.
 
 const CELL := 48 # Atlas pixels per inventory cell.
-const ATLAS := 1024
+const ATLAS := 1536
 const PX := 0.01 # World units per atlas pixel.
 
 static var texture: Texture2D

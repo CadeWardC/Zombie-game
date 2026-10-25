@@ -93,7 +93,19 @@ func _test_items() -> void:
 		for it in items:
 			found[ItemDB.get_def(it.id).cat] = true
 	_check(found.has("gun") and found.has("ammo"), "police lockers hold guns and ammo")
-	_check(empty > 60, "most containers are picked over (%d / 300 empty)" % empty)
+	_check(empty < 30, "most containers hold something (%d / 300 empty)" % empty)
+	var kinds := {}
+	var total := 0
+	for k in 200:
+		for it in Loot.fill("kitchen_cabinet", "ranch", "pantry_%d" % k) + Loot.fill("nightstand", "ranch", "night_%d" % k):
+			kinds[it.id] = true
+			total += 1
+	_check(kinds.size() >= 25 and total > 400, "homes hold plenty, and plenty of kinds (%d items, %d kinds)" % [total, kinds.size()])
+	var body := {}
+	for k in 200:
+		for it in Loot.fill("corpse", "walker", "body_%d" % k):
+			body[it.id] = true
+	_check(body.has("wallet") and body.size() > 10, "zombie bodies carry things (%d kinds)" % body.size())
 	var kitchen := {}
 	for k in 300:
 		for it in Loot.fill("kitchen_cabinet", "ranch", "k_%d" % k):
@@ -533,6 +545,35 @@ func _test_lab(gen: WorldGen) -> void:
 	_check(items.any(func(it: Dictionary) -> bool: return it.id == "cure_vial"), "the vault holds the cure")
 
 
+func _test_layouts(gen: WorldGen) -> void:
+	print("House layouts")
+	var houses := 0
+	var narrow := 0
+	var blocking := 0
+	for t in gen.towns:
+		for lot in t.lots:
+			if not lot.type in ["ranch", "colonial", "bungalow", "farmhouse", "duplex", "trailer"]:
+				continue
+			var bd := BuildingGen.build(gen, lot, true)
+			houses += 1
+			for d in bd.doors:
+				if float(d.w) < 1.05:
+					narrow += 1
+			for ct in bd.containers:
+				if not ct.type in ["wardrobe", "fridge", "locker", "medical"]:
+					continue
+				var p: Vector3 = ct.pos
+				for w in bd.window_spots:
+					if absf(p.y - 0.6 - float(w.y)) < 1.0 and (w.rect as Rect2).grow(-0.25).has_point(Vector2(p.x, p.z)):
+						blocking += 1
+			if houses >= 40:
+				break
+		if houses >= 40:
+			break
+	_check(houses >= 20 and narrow == 0, "doors are wide enough to walk through (%d houses, %d narrow)" % [houses, narrow])
+	_check(blocking == 0, "no wardrobes or fridges in front of windows (%d)" % blocking)
+
+
 func _test_death_rules(player: Player, zombies: ZombieManager) -> void:
 	print("Death rules")
 	await _reset_arena(player, zombies)
@@ -934,6 +975,21 @@ func _test_survival(player: Player, zombies: ZombieManager, gen: WorldGen, arena
 
 
 func _test_polish(player: Player, zombies: ZombieManager, gen: WorldGen) -> void:
+	print("Searching bodies")
+	await _reset_arena(player, zombies)
+	var dead := _spawn_zombie(Vector3(0, 0, -1.5))
+	dead.take_damage(9999.0, Vector3.ZERO)
+	await _wait(0.5)
+	var bodies := zombies.corpses_near(player.global_position, 3.0)
+	_check(bodies.size() == 1, "a killed zombie leaves a body to search")
+	player.head.rotation.x = -0.6
+	await _wait(0.4)
+	_check(player._focus is Dictionary and str(player._focus.get("type", "")) == "corpse", "looking at it offers to search it (%s)" % player.prompt)
+	_check(zombies.live_count() == zombies.active_count() - 1, "bodies don't count as live zombies")
+	GameState.container_items(bodies[0])
+	await _reset_arena(player, zombies)
+	_check(not GameState.containers.has(bodies[0].id), "a body that's gone takes its contents with it")
+
 	print("Audio")
 	var ok := true
 	for n in ["pistol", "groan", "step", "wind", "rain", "engine", "thunder", "music", "click"]:
@@ -1421,6 +1477,7 @@ func _run() -> void:
 	await _wait(2.0)
 	await _test_world_changes(player, zombies, doors)
 	_test_lab(gen)
+	_test_layouts(gen)
 	await _test_vehicles(player, zombies, gen, spot)
 	await _test_survival(player, zombies, gen, spot, doors)
 	await _test_polish(player, zombies, gen)

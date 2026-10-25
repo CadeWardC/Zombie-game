@@ -14,7 +14,7 @@ extends RefCounted
 ## Tool kinds: an item's "tool" field, or one of the groups below.
 
 const TOOL_GROUPS := {
-	"knife": ["kitchen_knife", "hunting_knife", "machete"],
+	"knife": ["kitchen_knife", "hunting_knife", "machete", "meat_cleaver"],
 	"hammer": ["hammer"],
 	"saw": ["saw"],
 	"pot": ["cooking_pot"],

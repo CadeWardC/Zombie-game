@@ -17,15 +17,15 @@ enum Quality { LOW, MEDIUM, HIGH }
 
 const QUALITY_PRESETS := {
 	Quality.LOW: {
-		"name": "Low", "view_radius": 3, "shadows": false, "max_zombies": 16,
+		"name": "Low", "view_radius": 3, "shadows": false, "max_zombies": 22,
 		"fps": 30, "per_vertex": true, "min_scale": 0.5,
 	},
 	Quality.MEDIUM: {
-		"name": "Medium", "view_radius": 5, "shadows": false, "max_zombies": 28,
+		"name": "Medium", "view_radius": 5, "shadows": false, "max_zombies": 36,
 		"fps": 60, "per_vertex": false, "min_scale": 0.6,
 	},
 	Quality.HIGH: {
-		"name": "High", "view_radius": 7, "shadows": true, "max_zombies": 45,
+		"name": "High", "view_radius": 7, "shadows": true, "max_zombies": 55,
 		"fps": 60, "per_vertex": false, "min_scale": 0.75,
 	},
 }
@@ -547,6 +547,15 @@ func _world_path(file: String) -> String:
 	return WORLDS_DIR + "/" + str(world.id) + "/" + file
 
 
+## Opened containers worth saving (bodies rot away).
+func _saved_containers() -> Dictionary:
+	var out := {}
+	for k: String in containers:
+		if not k.begins_with("body_"):
+			out[k] = containers[k]
+	return out
+
+
 func save_game(player_data: Dictionary) -> void:
 	if world.is_empty() or Net.is_client():
 		return
@@ -556,7 +565,7 @@ func save_game(player_data: Dictionary) -> void:
 		"day": day,
 		"kills": kills,
 		"inventory": inventory.to_dict(),
-		"containers": containers,
+		"containers": _saved_containers(),
 		"drops": drops,
 		"player": player_data,
 		"character": character.to_dict(),

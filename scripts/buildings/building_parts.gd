@@ -6,7 +6,7 @@ extends RefCounted
 
 const TRIM := Color(0.92, 0.91, 0.87)
 const GLASS := Color(0.55, 0.68, 0.75)
-const DOOR_W := 0.95
+const DOOR_W := 1.15
 const DOOR_H := 2.1
 const WALL_T := 0.22
 
@@ -68,6 +68,8 @@ static func wall(bd: BuildingData, a: Vector2, b: Vector2, y0: float, height: fl
 		match op.kind:
 			"window":
 				_window(bd, mid, basis, y0 + op.bottom, op.w, op.top - op.bottom, t, out3)
+				var half: Vector2 = Vector2(absf(dir.x), absf(dir.y)) * (float(op.w) * 0.5 + 0.2) + Vector2(absf(dir.y), absf(dir.x)) * 0.8
+				bd.window_spots.append({"rect": Rect2(mid - half, half * 2.0), "y": y0, "sill": op.bottom})
 			"door":
 				var hinge := a + dir * left
 				bd.doors.append({

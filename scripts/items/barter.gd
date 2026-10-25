@@ -23,6 +23,8 @@ const VALUE := {
 	"purification_tablets": 12, "sleeping_bag": 18, "fishing_rod": 14, "saw": 14, "cooking_pot": 10, "lighter": 8,
 	"matches": 5, "cigarettes": 9, "raw_meat": 6, "cooked_meat": 9, "animal_hide": 10, "feathers": 0,
 	"winter_coat": 22, "raincoat": 12, "dog_food": 6,
+	"peanut_butter": 12, "coffee": 8, "vitamins": 12, "batteries": 3, "binoculars": 18, "wallet": 2, "watch": 10,
+	"car_keys": 4, "pickaxe": 20, "pipe_wrench": 16, "wire": 3, "glue": 5, "tarp": 8, "cloth": 2,
 }
 
 ## What traders sell: [id, count, weight]. Rare goods first.

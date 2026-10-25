@@ -37,7 +37,9 @@ static func _collide(bd: BuildingData, xf: Transform3D, size: Vector3) -> void:
 	bd.boxes.append([xf * Transform3D(Basis.IDENTITY, Vector3(0, size.y * 0.5, 0)), size])
 
 
-static func place(bd: BuildingData, kind: String, xf: Transform3D, rng: RandomNumberGenerator, id_prefix: String) -> void:
+## `under_window`: skip anything that would stand in front of the glass
+## (wall cabinets over a counter).
+static func place(bd: BuildingData, kind: String, xf: Transform3D, rng: RandomNumberGenerator, id_prefix: String, under_window := false) -> void:
 	var fabric: Color = FABRICS[rng.randi() % FABRICS.size()]
 	match kind:
 		"bed_double", "bed_single", "hospital_bed":
@@ -47,7 +49,7 @@ static func place(bd: BuildingData, kind: String, xf: Transform3D, rng: RandomNu
 			_b(bd, xf, Vector3(0, 0.42, 0.05), Vector3(s.x - 0.08, 0.2, s.y - 0.12), WHITE)
 			_b(bd, xf, Vector3(0, 0.54, 0.25), Vector3(s.x - 0.04, 0.06, s.y * 0.7), fabric)
 			_b(bd, xf, Vector3(0, 0.55, -s.y * 0.5 + 0.3), Vector3(s.x * 0.8, 0.12, 0.35), WHITE.darkened(0.05))
-			_b(bd, xf, Vector3(0, 0.55, -s.y * 0.5 + 0.03), Vector3(s.x, 1.0, 0.06), frame)
+			_b(bd, xf, Vector3(0, 0.47, -s.y * 0.5 + 0.03), Vector3(s.x, 0.9, 0.06), frame)
 			_collide(bd, xf, Vector3(s.x, 0.6, s.y))
 		"nightstand":
 			_b(bd, xf, Vector3(0, 0.28, 0), Vector3(0.5, 0.55, 0.45), WOOD)
@@ -94,7 +96,8 @@ static func place(bd: BuildingData, kind: String, xf: Transform3D, rng: RandomNu
 			var w: float = SIZE[kind].x
 			_b(bd, xf, Vector3(0, 0.43, 0), Vector3(w, 0.86, 0.6), WHITE if kind != "stove" else STEEL.darkened(0.3))
 			_b(bd, xf, Vector3(0, 0.88, 0.01), Vector3(w + 0.02, 0.04, 0.62), Color(0.35, 0.33, 0.3))
-			_b(bd, xf, Vector3(0, 1.75, -0.12), Vector3(w, 0.7, 0.35), WHITE.darkened(0.04))
+			if not under_window:
+				_b(bd, xf, Vector3(0, 1.75, -0.12), Vector3(w, 0.7, 0.35), WHITE.darkened(0.04))
 			if kind == "sink_counter":
 				_b(bd, xf, Vector3(0, 0.9, 0.05), Vector3(0.5, 0.02, 0.38), STEEL)
 			elif kind == "stove":

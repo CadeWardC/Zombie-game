@@ -334,6 +334,84 @@ static func build(id: String) -> MeshData:
 			for k in 8:
 				var a := k * 1.1
 				_b(m, Vector3(cos(a) * 0.035, sin(a) * 0.035, -0.25 - k * 0.025), Vector3(0.006, 0.006, 0.006) + Vector3(absf(cos(a)), absf(sin(a)), 0) * 0.04, SILVER)
+		"canned_tuna":
+			m.cylinder(Vector3.ZERO, 0.045, 0.045, 0.04, 10, SILVER)
+			m.cylinder(Vector3(0, 0.008, 0), 0.047, 0.047, 0.025, 10, Color(0.2, 0.45, 0.7), false)
+		"canned_peaches", "canned_corn":
+			m.cylinder(Vector3.ZERO, 0.042, 0.042, 0.115, 10, SILVER)
+			m.cylinder(Vector3(0, 0.015, 0), 0.044, 0.044, 0.085, 10, Color(0.95, 0.55, 0.2) if id == "canned_peaches" else Color(0.2, 0.55, 0.2), false)
+		"peanut_butter":
+			m.cylinder(Vector3.ZERO, 0.045, 0.045, 0.1, 10, Color(0.65, 0.42, 0.2))
+			m.cylinder(Vector3(0, 0.1, 0), 0.047, 0.047, 0.025, 10, Color(0.8, 0.15, 0.12))
+		"candy_bar":
+			_b(m, Vector3(0, 0.01, 0), Vector3(0.13, 0.02, 0.04), Color(0.55, 0.25, 0.1))
+			_b(m, Vector3(0, 0.0205, 0), Vector3(0.06, 0.001, 0.035), Color(0.95, 0.85, 0.2))
+		"instant_noodles":
+			m.cylinder(Vector3.ZERO, 0.04, 0.055, 0.08, 10, Color(0.95, 0.92, 0.85))
+			m.cylinder(Vector3(0, 0.03, 0), 0.047, 0.051, 0.03, 10, Color(0.85, 0.15, 0.1), false)
+		"cereal":
+			_b(m, Vector3(0, 0.14, 0), Vector3(0.19, 0.28, 0.06), Color(0.9, 0.7, 0.15))
+			_b(m, Vector3(0, 0.16, 0.031), Vector3(0.12, 0.1, 0.002), Color(0.85, 0.2, 0.15))
+		"juice":
+			_b(m, Vector3(0, 0.05, 0), Vector3(0.06, 0.1, 0.04), Color(0.9, 0.6, 0.15))
+			m.cylinder(Vector3(0.015, 0.1, 0), 0.004, 0.004, 0.05, 5, Color.WHITE)
+		"sports_drink":
+			m.cylinder(Vector3.ZERO, 0.035, 0.035, 0.2, 8, Color(0.2, 0.75, 0.85))
+			m.cylinder(Vector3(0, 0.2, 0), 0.018, 0.018, 0.03, 6, Color(0.95, 0.95, 0.95))
+		"coffee":
+			m.cylinder(Vector3.ZERO, 0.03, 0.03, 0.12, 10, Color(0.25, 0.15, 0.08))
+			m.cylinder(Vector3(0, 0.12, 0), 0.031, 0.031, 0.006, 10, SILVER)
+		"vitamins":
+			m.cylinder(Vector3.ZERO, 0.025, 0.025, 0.08, 8, Color(0.95, 0.95, 0.9))
+			m.cylinder(Vector3(0, 0.08, 0), 0.027, 0.027, 0.02, 8, Color(0.2, 0.6, 0.3))
+		"frying_pan":
+			m.append(_cyl(0.012, 0.012, 0.2, DARK), Transform3D(_FWD, Vector3(0, 0, 0.05)))
+			m.cylinder(Vector3(0, -0.02, -0.25), 0.13, 0.11, 0.04, 12, Color(0.12, 0.12, 0.13))
+		"golf_club":
+			m.append(_cyl(0.012, 0.007, 0.8, SILVER), Transform3D(_FWD, Vector3(0, 0, 0.1)))
+			m.append(_cyl(0.015, 0.015, 0.2, DARK), Transform3D(_FWD, Vector3(0, 0, 0.1)))
+			_b(m, Vector3(0, -0.03, -0.72), Vector3(0.025, 0.06, 0.1), SILVER.darkened(0.2))
+		"tire_iron":
+			m.append(_cyl(0.011, 0.011, 0.45, DARK), Transform3D(_FWD, Vector3(0, 0, 0.12)))
+			_b(m, Vector3(0, 0.03, -0.33), Vector3(0.02, 0.07, 0.02), DARK)
+		"pipe_wrench":
+			_b(m, Vector3(0, 0, -0.12), Vector3(0.03, 0.03, 0.4), Color(0.7, 0.15, 0.12))
+			_b(m, Vector3(0, 0.03, -0.34), Vector3(0.04, 0.09, 0.07), SILVER.darkened(0.25))
+		"lead_pipe":
+			m.append(_cyl(0.02, 0.02, 0.65, Color(0.42, 0.43, 0.45)), Transform3D(_FWD, Vector3(0, 0, 0.12)))
+		"meat_cleaver":
+			_b(m, Vector3(0, 0, 0.03), Vector3(0.022, 0.028, 0.12), WOOD.darkened(0.3))
+			_b(m, Vector3(0, 0.02, -0.1), Vector3(0.005, 0.09, 0.16), SILVER)
+		"pickaxe":
+			_b(m, Vector3(0, 0, -0.3), Vector3(0.035, 0.035, 0.8), WOOD)
+			_b(m, Vector3(0, 0, -0.68), Vector3(0.45, 0.04, 0.04), Color(0.3, 0.3, 0.32))
+		"wrench":
+			_b(m, Vector3(0, 0.005, 0), Vector3(0.025, 0.01, 0.22), SILVER)
+			_b(m, Vector3(0, 0.005, -0.12), Vector3(0.05, 0.012, 0.04), SILVER)
+		"batteries":
+			for k in 2:
+				m.cylinder(Vector3(-0.012 + k * 0.024, 0, 0), 0.01, 0.01, 0.05, 6, Color(0.85, 0.65, 0.1))
+		"tarp":
+			_b(m, Vector3(0, 0.03, 0), Vector3(0.24, 0.06, 0.18), Color(0.2, 0.35, 0.65))
+		"wire":
+			m.cylinder(Vector3.ZERO, 0.05, 0.05, 0.03, 10, Color(0.75, 0.45, 0.2))
+		"cloth":
+			_b(m, Vector3(0, 0.01, 0), Vector3(0.12, 0.02, 0.1), Color(0.6, 0.55, 0.5))
+		"glue":
+			m.cylinder(Vector3.ZERO, 0.02, 0.02, 0.09, 8, Color(0.95, 0.95, 0.9))
+			m.cylinder(Vector3(0, 0.09, 0), 0.008, 0.003, 0.03, 6, Color(0.9, 0.5, 0.1))
+		"binoculars":
+			for x: float in [-0.035, 0.035]:
+				m.append(_cyl(0.025, 0.025, 0.12, DARK), Transform3D(_FWD, Vector3(x, 0.025, 0.05)))
+		"wallet":
+			_b(m, Vector3(0, 0.008, 0), Vector3(0.1, 0.016, 0.08), Color(0.3, 0.18, 0.1))
+		"watch":
+			m.cylinder(Vector3.ZERO, 0.02, 0.02, 0.01, 10, SILVER)
+			_b(m, Vector3(0, 0.002, 0), Vector3(0.016, 0.004, 0.12), Color(0.2, 0.15, 0.1))
+		"car_keys":
+			m.cylinder(Vector3.ZERO, 0.015, 0.015, 0.004, 8, SILVER)
+			_b(m, Vector3(0, 0.003, -0.04), Vector3(0.025, 0.012, 0.03), DARK)
+			_b(m, Vector3(0, 0.002, -0.075), Vector3(0.008, 0.003, 0.05), SILVER)
 		_:
 			if ItemDB.get_def(id).get("cat", "") == "clothing":
 				_clothing(m, id)

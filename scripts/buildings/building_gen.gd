@@ -212,7 +212,7 @@ func _house(style: String) -> void:
 		BuildingParts.stairs(bd, Vector2(hall.position.x + 0.1, r.position.y + 1.0), 1.0, STOREY)
 	# Some houses still have someone home.
 	var h := absi(("%s_z" % id).hash())
-	if bd.interior and h % 100 < 14:
+	if bd.interior and h % 100 < 35:
 		var rooms: Array = plans[0].rooms
 		var room: Rect2 = rooms[h % rooms.size()]
 		bd.spawns.append({"pos": Vector3(room.get_center().x + 0.4, 0.1, room.get_center().y + 0.4), "id": id + "_z0",

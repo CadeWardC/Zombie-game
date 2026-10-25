@@ -29,6 +29,8 @@ const SIGHT_DAY := 26.0
 const SIGHT_NIGHT := 12.0
 const SIGHT_FLASHLIGHT := 22.0
 const LOS_CHECKS_PER_FRAME := 3
+const MAX_CORPSES := 14 # Bodies left lying around (searchable) at once.
+const CORPSE_KEEP := 5.0 # A body near a player doesn't vanish.
 
 var player: Player
 var gen: WorldGen
@@ -65,6 +67,25 @@ func _ready() -> void:
 
 func active_count() -> int:
 	return _active.size()
+
+
+## Zombies still on their feet (bodies don't count against the caps).
+func live_count() -> int:
+	var n := 0
+	for z in _active:
+		if z.alive():
+			n += 1
+	return n
+
+
+## Searchable bodies within `radius` of `pos`, as containers.
+func corpses_near(pos: Vector3, radius: float) -> Array:
+	var out := []
+	var r2 := radius * radius
+	for z in _active:
+		if z.state == Zombie.State.DEAD and z.visible and z.look_kind != "turned" and z.position.distance_squared_to(pos) < r2:
+			out.append(z.corpse())
+	return out
 
 
 ## Live zombies within `radius` of `pos`.
@@ -116,9 +137,11 @@ func _physics_process(delta: float) -> void:
 
 	if hordes:
 		hordes.update(delta, tgts)
+	if _frame % 30 == 0:
+		_limit_corpses()
 	_spawn_t -= delta
 	if _spawn_t <= 0.0:
-		_spawn_t = 0.7 / tgts.size()
+		_spawn_t = 0.45 / tgts.size()
 		_spawn_cursor = (_spawn_cursor + 1) % tgts.size()
 		_try_spawn((tgts[_spawn_cursor] as Node3D).global_position, night)
 	_special_t -= delta
@@ -140,6 +163,8 @@ func _physics_process(delta: float) -> void:
 				dist = d
 				tgt = t
 		var far: bool = dist > (Hordes.SLEEP if z.horde_id != "" else DESPAWN_DIST)
+		if z.state == Zombie.State.DEAD and z.dead_timer <= 0.0 and z.visible and dist < CORPSE_KEEP:
+			z.dead_timer = 2.0
 		if far or (z.state == Zombie.State.DEAD and z.dead_timer <= 0.0):
 			_recycle(i)
 			i -= 1
@@ -174,15 +199,15 @@ func _physics_process(delta: float) -> void:
 
 func _try_spawn(ppos: Vector3, night: bool) -> void:
 	var in_town := gen.town_weight(ppos.x, ppos.z) > 0.5
-	var wanted := int((8 + (10 if night else 0) + (12 if in_town else 0)) * GameState.difficulty().zombies * (hordes.density(ppos) if hordes else 1.0))
+	var wanted := int((14 + (10 if night else 0) + (18 if in_town else 0)) * GameState.difficulty().zombies * (hordes.density(ppos) if hordes else 1.0))
 	wanted = mini(wanted, max_zombies)
 	# Count the zombies around this player; the overall cap grows a little
 	# with each extra player.
 	var near := 0
 	for z in _active:
-		if z.position.distance_squared_to(ppos) < DESPAWN_DIST * DESPAWN_DIST:
+		if z.alive() and z.position.distance_squared_to(ppos) < DESPAWN_DIST * DESPAWN_DIST:
 			near += 1
-	if near >= wanted or _active.size() >= cap():
+	if near >= wanted or live_count() >= cap():
 		return
 	for attempt in 4:
 		var ang := _rng.randf() * TAU
@@ -196,9 +221,9 @@ func _try_spawn(ppos: Vector3, night: bool) -> void:
 		if traders and traders.in_safe_zone(Vector3(x, 0, z)):
 			continue
 		# Small groups, bigger at night.
-		var group := _rng.randi_range(1, 4 if night else 2)
+		var group := _rng.randi_range(2, 5 if night else 4)
 		for g in group:
-			if _active.size() >= cap():
+			if live_count() >= cap():
 				return
 			var gx := x + _rng.randf_range(-3, 3)
 			var gz := z + _rng.randf_range(-3, 3)
@@ -236,7 +261,7 @@ func cap() -> int:
 ## One zombie of a horde (allowed past the normal cap a little: hordes are
 ## meant to be overwhelming). Null if there's no room at all.
 func spawn_horde_zombie(pos: Vector3) -> Zombie:
-	if _active.size() >= cap() + 25:
+	if live_count() >= cap() + 25:
 		return null
 	return _spawn(pos, pick_type(GameState.is_night(), pos))
 
@@ -251,7 +276,7 @@ func despawn(z: Zombie) -> void:
 ## A zombie shambling in from `dist` metres away, already onto the player
 ## (e.g. finding someone asleep in the open). Host only.
 func spawn_near(pos: Vector3, dist: float) -> void:
-	if not Net.authority() or _active.size() >= cap():
+	if not Net.authority() or live_count() >= cap():
 		return
 	var a := _rng.randf() * TAU
 	var p := pos + Vector3(cos(a), 0, sin(a)) * dist
@@ -287,7 +312,7 @@ func _spawn_interiors(ppos: Vector3, night: bool) -> void:
 	for sp in streamer.spawns_near(ppos, 55.0):
 		if _by_spawn.has(sp.id) or not GameState.spawn_ready(sp.id):
 			continue
-		if _active.size() >= max_zombies + 14:
+		if live_count() >= max_zombies + 14:
 			return
 		var pos: Vector3 = sp.pos
 		if pos.distance_to(ppos) < 10.0:
@@ -342,13 +367,27 @@ func zombie_died(z: Zombie) -> void:
 				drops.drop(z.turned_items[k], z.global_position + Vector3(cos(k * 2.4), 0.4, sin(k * 2.4)) * 0.6)
 		GameState.notify("%s is at rest now" % z.turned_name)
 		z.turned_items = []
-	elif z.type == "soldier" and drops and _rng.randf() < 0.5:
-		drops.drop(Loot.roll_from("military", _rng.randi()), z.global_position + Vector3(0, 0.4, 0))
+
+
+## Too many bodies about: the oldest ones away from everyone go first.
+func _limit_corpses() -> void:
+	var bodies: Array[Zombie] = []
+	for z in _active:
+		if z.state == Zombie.State.DEAD and z.visible:
+			bodies.append(z)
+	if bodies.size() <= MAX_CORPSES:
+		return
+	bodies.sort_custom(func(a: Zombie, b: Zombie) -> bool: return a.dead_timer < b.dead_timer)
+	for k in bodies.size() - MAX_CORPSES:
+		bodies[k].dead_timer = minf(bodies[k].dead_timer, 0.0)
 
 
 func _recycle(index: int) -> void:
 	var z := _active[index]
 	_active.remove_at(index)
+	if z.state == Zombie.State.DEAD:
+		# The body is gone, and whatever was left on it.
+		GameState.containers.erase(z.corpse().id)
 	z.horde_id = ""
 	if _by_net.get(z.net_id) == z:
 		_by_net.erase(z.net_id)

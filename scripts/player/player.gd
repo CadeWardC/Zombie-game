@@ -722,6 +722,8 @@ func _update_focus() -> void:
 		candidates.append_array(streamer.containers_near(from, 2.4))
 	if drops:
 		candidates.append_array(drops.near(global_position, 2.6))
+	if zombies:
+		candidates.append_array(zombies.corpses_near(global_position, 2.4))
 	for c in candidates:
 		var is_container: bool = c.has("pos")
 		var pos: Vector3 = c.pos if is_container else DropManager._pos(c) + Vector3(0, 0.15, 0)
@@ -1014,6 +1016,7 @@ func consume(it: Dictionary) -> bool:
 		msg = "That was a bad idea. Your stomach churns."
 	health = minf(100.0, health + float(d.get("health", 0.0)))
 	stamina = minf(max_stamina(), stamina + float(d.get("stamina", 0.0)))
+	fatigue = maxf(0.0, fatigue - float(d.get("rest", 0.0)))
 	it.n = int(it.get("n", 1)) - 1
 	if int(it.n) <= 0:
 		GameState.inventory.detach(it)

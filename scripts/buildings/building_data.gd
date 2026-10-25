@@ -20,4 +20,7 @@ var containers: Array = []
 var signs: Array = []
 ## Props drawn by the chunk with shared meshes: {type: String, xf: Transform3D}
 var props: Array = []
+## Window openings, so furniture stays out of them: {rect: Rect2 (x, z,
+## either side of the wall), y: float (floor), sill: float (height above it)}
+var window_spots: Array = []
 var interior := true # False for far-away (shell only) buildings.
