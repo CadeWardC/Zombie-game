@@ -852,7 +852,7 @@ From playing the build on a phone:
   window any more: wardrobes, bookshelves, fridges and lockers move to a
   solid stretch of wall, and kitchen counters under a window lose their
   wall cabinets. Beds' headboards sit below the sill.
-- **More to find**: 30 new items (canned tuna, peaches and corn, peanut
+- **More to find**: 29 new items (canned tuna, peaches and corn, peanut
   butter, noodles, cereal, candy, juice, sports drinks, canned coffee
   that wakes you up, vitamins, batteries, wire, glue, tarps, cloth,
   binoculars, wallets, watches, car keys, and frying pans, golf clubs,
