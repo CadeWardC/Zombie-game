@@ -915,6 +915,20 @@ there was nothing between the buildings but mown grass. Now:
   the redesign, are now drawn once into a texture and redrawn only when
   one changes. At Low, ground views with the HUD draw 80–155 calls.
 
+### The zombie model
+
+Ordinary zombies (walkers, runners, crawlers) now use an imported model,
+`assets/models/zombie.glb`: a stylised low-poly zombie in a green jacket
+with colour, normal and roughness textures (about 5,300 vertices). It came
+unrigged, so the game rigs it at startup: it's turned to face the game's
+forward, every vertex gets up to two of the same 17 bones (by body region,
+blended across the joints), and the bind pose matches its A-pose, so all
+the existing animations (shamble, run, attack, hit, death, crawl) drive it
+unchanged. Each zombie gets one of four slight tints. Brutes, screamers,
+soldiers, scientists and turned players keep their procedural looks, so
+special zombies still stand out. This is the first asset that isn't made
+in code.
+
 ## 27. Open questions
 
 - Which free relay service to use for internet join codes.

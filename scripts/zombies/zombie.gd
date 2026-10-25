@@ -129,7 +129,16 @@ func reset(pos: Vector3, p_type: String, p_variant: int, speed_mul: float, mesh:
 	rotation = Vector3(0, randf() * TAU, 0)
 	velocity = Vector3.ZERO
 	var looks: Array = ZombieModel.type_meshes.get(type, ZombieModel.meshes)
-	_body.mesh = mesh if mesh else looks[variant % looks.size()]
+	# Ordinary zombies wear the imported model; special types and turned
+	# players keep their own looks.
+	var glb := mesh == null and ZombieModel.glb_mesh != null and type in ["walker", "runner", "crawler"]
+	ZombieModel.use_glb(_model, glb)
+	if glb:
+		_body.mesh = ZombieModel.glb_mesh
+		_body.material_override = ZombieModel.glb_materials[variant % ZombieModel.glb_materials.size()]
+	else:
+		_body.mesh = mesh if mesh else looks[variant % looks.size()]
+		_body.material_override = null
 	var sc: float = t().get("scale", 1.0)
 	_model.scale = Vector3.ONE * sc
 	match type:

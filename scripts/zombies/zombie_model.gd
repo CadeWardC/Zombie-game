@@ -40,6 +40,25 @@ const OUTFITS := [
 const SKINS := [Color(0.5, 0.56, 0.45), Color(0.45, 0.45, 0.38), Color(0.58, 0.55, 0.47), Color(0.38, 0.35, 0.3)]
 const HAIR := [Color(0.1, 0.08, 0.06), Color(0.3, 0.2, 0.12), Color(0.55, 0.5, 0.42), Color(0.2, 0.2, 0.2)]
 
+## The imported zombie model (assets/models/zombie.glb): a textured,
+## unrigged mesh in an A-pose, rigged here at startup to the same 17 bones so
+## every animation drives it. Joint positions measured from the mesh, in the
+## game's model space (facing -Z, left = +X).
+const GLB_PATH := "res://assets/models/zombie.glb"
+const GLB_BONES := {
+	"hips": Vector3(0, 0.78, 0.03), "spine": Vector3(0, 0.92, 0.03), "chest": Vector3(0, 1.1, 0.03),
+	"neck": Vector3(0, 1.36, 0.0), "head": Vector3(0, 1.45, -0.02),
+	"upper_arm.L": Vector3(0.27, 1.25, 0.1), "forearm.L": Vector3(0.5, 1.14, 0.09), "hand.L": Vector3(0.67, 1.07, 0.0),
+	"thigh.L": Vector3(0.14, 0.76, 0.02), "shin.L": Vector3(0.15, 0.46, -0.02), "foot.L": Vector3(0.15, 0.13, 0.02),
+}
+## Gentle tints so a crowd of the same model doesn't look cloned.
+const GLB_TINTS := [Color(1, 1, 1), Color(0.86, 0.94, 0.86), Color(0.95, 0.88, 0.85), Color(0.82, 0.84, 0.9)]
+
+static var glb_mesh: ArrayMesh
+static var glb_skin: Skin
+static var glb_library: AnimationLibrary
+static var glb_materials: Array[Material] = []
+static var _hip_dy := 0.0 # Added to hips position keys (skeletons of other heights).
 static var skin: Skin
 static var meshes: Array[ArrayMesh] = [] # Ordinary walkers, one per outfit.
 static var type_meshes := {} # Zombie type -> Array[ArrayMesh].
@@ -99,6 +118,7 @@ static func build_assets() -> void:
 		scientists.append(_build_mesh(l, rng))
 	type_meshes.scientist = scientists
 	library = _build_animations()
+	_build_glb()
 
 
 static func outfit_look(k: int, rng: RandomNumberGenerator) -> Dictionary:
@@ -354,6 +374,185 @@ static func _build_mesh(l: Dictionary, rng: RandomNumberGenerator) -> ArrayMesh:
 	return mesh
 
 
+# --- Imported model -------------------------------------------------------------------
+
+## Global rest position of a bone on the imported model (mirrored for .R).
+static func _glb_joint(bone: String) -> Vector3:
+	if GLB_BONES.has(bone):
+		return GLB_BONES[bone]
+	var p: Vector3 = GLB_BONES[bone.replace(".R", ".L")]
+	return Vector3(-p.x, p.y, p.z)
+
+
+## Rigs the imported mesh: turns it to face -Z, gives every vertex up to two
+## bone weights (blended across the joints), and sets the bind pose to its
+## A-pose so the arms hang right under the shared animations.
+static func _build_glb() -> void:
+	if not ResourceLoader.exists(GLB_PATH):
+		return
+	var scene: PackedScene = load(GLB_PATH)
+	var root := scene.instantiate()
+	var src: MeshInstance3D = root.find_children("*", "MeshInstance3D", true, false)[0] if not root is MeshInstance3D else root
+	var arrays := src.mesh.surface_get_arrays(0)
+	var mat: Material = src.get_active_material(0)
+	var node_xf: Transform3D = src.transform
+	root.free()
+	var turn := Basis(Vector3.UP, PI)
+	var verts: PackedVector3Array = arrays[Mesh.ARRAY_VERTEX]
+	var normals: PackedVector3Array = arrays[Mesh.ARRAY_NORMAL]
+	var tangents: PackedFloat32Array = arrays[Mesh.ARRAY_TANGENT] if arrays[Mesh.ARRAY_TANGENT] != null else PackedFloat32Array()
+	var bones := PackedInt32Array()
+	var weights := PackedFloat32Array()
+	bones.resize(verts.size() * 4)
+	weights.resize(verts.size() * 4)
+	var idx := {}
+	for i in BONES.size():
+		idx[BONES[i][0]] = i
+	for i in verts.size():
+		var v := turn * (node_xf * verts[i])
+		verts[i] = v
+		normals[i] = (turn * (node_xf.basis * normals[i])).normalized()
+		if tangents.size() >= (i + 1) * 4:
+			var tv := turn * (node_xf.basis * Vector3(tangents[i * 4], tangents[i * 4 + 1], tangents[i * 4 + 2]))
+			tangents[i * 4] = tv.x
+			tangents[i * 4 + 1] = tv.y
+			tangents[i * 4 + 2] = tv.z
+		var w := _glb_weights(v)
+		var k := 0
+		for b in w:
+			bones[i * 4 + k] = idx[b]
+			weights[i * 4 + k] = w[b]
+			k += 1
+	arrays[Mesh.ARRAY_VERTEX] = verts
+	arrays[Mesh.ARRAY_NORMAL] = normals
+	if not tangents.is_empty():
+		arrays[Mesh.ARRAY_TANGENT] = tangents
+	arrays[Mesh.ARRAY_BONES] = bones
+	arrays[Mesh.ARRAY_WEIGHTS] = weights
+	glb_mesh = ArrayMesh.new()
+	glb_mesh.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, arrays)
+	glb_mesh.surface_set_material(0, mat)
+	for tint: Color in GLB_TINTS:
+		var m: BaseMaterial3D = mat.duplicate()
+		m.albedo_color = tint
+		glb_materials.append(m)
+	# Bind pose: each bone at its joint; the arm bones turned so their
+	# "down" points along the arm as modelled.
+	glb_skin = Skin.new()
+	for i in BONES.size():
+		var bone: String = BONES[i][0]
+		glb_skin.add_named_bind(bone, Transform3D(_glb_basis(bone), _glb_joint(bone)).affine_inverse())
+	_hip_dy = _glb_joint("hips").y - (BONES[0][2] as Vector3).y
+	glb_library = _build_animations()
+	_hip_dy = 0.0
+
+
+## How an arm bone is turned in the imported model's A-pose: its "down"
+## points along the arm. Other bones stand straight.
+static func _glb_basis(bone: String) -> Basis:
+	for part: String in ["upper_arm", "forearm", "hand"]:
+		if bone.begins_with(part + "."):
+			var side := bone.get_slice(".", 1)
+			var a := _glb_joint(("forearm." if part == "hand" else part + ".") + side)
+			var b := _glb_joint(("forearm." if part == "upper_arm" else "hand.") + side)
+			return Basis(Quaternion(Vector3.DOWN, (b - a).normalized()))
+	return Basis.IDENTITY
+
+
+## Up to two bones and their weights for a vertex of the imported model,
+## by body region, blending smoothly across each joint.
+static func _glb_weights(v: Vector3) -> Dictionary:
+	var side := "L" if v.x >= 0.0 else "R"
+	var ax := absf(v.x)
+	var J := func(b: String) -> Vector3: return _glb_joint(b + "." + side) if b in ["upper_arm", "forearm", "hand", "thigh", "shin", "foot"] else _glb_joint(b)
+	var blend := func(a: String, b: String, t: float) -> Dictionary:
+		t = clampf(t, 0.0, 1.0)
+		if t <= 0.0:
+			return {a: 1.0}
+		if t >= 1.0:
+			return {b: 1.0}
+		return {a: 1.0 - t, b: t}
+	var arm_x: float = (J.call("upper_arm") as Vector3).x * (1.0 if side == "L" else -1.0)
+	var elbow_x: float = absf((J.call("forearm") as Vector3).x)
+	var wrist_x: float = absf((J.call("hand") as Vector3).x)
+	var hips_y: float = (J.call("hips") as Vector3).y
+	# Arms: out past the shoulder, above the jacket hem.
+	if (v.y > 0.98 and ax > arm_x - 0.04) or (ax > 0.42 and v.y > 0.75):
+		var up := "upper_arm." + side
+		var fo := "forearm." + side
+		var ha := "hand." + side
+		if ax < arm_x + 0.05:
+			return blend.call("chest", up, (ax - (arm_x - 0.04)) / 0.09)
+		if ax < elbow_x - 0.04:
+			return {up: 1.0}
+		if ax < elbow_x + 0.04:
+			return blend.call(up, fo, (ax - (elbow_x - 0.04)) / 0.08)
+		if ax < wrist_x - 0.03:
+			return {fo: 1.0}
+		return blend.call(fo, ha, (ax - (wrist_x - 0.03)) / 0.06)
+	# Legs: below the hips.
+	if v.y < hips_y - 0.02:
+		var th := "thigh." + side
+		var sh := "shin." + side
+		var ft := "foot." + side
+		var knee: float = (J.call("shin") as Vector3).y
+		var ankle: float = (J.call("foot") as Vector3).y
+		if v.y > hips_y - 0.1:
+			return blend.call("hips", th, ((hips_y - 0.02) - v.y) / 0.08)
+		if v.y > knee + 0.05:
+			return {th: 1.0}
+		if v.y > knee - 0.05:
+			return blend.call(th, sh, ((knee + 0.05) - v.y) / 0.1)
+		if v.y > ankle + 0.04:
+			return {sh: 1.0}
+		return blend.call(sh, ft, ((ankle + 0.04) - v.y) / 0.08)
+	# Body and head, bottom to top.
+	var spine_y: float = (J.call("spine") as Vector3).y
+	var chest_y: float = (J.call("chest") as Vector3).y
+	var neck_y: float = (J.call("neck") as Vector3).y
+	var head_y: float = (J.call("head") as Vector3).y
+	if v.y < spine_y - 0.04:
+		return {"hips": 1.0}
+	if v.y < spine_y + 0.04:
+		return blend.call("hips", "spine", (v.y - (spine_y - 0.04)) / 0.08)
+	if v.y < chest_y - 0.04:
+		return {"spine": 1.0}
+	if v.y < chest_y + 0.04:
+		return blend.call("spine", "chest", (v.y - (chest_y - 0.04)) / 0.08)
+	if v.y < neck_y - 0.03:
+		return {"chest": 1.0}
+	if v.y < neck_y + 0.03:
+		return blend.call("chest", "neck", (v.y - (neck_y - 0.03)) / 0.06)
+	if v.y < head_y - 0.02:
+		return {"neck": 1.0}
+	return blend.call("neck", "head", (v.y - (head_y - 0.02)) / 0.06)
+
+
+## Switches a body (from instantiate) between the procedural rig and the
+## imported model's: bone rests, skin and the animation set. Cheap when
+## nothing changes (pooled zombies change type now and then).
+static func use_glb(model: Node3D, on: bool) -> void:
+	if bool(model.get_meta("glb", false)) == on:
+		return
+	model.set_meta("glb", on)
+	var skel: Skeleton3D = model.get_node("Skeleton3D")
+	for i in BONES.size():
+		var parent: int = BONES[i][1]
+		var pos: Vector3 = _glb_joint(BONES[i][0]) if on else BONES[i][2]
+		var ppos: Vector3 = (_glb_joint(BONES[parent][0]) if on else BONES[parent][2]) if parent >= 0 else Vector3.ZERO
+		var local := pos - ppos
+		if on and parent >= 0:
+			# Children of a turned arm bone sit along its (turned) length.
+			local = _glb_basis(BONES[parent][0]).inverse() * local
+		skel.set_bone_rest(i, Transform3D(Basis.IDENTITY, local))
+		skel.set_bone_pose_position(i, local)
+	var body: MeshInstance3D = skel.get_node("Body")
+	body.skin = glb_skin if on else skin
+	var ap: AnimationPlayer = model.get_node("AnimationPlayer")
+	ap.remove_animation_library("")
+	ap.add_animation_library("", glb_library if on else library)
+
+
 # --- Animations ------------------------------------------------------------------
 
 ## Keyframes: bone -> [[time, Vector3 euler degrees], ...]. Positive X swings
@@ -374,7 +573,7 @@ static func _anim(length: float, loop: bool, keys: Dictionary, hips_pos: Array =
 		var t := a.add_track(Animation.TYPE_POSITION_3D)
 		a.track_set_path(t, NodePath("Skeleton3D:hips"))
 		for k in hips_pos:
-			a.position_track_insert_key(t, k[0], k[1])
+			a.position_track_insert_key(t, k[0], (k[1] as Vector3) + Vector3(0, _hip_dy, 0))
 	return a
 
 

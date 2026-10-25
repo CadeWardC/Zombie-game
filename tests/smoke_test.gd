@@ -980,6 +980,15 @@ func _test_survival(player: Player, zombies: ZombieManager, gen: WorldGen, arena
 
 
 func _test_polish(player: Player, zombies: ZombieManager, gen: WorldGen) -> void:
+	print("Imported zombie model")
+	_check(ZombieModel.glb_mesh != null and ZombieModel.glb_mesh.get_surface_count() == 1, "the zombie model is loaded and rigged")
+	await _reset_arena(player, zombies)
+	var walker := _spawn_zombie(Vector3(0, 0, -6))
+	_check(walker._body.mesh == ZombieModel.glb_mesh and walker._body.skin == ZombieModel.glb_skin, "walkers wear it")
+	zombies._spawn(walker.position + Vector3(2, 0, 0), "brute")
+	var brute: Zombie = zombies._active[-1]
+	_check(brute._body.mesh != ZombieModel.glb_mesh and brute._body.skin == ZombieModel.skin, "brutes keep their own look")
+
 	print("Searching bodies")
 	await _reset_arena(player, zombies)
 	var dead := _spawn_zombie(Vector3(0, 0, -1.5))
