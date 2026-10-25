@@ -844,7 +844,48 @@ Simplified or moved:
 - **Performance on the real Tab S6 Lite** hasn't been measured (no device
   here); the numbers above are from a desktop at the Low preset.
 
-## 26. Open questions
+## 26. After stage 7: playtest fixes and a new look
+
+From playing the build on a phone:
+- **Houses**: doorways are wider (outside doors 1.15 m, inside doors 1.1 m;
+  the player is 0.7 m across), and nothing tall stands in front of a
+  window any more: wardrobes, bookshelves, fridges and lockers move to a
+  solid stretch of wall, and kitchen counters under a window lose their
+  wall cabinets. Beds' headboards sit below the sill.
+- **More to find**: 30 new items (canned tuna, peaches and corn, peanut
+  butter, noodles, cereal, candy, juice, sports drinks, canned coffee
+  that wakes you up, vitamins, batteries, wire, glue, tarps, cloth,
+  binoculars, wallets, watches, car keys, and frying pans, golf clubs,
+  tire irons, pipe wrenches, lead pipes, meat cleavers and pickaxes to
+  fight with). Most containers now hold something (about 1 in 5 has been
+  picked clean, down from more than half), with more rolls each.
+- **More zombies**: about 75% more around you (more in towns and at
+  night), in bigger groups, and a third of houses have someone still
+  inside. Caps per preset: 22 / 36 / 55.
+- **Searching bodies**: a killed zombie lies where it fell for a couple
+  of minutes (longer while you're next to it) and can be searched like a
+  container: wallets, keys, cigarettes, lighters, bandages, snacks, now
+  and then a knife or a pistol. Soldiers carry military gear, scientists
+  lab supplies. Bodies don't count against the zombie cap; at most 14 lie
+  around at once.
+- **New look** for every screen, all drawn in code:
+  - A shared theme (dark panels, rust-red accent, bold spaced headings)
+    applied to Godot's default theme at startup, so every menu matches.
+  - Vector icons (heart, food, water, stamina, bleeding, bones, infection,
+    weather, and one for every touch button).
+  - HUD: a vitals card with icons and bars that pulse red when low,
+    warnings as coloured chips, a clock and weather pill, a weapon card
+    with the item's picture, prompts in a pill under the crosshair.
+  - Touch buttons: dark discs with icons and short captions, item counts
+    as badges; pause moved to the corner.
+  - Main menu over a drawn backdrop (a dead town at dusk with fog);
+    character creator with a lit, turning preview, background details as
+    tags, strengths and weaknesses grouped; pause menu as a side panel;
+    inventory columns as panels with headings and slot silhouettes;
+    crafting rows with the item's picture and what's missing in red;
+    styled death and loading screens.
+
+## 27. Open questions
 
 - Which free relay service to use for internet join codes.
 - Exact asset packs (checked for license and Tab S6 Lite performance).
